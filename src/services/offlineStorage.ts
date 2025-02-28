@@ -1,25 +1,27 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 
 // Storage keys
 const STORAGE_KEYS = {
   BUDGETS: 'buzo_budgets',
   EXPENSES: 'buzo_expenses',
-  SAVINGS_GOALS: 'buzo_savings_goals',
+  SAVINGS: 'buzo_savings_goals',
+  TRANSACTIONS: 'buzo_transactions',
   PENDING_SYNC: 'buzo_pending_sync',
-  USER_PROFILE: 'buzo_user_profile',
+  LAST_SYNC: 'buzo_last_sync',
 };
 
-// Interface for pending sync items
-interface PendingSyncItem {
+// Types
+export interface PendingSyncItem {
   id: string;
-  type: 'budget' | 'expense' | 'savings' | 'profile';
-  action: 'create' | 'update' | 'delete';
+  type: 'create' | 'update' | 'delete';
+  entity: 'budget' | 'expense' | 'savings' | 'transaction';
   data: any;
   timestamp: number;
 }
 
 /**
- * Save data to local storage
+ * Save data to offline storage
  * @param key Storage key
  * @param data Data to store
  */
@@ -28,54 +30,73 @@ export const saveData = async <T>(key: string, data: T): Promise<void> => {
     const jsonValue = JSON.stringify(data);
     await AsyncStorage.setItem(key, jsonValue);
   } catch (error) {
-    console.error('Error saving data to storage:', error);
+    console.error(`Error saving data to ${key}:`, error);
     throw error;
   }
 };
 
 /**
- * Load data from local storage
+ * Load data from offline storage
  * @param key Storage key
- * @returns The stored data or null if not found
+ * @returns Stored data or null if not found
  */
 export const loadData = async <T>(key: string): Promise<T | null> => {
   try {
     const jsonValue = await AsyncStorage.getItem(key);
-    return jsonValue != null ? JSON.parse(jsonValue) as T : null;
+    return jsonValue != null ? JSON.parse(jsonValue) : null;
   } catch (error) {
-    console.error('Error loading data from storage:', error);
+    console.error(`Error loading data from ${key}:`, error);
     throw error;
   }
 };
 
 /**
- * Remove data from local storage
+ * Remove data from offline storage
  * @param key Storage key
  */
 export const removeData = async (key: string): Promise<void> => {
   try {
     await AsyncStorage.removeItem(key);
   } catch (error) {
-    console.error('Error removing data from storage:', error);
+    console.error(`Error removing data from ${key}:`, error);
     throw error;
   }
 };
 
 /**
+ * Check if the device is online
+ * @returns Promise that resolves to a boolean indicating if the device is online
+ */
+export const isOnline = async (): Promise<boolean> => {
+  try {
+    const netInfo = await NetInfo.fetch();
+    return netInfo.isConnected === true && netInfo.isInternetReachable === true;
+  } catch (error) {
+    console.error('Error checking network status:', error);
+    // Fallback: assume online if we can't check
+    return true;
+  }
+};
+
+/**
  * Add an item to the pending sync queue
- * @param item The item to add to the sync queue
+ * @param item Item to add to the sync queue
  */
 export const addToPendingSync = async (item: Omit<PendingSyncItem, 'timestamp'>): Promise<void> => {
   try {
+    // Load existing pending sync items
     const pendingSync = await loadData<PendingSyncItem[]>(STORAGE_KEYS.PENDING_SYNC) || [];
+    
+    // Add new item with timestamp
     const newItem: PendingSyncItem = {
       ...item,
       timestamp: Date.now(),
     };
-    pendingSync.push(newItem);
-    await saveData(STORAGE_KEYS.PENDING_SYNC, pendingSync);
+    
+    // Save updated pending sync items
+    await saveData(STORAGE_KEYS.PENDING_SYNC, [...pendingSync, newItem]);
   } catch (error) {
-    console.error('Error adding to pending sync:', error);
+    console.error('Error adding item to pending sync:', error);
     throw error;
   }
 };
@@ -84,7 +105,7 @@ export const addToPendingSync = async (item: Omit<PendingSyncItem, 'timestamp'>)
  * Get all pending sync items
  * @returns Array of pending sync items
  */
-export const getPendingSyncItems = async (): Promise<PendingSyncItem[]> => {
+export const getPendingSync = async (): Promise<PendingSyncItem[]> => {
   try {
     return await loadData<PendingSyncItem[]>(STORAGE_KEYS.PENDING_SYNC) || [];
   } catch (error) {
@@ -99,78 +120,132 @@ export const getPendingSyncItems = async (): Promise<PendingSyncItem[]> => {
  */
 export const removeFromPendingSync = async (ids: string[]): Promise<void> => {
   try {
+    // Load existing pending sync items
     const pendingSync = await loadData<PendingSyncItem[]>(STORAGE_KEYS.PENDING_SYNC) || [];
-    const filtered = pendingSync.filter((item: PendingSyncItem) => !ids.includes(item.id));
-    await saveData(STORAGE_KEYS.PENDING_SYNC, filtered);
+    
+    // Filter out items with matching IDs
+    const updatedPendingSync = pendingSync.filter(item => !ids.includes(item.id));
+    
+    // Save updated pending sync items
+    await saveData(STORAGE_KEYS.PENDING_SYNC, updatedPendingSync);
   } catch (error) {
-    console.error('Error removing from pending sync:', error);
+    console.error('Error removing items from pending sync:', error);
     throw error;
   }
 };
 
 /**
- * Save budget data locally
- * @param budgets Budget data to save
+ * Clear all pending sync items
  */
-export const saveBudgets = async <T>(budgets: T[]): Promise<void> => {
-  await saveData<T[]>(STORAGE_KEYS.BUDGETS, budgets);
+export const clearPendingSync = async (): Promise<void> => {
+  try {
+    await removeData(STORAGE_KEYS.PENDING_SYNC);
+  } catch (error) {
+    console.error('Error clearing pending sync items:', error);
+    throw error;
+  }
 };
 
 /**
- * Load budget data from local storage
- * @returns Budget data
+ * Update the last sync timestamp
  */
-export const loadBudgets = async <T>(): Promise<T[]> => {
-  return await loadData<T[]>(STORAGE_KEYS.BUDGETS) || [];
+export const updateLastSync = async (): Promise<void> => {
+  try {
+    await saveData(STORAGE_KEYS.LAST_SYNC, Date.now());
+  } catch (error) {
+    console.error('Error updating last sync timestamp:', error);
+    throw error;
+  }
 };
 
 /**
- * Save expense data locally
- * @param expenses Expense data to save
+ * Get the last sync timestamp
+ * @returns Last sync timestamp or null if never synced
  */
-export const saveExpenses = async <T>(expenses: T[]): Promise<void> => {
-  await saveData<T[]>(STORAGE_KEYS.EXPENSES, expenses);
+export const getLastSync = async (): Promise<number | null> => {
+  try {
+    return await loadData<number>(STORAGE_KEYS.LAST_SYNC);
+  } catch (error) {
+    console.error('Error getting last sync timestamp:', error);
+    throw error;
+  }
+};
+
+// Budget-specific functions
+export const saveBudgets = async (budgets: any[]): Promise<void> => {
+  await saveData(STORAGE_KEYS.BUDGETS, budgets);
+};
+
+export const loadBudgets = async (): Promise<any[]> => {
+  return await loadData<any[]>(STORAGE_KEYS.BUDGETS) || [];
+};
+
+// Expense-specific functions
+export const saveExpenses = async (expenses: any[]): Promise<void> => {
+  await saveData(STORAGE_KEYS.EXPENSES, expenses);
+};
+
+export const loadExpenses = async (): Promise<any[]> => {
+  return await loadData<any[]>(STORAGE_KEYS.EXPENSES) || [];
+};
+
+// Savings-specific functions
+export const saveSavingsGoals = async (savingsGoals: any[]): Promise<void> => {
+  await saveData(STORAGE_KEYS.SAVINGS, savingsGoals);
+};
+
+export const loadSavingsGoals = async (): Promise<any[]> => {
+  return await loadData<any[]>(STORAGE_KEYS.SAVINGS) || [];
+};
+
+// Transaction-specific functions
+export const saveTransactions = async (transactions: any[]): Promise<void> => {
+  await saveData(STORAGE_KEYS.TRANSACTIONS, transactions);
+};
+
+export const loadTransactions = async (): Promise<any[]> => {
+  return await loadData<any[]>(STORAGE_KEYS.TRANSACTIONS) || [];
 };
 
 /**
- * Load expense data from local storage
- * @returns Expense data
+ * Set up a network change listener to trigger sync when coming back online
+ * @param syncCallback Function to call when the device comes back online
+ * @returns Unsubscribe function
  */
-export const loadExpenses = async <T>(): Promise<T[]> => {
-  return await loadData<T[]>(STORAGE_KEYS.EXPENSES) || [];
+export const setupNetworkListener = (syncCallback: () => void): (() => void) => {
+  try {
+    return NetInfo.addEventListener(state => {
+      if (state.isConnected && state.isInternetReachable) {
+        // Device is online, trigger sync
+        syncCallback();
+      }
+    });
+  } catch (error) {
+    console.error('Error setting up network listener:', error);
+    // Return a no-op function if we can't set up the listener
+    return () => {};
+  }
 };
 
-/**
- * Save savings goals data locally
- * @param goals Savings goals data to save
- */
-export const saveSavingsGoals = async <T>(goals: T[]): Promise<void> => {
-  await saveData<T[]>(STORAGE_KEYS.SAVINGS_GOALS, goals);
-};
-
-/**
- * Load savings goals data from local storage
- * @returns Savings goals data
- */
-export const loadSavingsGoals = async <T>(): Promise<T[]> => {
-  return await loadData<T[]>(STORAGE_KEYS.SAVINGS_GOALS) || [];
-};
-
-/**
- * Save user profile data locally
- * @param profile User profile data to save
- */
-export const saveUserProfile = async <T>(profile: T): Promise<void> => {
-  await saveData<T>(STORAGE_KEYS.USER_PROFILE, profile);
-};
-
-/**
- * Load user profile data from local storage
- * @returns User profile data
- */
-export const loadUserProfile = async <T>(): Promise<T | null> => {
-  return await loadData<T>(STORAGE_KEYS.USER_PROFILE);
-};
-
-// Export storage keys for use in other modules
-export { STORAGE_KEYS }; 
+export default {
+  STORAGE_KEYS,
+  saveData,
+  loadData,
+  removeData,
+  isOnline,
+  addToPendingSync,
+  getPendingSync,
+  removeFromPendingSync,
+  clearPendingSync,
+  updateLastSync,
+  getLastSync,
+  saveBudgets,
+  loadBudgets,
+  saveExpenses,
+  loadExpenses,
+  saveSavingsGoals,
+  loadSavingsGoals,
+  saveTransactions,
+  loadTransactions,
+  setupNetworkListener,
+}; 

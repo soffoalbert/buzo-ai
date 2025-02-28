@@ -23,6 +23,8 @@ import EditProfileScreen from '../screens/EditProfileScreen';
 import LoadingScreen from '../components/LoadingScreen';
 import AIAdvisorScreen from '../screens/AIAdvisorScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import NotificationScreen from '../screens/NotificationScreen';
+import OfflineTestScreen from '../screens/OfflineTestScreen';
 
 // Import theme
 import { colors } from '../utils/theme';
@@ -58,6 +60,8 @@ export type RootStackParamList = {
   ExpenseScreen: { receiptData?: any };
   AIAdvisor: undefined;
   Settings: undefined;
+  Notifications: undefined;
+  OfflineTest: undefined;
 };
 
 // Create navigation stacks
@@ -190,6 +194,8 @@ export const RootNavigator: React.FC = () => {
       <RootStack.Screen name="ExpenseScreen" component={ExpenseScreen} />
       <RootStack.Screen name="AIAdvisor" component={AIAdvisorScreen} />
       <RootStack.Screen name="Settings" component={SettingsScreen} />
+      <RootStack.Screen name="Notifications" component={NotificationScreen} />
+      <RootStack.Screen name="OfflineTest" component={OfflineTestScreen} />
     </RootStack.Navigator>
   );
 };

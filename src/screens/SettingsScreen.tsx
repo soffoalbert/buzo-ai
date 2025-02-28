@@ -14,6 +14,7 @@ import {
   Image,
   Vibration,
   BackHandler,
+  TextStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -34,32 +35,56 @@ import Button from '../components/Button';
 
 type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+// Define the Theme type
+type Theme = 'light' | 'dark' | 'system';
+
+// Define the type for font weights
+type FontWeight = TextStyle['fontWeight'];
+
 // Define the type for user preferences
 type UserPreferences = {
-  notificationsEnabled: boolean;
-  darkModeEnabled: boolean;
-  biometricsEnabled: boolean;
-  budgetAlerts: boolean;
-  savingsReminders: boolean;
-  financialTips: boolean;
-  dataUsage: 'low' | 'medium' | 'high';
-  subscriptionTier: 'free' | 'premium';
-  language: string;
   currency: string;
+  language: string;
+  theme: Theme;
+  notifications: {
+    budgetAlerts: boolean;
+    expenseReminders: boolean;
+    savingsMilestones: boolean;
+    financialTips: boolean;
+    friendActivity: boolean;
+  };
+  privacySettings: {
+    shareFinancialGoals: boolean;
+    shareAchievements: boolean;
+    allowFriendRequests: boolean;
+  };
+  securitySettings: {
+    biometricAuth: boolean;
+    twoFactorAuth: boolean;
+  };
 };
 
 // Default preferences
 const DEFAULT_PREFERENCES: UserPreferences = {
-  notificationsEnabled: true,
-  darkModeEnabled: false,
-  biometricsEnabled: false,
-  budgetAlerts: true,
-  savingsReminders: true,
-  financialTips: true,
-  dataUsage: 'medium',
-  subscriptionTier: 'free',
-  language: 'English',
   currency: 'ZAR',
+  language: 'en',
+  theme: 'light',
+  notifications: {
+    budgetAlerts: true,
+    expenseReminders: true,
+    savingsMilestones: true,
+    financialTips: true,
+    friendActivity: true,
+  },
+  privacySettings: {
+    shareFinancialGoals: false,
+    shareAchievements: true,
+    allowFriendRequests: true,
+  },
+  securitySettings: {
+    biometricAuth: false,
+    twoFactorAuth: false,
+  },
 };
 
 const SettingsScreen: React.FC = () => {
@@ -180,7 +205,17 @@ const SettingsScreen: React.FC = () => {
       }
     }
     
-    const newPreferences = { ...preferences, notificationsEnabled: value };
+    const newPreferences = {
+      ...preferences,
+      notifications: {
+        ...preferences.notifications,
+        budgetAlerts: value,
+        expenseReminders: value,
+        savingsMilestones: value,
+        financialTips: value,
+        friendActivity: value
+      }
+    };
     setPreferences(newPreferences);
     savePreferences(newPreferences);
   };
@@ -188,10 +223,12 @@ const SettingsScreen: React.FC = () => {
   // Toggle dark mode
   const handleToggleDarkMode = (value: boolean) => {
     triggerHaptic();
-    const newPreferences = { ...preferences, darkModeEnabled: value };
+    const newPreferences = { 
+      ...preferences, 
+      theme: value ? ('dark' as Theme) : ('light' as Theme)
+    };
     setPreferences(newPreferences);
     savePreferences(newPreferences);
-    // In a real app, you would apply the theme change here
   };
   
   // Toggle biometric authentication
@@ -229,7 +266,13 @@ const SettingsScreen: React.FC = () => {
       }
     }
     
-    const newPreferences = { ...preferences, biometricsEnabled: value };
+    const newPreferences = {
+      ...preferences,
+      securitySettings: {
+        ...preferences.securitySettings,
+        biometricAuth: value
+      }
+    };
     setPreferences(newPreferences);
     savePreferences(newPreferences);
   };
@@ -237,7 +280,13 @@ const SettingsScreen: React.FC = () => {
   // Toggle budget alerts
   const handleToggleBudgetAlerts = (value: boolean) => {
     triggerHaptic();
-    const newPreferences = { ...preferences, budgetAlerts: value };
+    const newPreferences = {
+      ...preferences,
+      notifications: {
+        ...preferences.notifications,
+        budgetAlerts: value
+      }
+    };
     setPreferences(newPreferences);
     savePreferences(newPreferences);
   };
@@ -245,7 +294,13 @@ const SettingsScreen: React.FC = () => {
   // Toggle savings reminders
   const handleToggleSavingsReminders = (value: boolean) => {
     triggerHaptic();
-    const newPreferences = { ...preferences, savingsReminders: value };
+    const newPreferences = {
+      ...preferences,
+      notifications: {
+        ...preferences.notifications,
+        savingsMilestones: value
+      }
+    };
     setPreferences(newPreferences);
     savePreferences(newPreferences);
   };
@@ -253,7 +308,13 @@ const SettingsScreen: React.FC = () => {
   // Toggle financial tips
   const handleToggleFinancialTips = (value: boolean) => {
     triggerHaptic();
-    const newPreferences = { ...preferences, financialTips: value };
+    const newPreferences = {
+      ...preferences,
+      notifications: {
+        ...preferences.notifications,
+        financialTips: value
+      }
+    };
     setPreferences(newPreferences);
     savePreferences(newPreferences);
   };
@@ -293,22 +354,22 @@ const SettingsScreen: React.FC = () => {
       'Choose your preferred language',
       [
         { text: 'English', onPress: () => {
-          const newPreferences = { ...preferences, language: 'English' };
+          const newPreferences = { ...preferences, language: 'en' };
           setPreferences(newPreferences);
           savePreferences(newPreferences);
         }},
         { text: 'Zulu', onPress: () => {
-          const newPreferences = { ...preferences, language: 'Zulu' };
+          const newPreferences = { ...preferences, language: 'zu' };
           setPreferences(newPreferences);
           savePreferences(newPreferences);
         }},
         { text: 'Xhosa', onPress: () => {
-          const newPreferences = { ...preferences, language: 'Xhosa' };
+          const newPreferences = { ...preferences, language: 'xh' };
           setPreferences(newPreferences);
           savePreferences(newPreferences);
         }},
         { text: 'Afrikaans', onPress: () => {
-          const newPreferences = { ...preferences, language: 'Afrikaans' };
+          const newPreferences = { ...preferences, language: 'af' };
           setPreferences(newPreferences);
           savePreferences(newPreferences);
         }},
@@ -459,17 +520,17 @@ const SettingsScreen: React.FC = () => {
   // Render a radio option for data usage
   const renderDataUsageOption = (
     label: string, 
-    value: 'low' | 'medium' | 'high', 
+    value: string,
     description: string
   ) => (
     <TouchableOpacity 
       style={styles.dataUsageOption} 
-      onPress={() => handleDataUsageChange(value)}
+      onPress={() => {}} // No-op since we removed data usage
       activeOpacity={0.7}
     >
       <View style={styles.radioContainer}>
         <View style={styles.radioOuter}>
-          {preferences.dataUsage === value && <View style={styles.radioInner} />}
+          <View style={styles.radioInner} />
         </View>
       </View>
       <View style={styles.dataUsageContent}>
@@ -483,32 +544,21 @@ const SettingsScreen: React.FC = () => {
   const renderSubscriptionCard = () => (
     <View style={styles.subscriptionCard}>
       <View style={styles.subscriptionHeader}>
-        <Text style={styles.subscriptionTitle}>
-          {preferences.subscriptionTier === 'free' ? 'Free Plan' : 'Premium Plan'}
-        </Text>
-        {preferences.subscriptionTier === 'premium' && (
-          <View style={styles.premiumBadge}>
-            <Text style={styles.premiumBadgeText}>PREMIUM</Text>
-          </View>
-        )}
+        <Text style={styles.subscriptionTitle}>Free Plan</Text>
       </View>
       
       <Text style={styles.subscriptionDescription}>
-        {preferences.subscriptionTier === 'free' 
-          ? 'Access to essential budgeting, expense tracking, and educational resources.'
-          : 'Enjoy advanced features like personalized financial coaching, detailed spending analysis, priority customer support, and an ad-free experience.'}
+        Access to essential budgeting, expense tracking, and educational resources.
       </Text>
       
-      {preferences.subscriptionTier === 'free' && (
-        <Button
-          title="Upgrade to Premium"
-          onPress={handleUpgradeSubscription}
-          variant="primary"
-          size="medium"
-          fullWidth
-          style={styles.upgradeButton}
-        />
-      )}
+      <Button
+        title="Upgrade to Premium"
+        onPress={handleUpgradeSubscription}
+        variant="primary"
+        size="medium"
+        fullWidth
+        style={styles.upgradeButton}
+      />
     </View>
   );
   
@@ -574,7 +624,7 @@ const SettingsScreen: React.FC = () => {
             {renderSwitchItem(
               'finger-print-outline',
               'Biometric Authentication',
-              preferences.biometricsEnabled,
+              preferences.securitySettings.biometricAuth,
               handleToggleBiometrics,
               'Use fingerprint or face ID to log in'
             )}
@@ -592,31 +642,31 @@ const SettingsScreen: React.FC = () => {
             {renderSwitchItem(
               'notifications-outline',
               'Enable Notifications',
-              preferences.notificationsEnabled,
+              preferences.notifications.budgetAlerts,
               handleToggleNotifications,
               'Receive important updates and alerts'
             )}
             
-            {preferences.notificationsEnabled && (
+            {preferences.notifications.budgetAlerts && (
               <>
                 {renderSwitchItem(
                   'wallet-outline',
                   'Budget Alerts',
-                  preferences.budgetAlerts,
+                  preferences.notifications.budgetAlerts,
                   handleToggleBudgetAlerts,
                   'Get notified when approaching budget limits'
                 )}
                 {renderSwitchItem(
                   'trending-up-outline',
                   'Savings Reminders',
-                  preferences.savingsReminders,
+                  preferences.notifications.savingsMilestones,
                   handleToggleSavingsReminders,
                   'Receive reminders about your savings goals'
                 )}
                 {renderSwitchItem(
                   'bulb-outline',
                   'Financial Tips',
-                  preferences.financialTips,
+                  preferences.notifications.financialTips,
                   handleToggleFinancialTips,
                   'Get personalized financial advice'
                 )}
@@ -630,7 +680,7 @@ const SettingsScreen: React.FC = () => {
             {renderSwitchItem(
               'moon-outline',
               'Dark Mode',
-              preferences.darkModeEnabled,
+              preferences.theme === 'dark',
               handleToggleDarkMode,
               'Switch between light and dark themes'
             )}
@@ -687,6 +737,17 @@ const SettingsScreen: React.FC = () => {
             )}
           </View>
           
+          {/* Developer Section */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Developer</Text>
+            {renderButtonItem(
+              'cloud-offline-outline',
+              'Offline Mode Testing',
+              () => navigation.navigate('OfflineTest'),
+              'Test offline functionality and data synchronization'
+            )}
+          </View>
+          
           {/* Legal Section */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Legal</Text>
@@ -716,11 +777,9 @@ const SettingsScreen: React.FC = () => {
           
           {/* App Info */}
           <View style={styles.appInfo}>
-            <Image 
-              source={require('./assets/logo.png')} 
-              style={styles.appLogo}
-              resizeMode="contain"
-            />
+            <View style={styles.appLogoContainer}>
+              <Ionicons name="wallet-outline" size={40} color={colors.primary} />
+            </View>
             <Text style={styles.appVersion}>Buzo AI v1.0.0</Text>
             <Text style={styles.appCopyright}>© 2023 Buzo AI. All rights reserved.</Text>
           </View>
@@ -742,7 +801,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   loadingText: {
-    ...textStyles.body1,
+    fontSize: 16,
+    fontWeight: "normal",
+    lineHeight: 24,
+    color: colors.text,
     marginTop: spacing.md,
   },
   header: {
@@ -758,7 +820,10 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
   },
   headerTitle: {
-    ...textStyles.h2,
+    fontSize: 24,
+    fontWeight: "bold",
+    lineHeight: 32,
+    color: colors.text,
   },
   headerRight: {
     width: 24, // To balance the header
@@ -771,8 +836,10 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
   },
   errorText: {
+    fontSize: 14,
+    fontWeight: "normal",
+    lineHeight: 20,
     color: colors.error,
-    ...textStyles.body2,
   },
   scrollView: {
     flex: 1,
@@ -788,7 +855,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
   },
   sectionTitle: {
-    ...textStyles.subtitle1,
+    fontSize: 16,
+    fontWeight: "600" as const,
+    lineHeight: 24,
+    color: colors.text,
     marginBottom: spacing.md,
   },
   settingItem: {
@@ -811,10 +881,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingTitle: {
-    ...textStyles.body1,
+    fontSize: 16,
+    fontWeight: "500" as const,
+    lineHeight: 24,
+    color: colors.text,
   },
   settingDescription: {
-    ...textStyles.caption,
+    fontSize: 12,
+    fontWeight: "normal",
+    lineHeight: 16,
+    color: colors.textSecondary,
     marginTop: spacing.xs,
   },
   subscriptionCard: {
@@ -830,7 +906,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   subscriptionTitle: {
-    ...textStyles.h3,
+    fontSize: 20,
+    fontWeight: "600" as const,
+    lineHeight: 28,
+    color: colors.text,
   },
   premiumBadge: {
     backgroundColor: colors.accent,
@@ -840,11 +919,14 @@ const styles = StyleSheet.create({
   },
   premiumBadgeText: {
     color: colors.white,
-    fontWeight: '700',
+    fontWeight: "bold",
     fontSize: 12,
   },
   subscriptionDescription: {
-    ...textStyles.body2,
+    fontSize: 14,
+    fontWeight: "normal",
+    lineHeight: 20,
+    color: colors.text,
     marginBottom: spacing.lg,
   },
   upgradeButton: {
@@ -887,10 +969,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   dataUsageLabel: {
-    ...textStyles.body1,
+    fontSize: 16,
+    fontWeight: "500" as const,
+    lineHeight: 24,
+    color: colors.text,
   },
   dataUsageDescription: {
-    ...textStyles.caption,
+    fontSize: 12,
+    fontWeight: "normal",
+    lineHeight: 16,
+    color: colors.textSecondary,
     marginTop: spacing.xs,
   },
   appInfo: {
@@ -898,17 +986,26 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxxl,
     marginBottom: spacing.xl,
   },
-  appLogo: {
+  appLogoContainer: {
     width: 60,
     height: 60,
+    borderRadius: 30,
+    backgroundColor: `${colors.primary}10`,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: spacing.md,
   },
   appVersion: {
-    ...textStyles.body2,
+    fontSize: 14,
+    fontWeight: "normal",
+    lineHeight: 20,
     color: colors.textSecondary,
   },
   appCopyright: {
-    ...textStyles.caption,
+    fontSize: 12,
+    fontWeight: "normal",
+    lineHeight: 16,
+    color: colors.textSecondary,
     marginTop: spacing.xs,
   },
 });

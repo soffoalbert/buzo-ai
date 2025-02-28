@@ -80,6 +80,10 @@ const HomeScreen: React.FC = () => {
     navigation.navigate('AIAdvisor');
   };
 
+  const handleNavigateToNotifications = () => {
+    navigation.navigate('Notifications');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -102,12 +106,20 @@ const HomeScreen: React.FC = () => {
               })}
             </Text>
           </View>
-          <TouchableOpacity 
-            style={styles.profileButton}
-            onPress={() => navigation.navigate('Profile')}
-          >
-            <Ionicons name="person-circle-outline" size={32} color={colors.primary} />
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              style={styles.iconButton}
+              onPress={handleNavigateToNotifications}
+            >
+              <Ionicons name="notifications-outline" size={28} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.profileButton}
+              onPress={() => navigation.navigate('Profile')}
+            >
+              <Ionicons name="person-circle-outline" size={32} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Balance Card */}
@@ -302,6 +314,14 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   profileButton: {
+    padding: spacing.xs,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    marginRight: spacing.sm,
     padding: spacing.xs,
   },
   balanceCard: {
