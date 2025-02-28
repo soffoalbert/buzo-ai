@@ -9,6 +9,9 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 // Import types from FinancialInsights component
 import { FinancialInsight } from '../components/FinancialInsights';
 
+// Default API key (replace with your actual OpenAI API key)
+const DEFAULT_API_KEY = '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';
+
 // Interface for financial data
 interface FinancialData {
   income?: number;
@@ -63,14 +66,19 @@ export const setApiKey = async (apiKey: string): Promise<void> => {
 
 /**
  * Get the stored OpenAI API key
- * @returns The stored API key or null if not found
+ * @returns The stored API key or the default key if not found
  */
 export const getApiKey = async (): Promise<string | null> => {
   try {
-    return await SecureStore.getItemAsync(API_KEY_STORAGE_KEY);
+    // First try to get a user-provided key
+    const userKey = await SecureStore.getItemAsync(API_KEY_STORAGE_KEY);
+    
+    // If user has provided a key, use that, otherwise use the default key
+    return userKey || DEFAULT_API_KEY;
   } catch (error) {
     console.error('Error retrieving API key:', error);
-    throw error;
+    // Return the default key as fallback
+    return DEFAULT_API_KEY;
   }
 };
 
@@ -93,12 +101,9 @@ export const clearApiKey = async (): Promise<void> => {
  */
 export const getFinancialAdvice = async (request: AdviceRequest): Promise<string> => {
   try {
+    // Get API key (will use default key if user hasn't provided one)
     const apiKey = await getApiKey();
     
-    if (!apiKey) {
-      throw new Error('API key not found. Please set your OpenAI API key in the settings.');
-    }
-
     // Create a prompt based on the request type and data
     let prompt = '';
     
@@ -113,46 +118,48 @@ export const getFinancialAdvice = async (request: AdviceRequest): Promise<string
         prompt = createSavingsPrompt(request.financialData, request.question);
         break;
       case 'general':
+      default:
         prompt = createGeneralPrompt(request.financialData, request.question);
         break;
-      default:
-        throw new Error('Invalid advice type');
     }
-
+    
     // Call the OpenAI API
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         model: 'gpt-4o',
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful financial advisor for young South Africans. Provide practical, culturally relevant advice that considers the economic realities of South Africa. Use simple language and avoid jargon. Focus on actionable steps and realistic goals.',
+            content: 'You are Buzo, a helpful and friendly financial advisor for young South Africans. Provide clear, actionable advice tailored to their financial situation. Use simple language and avoid jargon. Focus on practical tips that can be implemented immediately. Be encouraging and positive, but realistic.'
           },
           {
             role: 'user',
-            content: prompt,
-          },
+            content: prompt
+          }
         ],
         temperature: 0.7,
-        max_tokens: 500,
-      }),
+        max_tokens: 500
+      })
     });
-
+    
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(`API error: ${errorData.error?.message || 'Unknown error'}`);
+      console.error('OpenAI API error:', errorData);
+      throw new Error(`OpenAI API error: ${errorData.error?.message || 'Unknown error'}`);
     }
-
+    
     const data = await response.json();
     return data.choices[0].message.content.trim();
   } catch (error) {
     console.error('Error getting financial advice:', error);
-    throw error;
+    
+    // If there's an error with the API call, fall back to rule-based advice
+    return generateFallbackAdvice(request.financialData, request.type, request.question);
   }
 };
 
@@ -775,6 +782,81 @@ const createInsightsPrompt = (financialData: FinancialData): string => {
   prompt += `Please analyze this data and generate personalized financial insights, including tips, warnings, achievements, and recommendations. Focus on actionable advice that can help me improve my financial health.`;
   
   return prompt;
+};
+
+/**
+ * Generate fallback advice when the API call fails
+ * @param financialData User's financial data
+ * @param type Type of advice requested
+ * @param question Optional question from the user
+ * @returns Rule-based financial advice
+ */
+const generateFallbackAdvice = (
+  financialData: FinancialData, 
+  type: AdviceRequest['type'], 
+  question?: string
+): string => {
+  // Default response if we can't determine specific advice
+  let advice = "I'm sorry, I couldn't connect to my knowledge base at the moment. Here are some general financial tips:\n\n" +
+    "• Create a budget and track your expenses regularly\n" +
+    "• Try to save at least 10-20% of your income\n" +
+    "• Build an emergency fund covering 3-6 months of expenses\n" +
+    "• Reduce unnecessary expenses and focus on needs before wants\n" +
+    "• Consider low-cost investment options for long-term goals";
+  
+  // If we have financial data, try to provide more specific advice
+  if (financialData) {
+    const { expenses, budgets, savingsGoals } = financialData;
+    
+    // Check if user is overspending in any category
+    if (budgets && budgets.length > 0) {
+      const overspentCategories = budgets.filter(b => b.spent > b.limit);
+      
+      if (overspentCategories.length > 0) {
+        const categories = overspentCategories.map(c => c.category).join(', ');
+        advice = `I notice you're overspending in these categories: ${categories}. Consider reviewing your expenses in these areas and finding ways to reduce costs.`;
+        return advice;
+      }
+    }
+    
+    // Check if user has savings goals that need attention
+    if (savingsGoals && savingsGoals.length > 0) {
+      const behindGoals = savingsGoals.filter(g => {
+        const deadline = new Date(g.deadline);
+        const today = new Date();
+        const timeLeft = deadline.getTime() - today.getTime();
+        const daysLeft = timeLeft / (1000 * 3600 * 24);
+        
+        // Calculate expected progress based on time elapsed
+        const totalDays = (deadline.getTime() - new Date(g.deadline).getTime()) / (1000 * 3600 * 24);
+        const expectedProgress = (totalDays - daysLeft) / totalDays;
+        const actualProgress = g.current / g.target;
+        
+        return actualProgress < expectedProgress * 0.8; // 20% behind schedule
+      });
+      
+      if (behindGoals.length > 0) {
+        const goalNames = behindGoals.map(g => g.title).join(', ');
+        advice = `You might need to focus more on these savings goals: ${goalNames}. Try increasing your contributions to stay on track.`;
+        return advice;
+      }
+    }
+  }
+  
+  // Type-specific generic advice if we don't have enough data for personalized advice
+  switch (type) {
+    case 'budget':
+      advice = "To improve your budget, try using the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings and debt repayment. Review your expenses regularly and look for areas where you can cut back.";
+      break;
+    case 'expense':
+      advice = "To reduce expenses, consider meal planning to save on food costs, use public transportation when possible, review and cancel unused subscriptions, and look for more affordable alternatives for regular purchases.";
+      break;
+    case 'savings':
+      advice = "To boost your savings, set up automatic transfers to your savings account on payday, challenge yourself to no-spend days, save windfalls like bonuses or tax refunds, and consider a side hustle for extra income.";
+      break;
+  }
+  
+  return advice;
 };
 
 export default {

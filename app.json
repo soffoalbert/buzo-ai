@@ -25,7 +25,11 @@
         "foregroundImage": "./src/assets/adaptive-icon.png",
         "backgroundColor": "#4F46E5"
       },
-      "package": "com.buzoai.app"
+      "package": "com.buzoai.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./src/assets/favicon.png"
@@ -46,8 +50,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "d909abbb-32b1-4132-83c7-ebf9b1c741a0"
       }
-    }
+    },
+    "owner": "soffoalbert"
   }
 }

@@ -21,6 +21,7 @@ import ArticleDetailScreen from '../screens/ArticleDetailScreen';
 import BankStatementsScreen from '../screens/BankStatementsScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import LoadingScreen from '../components/LoadingScreen';
+import AIAdvisorScreen from '../screens/AIAdvisorScreen';
 
 // Import theme
 import { colors } from '../utils/theme';
@@ -54,6 +55,7 @@ export type RootStackParamList = {
   Insights: undefined;
   EditProfile: undefined;
   ExpenseScreen: { receiptData?: any };
+  AIAdvisor: undefined;
 };
 
 // Create navigation stacks
@@ -184,6 +186,7 @@ export const RootNavigator: React.FC = () => {
       <RootStack.Screen name="Insights" component={InsightsScreen} />
       <RootStack.Screen name="EditProfile" component={EditProfileScreen} />
       <RootStack.Screen name="ExpenseScreen" component={ExpenseScreen} />
+      <RootStack.Screen name="AIAdvisor" component={AIAdvisorScreen} />
     </RootStack.Navigator>
   );
 };

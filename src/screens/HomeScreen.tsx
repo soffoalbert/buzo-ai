@@ -76,6 +76,10 @@ const HomeScreen: React.FC = () => {
     navigation.navigate('BankStatements');
   };
 
+  const handleOpenAIAdvisor = () => {
+    navigation.navigate('AIAdvisor');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -250,7 +254,14 @@ const HomeScreen: React.FC = () => {
         </View>
 
         {/* AI Advisor */}
-        <TouchableOpacity style={styles.aiAdvisorCard}>
+        <TouchableOpacity 
+          style={styles.aiAdvisorCard}
+          onPress={handleOpenAIAdvisor}
+          accessible={true}
+          accessibilityLabel="Ask Buzo AI assistant"
+          accessibilityRole="button"
+          accessibilityHint="Get personalized financial advice from your AI assistant"
+        >
           <View style={styles.aiAdvisorContent}>
             <Ionicons name="chatbubble-ellipses" size={24} color={colors.white} />
             <View style={styles.aiAdvisorTextContainer}>

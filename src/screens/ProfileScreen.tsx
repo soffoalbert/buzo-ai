@@ -298,12 +298,15 @@ const ProfileScreen: React.FC = () => {
   
   const handleOpenAIAdvisor = () => {
     triggerHaptic();
-    // Show a message that this feature is coming soon
-    Alert.alert(
-      'Coming Soon',
-      'The AI Advisor feature will be available in the next update!',
-      [{ text: 'OK', style: 'default' }]
-    );
+    try {
+      navigation.navigate('AIAdvisor');
+    } catch (error) {
+      console.error('Navigation error:', error);
+      const errorMessage = typeof error === 'object' 
+        ? 'Could not open AI Advisor. This feature may not be available yet.' 
+        : String(error);
+      Alert.alert('Navigation Error', errorMessage);
+    }
   };
 
   const handleNavigateToBankStatements = () => {
