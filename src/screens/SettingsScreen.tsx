@@ -330,20 +330,7 @@ const SettingsScreen: React.FC = () => {
   // Handle subscription upgrade
   const handleUpgradeSubscription = () => {
     triggerHaptic();
-    Alert.alert(
-      'Upgrade to Premium',
-      'Enjoy advanced features like personalized financial coaching, detailed spending analysis, priority customer support, and an ad-free experience.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Upgrade for R49.99/month', 
-          onPress: () => {
-            // In a real app, this would initiate the payment process
-            Alert.alert('Coming Soon', 'This feature will be available in the next update.');
-          } 
-        }
-      ]
-    );
+    navigation.navigate('SubscriptionScreen');
   };
   
   // Handle language change

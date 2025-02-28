@@ -26,6 +26,7 @@ import SettingsScreen from '../screens/SettingsScreen';
 import NotificationScreen from '../screens/NotificationScreen';
 import OfflineTestScreen from '../screens/OfflineTestScreen';
 import ExpenseAnalyticsScreen from '../screens/ExpenseAnalyticsScreen';
+import SubscriptionScreen from '../screens/SubscriptionScreen';
 
 // Import theme
 import { colors } from '../utils/theme';
@@ -65,6 +66,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   OfflineTest: undefined;
   TestChart: undefined;
+  SubscriptionScreen: undefined;
 };
 
 // Create navigation stacks
@@ -200,6 +202,7 @@ export const RootNavigator: React.FC = () => {
       <RootStack.Screen name="Settings" component={SettingsScreen} />
       <RootStack.Screen name="Notifications" component={NotificationScreen} />
       <RootStack.Screen name="OfflineTest" component={OfflineTestScreen} />
+      <RootStack.Screen name="SubscriptionScreen" component={SubscriptionScreen} />
     </RootStack.Navigator>
   );
 };

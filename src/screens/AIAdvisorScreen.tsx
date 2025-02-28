@@ -25,6 +25,8 @@ import { loadBudgets } from '../services/budgetService';
 import { loadSavingsGoals } from '../services/savingsService';
 import { colors, shadows, borderRadius, spacing, textStyles } from '../utils/theme';
 import Markdown from 'react-native-markdown-display';
+import { accessPremiumFeature, PremiumFeatureType } from '../utils/premiumFeatures';
+import { hasPremiumAccess } from '../services/subscriptionService';
 
 // Define message interface
 interface Message {
@@ -59,11 +61,22 @@ const AIAdvisorScreen: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [suggestedQuestions, setSuggestedQuestions] = useState(SUGGESTED_QUESTIONS);
+  const [isPremium, setIsPremium] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const typingAnimation = useRef(new Animated.Value(0)).current;
   const screenWidth = Dimensions.get('window').width;
+
+  // Check premium status on mount
+  useEffect(() => {
+    const checkPremiumStatus = async () => {
+      const premium = await hasPremiumAccess();
+      setIsPremium(premium);
+    };
+    
+    checkPremiumStatus();
+  }, []);
 
   // Animate typing dots
   useEffect(() => {
@@ -129,95 +142,86 @@ const AIAdvisorScreen: React.FC = () => {
   };
 
   // Handle sending a message
-  const handleSendMessage = async (text: string = inputText) => {
-    if (!text.trim()) return;
+  const handleSendMessage = async () => {
+    if (!inputText.trim()) return;
     
-    // Add user message
+    // Create a new user message
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: text.trim(),
+      text: inputText.trim(),
       sender: 'user',
-      timestamp: new Date(),
+      timestamp: new Date()
     };
     
-    setMessages(prev => [...prev, userMessage]);
-    setInputText('');
-    setIsLoading(true);
+    // Add user message to the list
+    setMessages(prevMessages => [...prevMessages, userMessage]);
     
-    try {
-      // Fetch financial data
-      const expenses = await loadExpenses();
-      const budgets = await loadBudgets();
-      const savingsGoals = await loadSavingsGoals();
-      
-      // Prepare financial data for the AI
-      const financialData = {
-        expenses,
-        budgets: budgets.map(budget => ({
-          category: budget.category || 'General',
-          limit: budget.amount || 0,
-          spent: budget.spent || 0
-        })),
-        savingsGoals: savingsGoals.map(goal => ({
-          title: goal.title || 'Goal',
-          target: goal.targetAmount || 0,
-          current: goal.currentAmount || 0,
-          deadline: goal.targetDate || new Date().toISOString()
-        })),
-        income: 0, // Default income value
-        historicalExpenses: expenses.slice(0, 30).map(expense => ({
-          month: new Date(expense.date).toISOString().substring(0, 7),
-          totalAmount: expense.amount,
-          categories: { [expense.category]: expense.amount }
-        }))
-      };
-      
-      // Get AI response
-      const response = await getFinancialAdvice({
-        type: 'general',
-        financialData,
-        question: text.trim()
-      });
-      
-      // Format the response with markdown
-      const formattedResponse = formatAIResponse(response);
-      
-      // Add AI response
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: formattedResponse,
-        sender: 'ai',
-        timestamp: new Date(),
-        formattedText: true
-      };
-      
-      setMessages(prev => [...prev, aiMessage]);
-      
-      // Update suggested questions based on context
-      // In a real app, you might want to generate these dynamically
-      setSuggestedQuestions(SUGGESTED_QUESTIONS);
-      
-    } catch (error) {
-      console.error('Error getting AI response:', error);
-      
-      // Add generic error message
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: "## Sorry, I encountered an error\n\nI couldn't process your request at the moment. Please try again later or ask a different question.",
-        sender: 'ai',
-        timestamp: new Date(),
-        formattedText: true
-      };
-      
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
+    // Clear input and scroll to bottom
+    setInputText('');
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    
+    // Check if this is a premium feature (personalized financial coaching)
+    accessPremiumFeature(
+      PremiumFeatureType.PERSONALIZED_COACHING,
+      navigation,
+      async () => {
+        // User has premium access, proceed with getting AI response
+        setIsLoading(true);
+        
+        try {
+          // Get user data for context
+          const expenses = await loadExpenses();
+          const budgets = await loadBudgets();
+          const savingsGoals = await loadSavingsGoals();
+          
+          // Get AI response
+          const response = await getFinancialAdvice(
+            userMessage.text,
+            expenses,
+            budgets,
+            savingsGoals
+          );
+          
+          // Create AI message
+          const aiMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            text: response,
+            sender: 'ai',
+            timestamp: new Date(),
+            formattedText: true
+          };
+          
+          // Add AI message to the list
+          setMessages(prevMessages => [...prevMessages, aiMessage]);
+          
+          // Scroll to bottom
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        } catch (error) {
+          console.error('Error getting AI response:', error);
+          
+          // Add error message
+          const errorMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            text: "I'm sorry, I couldn't process your request. Please try again later.",
+            sender: 'ai',
+            timestamp: new Date()
+          };
+          
+          setMessages(prevMessages => [...prevMessages, errorMessage]);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    );
   };
 
   // Handle suggested question tap
   const handleSuggestedQuestionTap = (question: string) => {
-    handleSendMessage(question);
+    handleSendMessage();
   };
 
   // Format timestamp
@@ -331,6 +335,17 @@ const AIAdvisorScreen: React.FC = () => {
     );
   };
 
+  // Render premium badge in header if user has premium
+  const renderPremiumBadge = () => {
+    if (!isPremium) return null;
+    
+    return (
+      <View style={styles.premiumBadge}>
+        <Text style={styles.premiumBadgeText}>Premium</Text>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -347,6 +362,7 @@ const AIAdvisorScreen: React.FC = () => {
           <Text style={styles.headerTitle}>Ask Buzo</Text>
           <Text style={styles.headerSubtitle}>Your AI Financial Advisor</Text>
         </View>
+        {renderPremiumBadge()}
       </View>
       
       {/* Messages List */}
@@ -673,6 +689,18 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     backgroundColor: colors.border,
+  },
+  premiumBadge: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2,
+    borderRadius: borderRadius.sm,
+    marginLeft: spacing.sm,
+  },
+  premiumBadgeText: {
+    color: colors.white,
+    fontWeight: 'bold',
+    fontSize: 12,
   },
 });
 

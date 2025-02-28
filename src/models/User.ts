@@ -11,6 +11,7 @@ export interface User {
   financialProfile?: FinancialProfile;
   achievements?: Achievement[];
   friends?: string[]; // User IDs
+  subscription?: SubscriptionInfo;
 }
 
 export interface UserPreferences {
@@ -53,6 +54,33 @@ export interface Achievement {
   isShared: boolean;
 }
 
+// Subscription related interfaces
+export enum SubscriptionTier {
+  FREE = 'free',
+  PREMIUM = 'premium'
+}
+
+export interface SubscriptionInfo {
+  tier: SubscriptionTier;
+  startDate?: string;
+  endDate?: string;
+  autoRenew?: boolean;
+  paymentMethod?: string;
+  lastPaymentDate?: string;
+  nextPaymentDate?: string;
+  transactionHistory?: SubscriptionTransaction[];
+}
+
+export interface SubscriptionTransaction {
+  id: string;
+  date: string;
+  amount: number;
+  currency: string;
+  status: 'successful' | 'failed' | 'pending' | 'refunded';
+  paymentMethod: string;
+  description: string;
+}
+
 // Default user preferences
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   currency: 'ZAR',
@@ -74,4 +102,10 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
     biometricAuth: false,
     twoFactorAuth: false,
   },
+};
+
+// Default subscription info for new users
+export const DEFAULT_SUBSCRIPTION_INFO: SubscriptionInfo = {
+  tier: SubscriptionTier.FREE,
+  autoRenew: false
 }; 

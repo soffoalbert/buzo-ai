@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { format, subDays, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval } from 'date-fns';
 
 // Components
@@ -23,11 +24,14 @@ import Chart from '../components/Chart';
 // Services
 import { getExpenseStatistics, filterExpenses } from '../services/expenseService';
 import { isMockDataEnabled, setMockDataEnabled, resetMockData } from '../services/mockDataService';
+import { hasPremiumAccess } from '../services/subscriptionService';
 
 // Utils and types
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { Expense, ExpenseStatistics } from '../models/Expense';
 import { formatCurrency } from '../utils/helpers';
+import { accessPremiumFeature, PremiumFeatureType } from '../utils/premiumFeatures';
+import { RootStackParamList } from '../navigation';
 
 // Define the time periods for filtering
 const TIME_PERIODS = [
@@ -53,7 +57,7 @@ const EXPENSE_CATEGORIES = [
 ];
 
 const ExpenseAnalyticsScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState('month');
@@ -70,6 +74,17 @@ const ExpenseAnalyticsScreen: React.FC = () => {
     percentageChange: 0,
   });
   const [mockDataEnabled, setMockDataEnabled] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
+
+  // Check if user has premium access
+  useEffect(() => {
+    const checkPremiumStatus = async () => {
+      const premium = await hasPremiumAccess();
+      setIsPremium(premium);
+    };
+    
+    checkPremiumStatus();
+  }, []);
 
   // Check if mock data is enabled on mount
   useEffect(() => {
@@ -141,11 +156,14 @@ const ExpenseAnalyticsScreen: React.FC = () => {
       
       setExpenses(filteredExpenses);
       
-      // Calculate period comparison data
-      await calculatePeriodComparison(selectedPeriod);
-      
-      // Detect spending anomalies
-      detectAnomalies(filteredExpenses);
+      // For premium users, calculate additional analytics
+      if (isPremium) {
+        // Calculate period comparison data
+        await calculatePeriodComparison(selectedPeriod);
+        
+        // Detect spending anomalies
+        detectAnomalies(filteredExpenses);
+      }
       
     } catch (error) {
       console.error('Error loading expense analytics data:', error);
@@ -154,7 +172,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [selectedPeriod]);
+  }, [selectedPeriod, isPremium]);
 
   // Calculate comparison between current period and previous period
   const calculatePeriodComparison = async (period: string) => {
@@ -352,6 +370,33 @@ const ExpenseAnalyticsScreen: React.FC = () => {
     return `${sign}${value.toFixed(1)}%`;
   };
 
+  // Handle period selection
+  const handlePeriodSelect = (period: string) => {
+    // Check if detailed analytics is a premium feature for longer time periods
+    if ((period === '3months' || period === '6months' || period === 'year') && !isPremium) {
+      accessPremiumFeature(
+        PremiumFeatureType.DETAILED_ANALYTICS,
+        navigation,
+        () => {
+          setSelectedPeriod(period);
+        }
+      );
+    } else {
+      setSelectedPeriod(period);
+    }
+  };
+
+  // Render premium badge
+  const renderPremiumBadge = () => {
+    if (!isPremium) return null;
+    
+    return (
+      <View style={styles.premiumBadge}>
+        <Text style={styles.premiumBadgeText}>Premium</Text>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="dark" />
@@ -365,6 +410,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Expense Analytics</Text>
+        {renderPremiumBadge()}
         <TouchableOpacity 
           style={styles.optionsButton}
           onPress={() => {
@@ -402,33 +448,36 @@ const ExpenseAnalyticsScreen: React.FC = () => {
       </View>
       
       {/* Time Period Selector */}
-      <View style={styles.periodSelector}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.periodSelectorContent}
-        >
-          {TIME_PERIODS.map(period => (
-            <TouchableOpacity
-              key={period.id}
+      <ScrollView 
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.periodSelector}
+        contentContainerStyle={styles.periodSelectorContent}
+      >
+        {TIME_PERIODS.map(period => (
+          <TouchableOpacity
+            key={period.id}
+            style={[
+              styles.periodButton,
+              selectedPeriod === period.id && styles.selectedPeriodButton,
+              (period.id === '3months' || period.id === '6months' || period.id === 'year') && !isPremium && styles.premiumPeriodButton
+            ]}
+            onPress={() => handlePeriodSelect(period.id)}
+          >
+            <Text 
               style={[
-                styles.periodButton,
-                selectedPeriod === period.id && styles.selectedPeriodButton,
+                styles.periodButtonText,
+                selectedPeriod === period.id && styles.selectedPeriodButtonText
               ]}
-              onPress={() => setSelectedPeriod(period.id)}
             >
-              <Text 
-                style={[
-                  styles.periodButtonText,
-                  selectedPeriod === period.id && styles.selectedPeriodButtonText,
-                ]}
-              >
-                {period.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+              {period.label}
+            </Text>
+            {(period.id === '3months' || period.id === '6months' || period.id === 'year') && !isPremium && (
+              <Ionicons name="lock-closed" size={12} color={colors.textSecondary} style={styles.premiumLockIcon} />
+            )}
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
       
       {/* Main Content */}
       <ScrollView 
@@ -468,20 +517,36 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                 {formatCurrency(statistics?.totalAmount || 0, 'en-ZA', 'ZAR')}
               </Text>
               
-              {/* Period Comparison */}
-              <View style={styles.comparisonContainer}>
-                <Text style={styles.comparisonLabel}>
-                  vs Previous {TIME_PERIODS.find(p => p.id === selectedPeriod)?.label}:
-                </Text>
-                <Text 
-                  style={[
-                    styles.comparisonValue,
-                    comparisonData.percentageChange > 0 ? styles.negativeChange : styles.positiveChange,
-                  ]}
+              {/* Period Comparison - Only for Premium */}
+              {isPremium ? (
+                <View style={styles.comparisonContainer}>
+                  <Text style={styles.comparisonLabel}>
+                    vs Previous {TIME_PERIODS.find(p => p.id === selectedPeriod)?.label}:
+                  </Text>
+                  <Text 
+                    style={[
+                      styles.comparisonValue,
+                      comparisonData.percentageChange > 0 ? styles.negativeChange : styles.positiveChange,
+                    ]}
+                  >
+                    {formatPercentageChange(comparisonData.percentageChange)}
+                  </Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.premiumFeatureButton}
+                  onPress={() => accessPremiumFeature(
+                    PremiumFeatureType.DETAILED_ANALYTICS,
+                    navigation,
+                    () => {}
+                  )}
                 >
-                  {formatPercentageChange(comparisonData.percentageChange)}
-                </Text>
-              </View>
+                  <Ionicons name="lock-closed" size={14} color={colors.primary} />
+                  <Text style={styles.premiumFeatureText}>
+                    Unlock period comparison with Premium
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
             
             {/* Category Breakdown */}
@@ -567,29 +632,20 @@ const ExpenseAnalyticsScreen: React.FC = () => {
               </View>
             </View>
             
-            {/* Spending Anomalies */}
-            {anomalies.length > 0 && (
+            {/* Spending Anomalies - Only for Premium */}
+            {anomalies.length > 0 && isPremium && (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Unusual Spending Detected</Text>
-                <Text style={styles.anomalyDescription}>
-                  The following expenses are significantly higher than your usual spending in their categories:
+                <Text style={styles.cardTitle}>Spending Anomalies</Text>
+                <Text style={styles.cardDescription}>
+                  We've detected unusual spending patterns:
                 </Text>
                 
-                {anomalies.map(expense => (
-                  <View key={expense.id} style={styles.anomalyItem}>
-                    <View style={styles.anomalyHeader}>
-                      <Text style={styles.anomalyTitle}>{expense.title}</Text>
-                      <Text style={styles.anomalyAmount}>
-                        {formatCurrency(expense.amount, 'en-ZA', 'ZAR')}
-                      </Text>
-                    </View>
-                    <View style={styles.anomalyDetails}>
-                      <Text style={styles.anomalyCategory}>
-                        {getCategoryName(expense.category)}
-                      </Text>
-                      <Text style={styles.anomalyDate}>
-                        {format(parseISO(expense.date), 'MMM d, yyyy')}
-                      </Text>
+                {anomalies.map((anomaly, index) => (
+                  <View key={index} style={styles.anomalyItem}>
+                    <Ionicons name="alert-circle" size={24} color={colors.warning} style={styles.anomalyIcon} />
+                    <View style={styles.anomalyContent}>
+                      <Text style={styles.anomalyTitle}>{anomaly.title}</Text>
+                      <Text style={styles.anomalyDescription}>{anomaly.description}</Text>
                     </View>
                   </View>
                 ))}
@@ -661,6 +717,38 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                 </View>
               )}
             </View>
+            
+            {!isPremium && (
+              <View style={styles.premiumUpsellCard}>
+                <View style={styles.premiumUpsellHeader}>
+                  <Ionicons name="star" size={24} color={colors.accent} />
+                  <Text style={styles.premiumUpsellTitle}>Upgrade to Premium</Text>
+                </View>
+                <Text style={styles.premiumUpsellDescription}>
+                  Get access to advanced analytics features including:
+                </Text>
+                <View style={styles.premiumFeatureList}>
+                  <View style={styles.premiumFeatureItem}>
+                    <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                    <Text style={styles.premiumFeatureItemText}>Detailed spending analysis</Text>
+                  </View>
+                  <View style={styles.premiumFeatureItem}>
+                    <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                    <Text style={styles.premiumFeatureItemText}>Long-term trend analysis (3-12 months)</Text>
+                  </View>
+                  <View style={styles.premiumFeatureItem}>
+                    <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                    <Text style={styles.premiumFeatureItemText}>Spending anomaly detection</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.premiumUpsellButton}
+                  onPress={() => navigation.navigate('SubscriptionScreen')}
+                >
+                  <Text style={styles.premiumUpsellButtonText}>Upgrade Now</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </>
         )}
       </ScrollView>
@@ -827,39 +915,24 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   anomalyItem: {
-    backgroundColor: colors.error + '10',
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  anomalyHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
+    alignItems: 'flex-start',
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    backgroundColor: colors.warning + '10',
+    borderRadius: borderRadius.md,
   },
-  anomalyTitle: {
-    fontSize: textStyles.body1.fontSize,
-    fontWeight: '600',
-    color: colors.text,
+  anomalyIcon: {
+    marginRight: spacing.sm,
+  },
+  anomalyContent: {
     flex: 1,
   },
-  anomalyAmount: {
-    fontSize: textStyles.body1.fontSize,
-    fontWeight: '700',
-    color: colors.error,
-  },
-  anomalyDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  anomalyCategory: {
-    fontSize: textStyles.body2.fontSize,
-    color: colors.textSecondary,
-  },
-  anomalyDate: {
-    fontSize: textStyles.body2.fontSize,
-    color: colors.textSecondary,
+  anomalyTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.xs / 2,
   },
   insightItem: {
     flexDirection: 'row',
@@ -917,6 +990,98 @@ const styles = StyleSheet.create({
     color: colors.white,
     marginLeft: spacing.xs,
     flex: 1,
+  },
+  premiumBadge: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2,
+    borderRadius: borderRadius.sm,
+    marginRight: spacing.sm,
+  },
+  premiumBadgeText: {
+    color: colors.white,
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  premiumPeriodButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.card,
+  },
+  premiumLockIcon: {
+    marginLeft: spacing.xs,
+  },
+  premiumFeatureButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.sm,
+  },
+  premiumFeatureText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: spacing.xs,
+  },
+  premiumUpsellCard: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    ...shadows.md,
+    borderWidth: 1,
+    borderColor: colors.accent + '30',
+  },
+  premiumUpsellHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  premiumUpsellTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+    marginLeft: spacing.sm,
+  },
+  premiumUpsellDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  premiumFeatureList: {
+    marginBottom: spacing.md,
+  },
+  premiumFeatureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  premiumFeatureItemText: {
+    fontSize: 14,
+    color: colors.text,
+    marginLeft: spacing.xs,
+  },
+  premiumUpsellButton: {
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  premiumUpsellButtonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cardDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
   },
 });
 
