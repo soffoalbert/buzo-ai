@@ -9,11 +9,14 @@ import {
   Dimensions,
   SafeAreaView,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../navigation';
 import { colors, spacing, textStyles, borderRadius } from '../utils/theme';
 import { Ionicons } from '@expo/vector-icons';
+import BankStatementUploader from '../components/BankStatementUploader';
+import { uploadBankStatement } from '../services/bankStatementService';
 
 // Get screen dimensions
 const { width } = Dimensions.get('window');
@@ -40,12 +43,19 @@ const slides = [
   },
   {
     id: '4',
+    title: 'Upload Bank Statements',
+    description: 'Upload your bank statements to get personalized financial insights and advice.',
+    icon: 'document-text-outline',
+    component: 'BankStatementUploader',
+  },
+  {
+    id: '5',
     title: 'Achieve Savings Goals',
     description: 'Set savings targets and get personalized advice to help you reach them faster.',
     icon: 'trending-up-outline',
   },
   {
-    id: '5',
+    id: '6',
     title: 'Financial Education',
     description: 'Access educational content tailored to your needs and improve your financial literacy.',
     icon: 'school-outline',
@@ -59,6 +69,8 @@ type OnboardingScreenProps = {
 
 const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [uploadedStatement, setUploadedStatement] = useState<{ uri: string; name: string } | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // Handle slide change
@@ -84,6 +96,34 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
     navigation.navigate('Login');
   };
 
+  // Handle bank statement upload
+  const handleBankStatementUpload = async (fileUri: string, fileName: string) => {
+    setUploadedStatement({ uri: fileUri, name: fileName });
+    setIsUploading(true);
+    
+    try {
+      // Upload the bank statement to Supabase
+      await uploadBankStatement(fileUri, fileName);
+      Alert.alert(
+        'Upload Successful',
+        'Your bank statement has been uploaded successfully. We\'ll analyze it to provide personalized financial advice.'
+      );
+    } catch (error) {
+      console.error('Error uploading bank statement:', error);
+      Alert.alert(
+        'Upload Failed',
+        'There was an error uploading your bank statement. Please try again later.'
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Handle bank statement upload error
+  const handleBankStatementUploadError = (error: string) => {
+    Alert.alert('Upload Error', error);
+  };
+
   // Render individual slide
   const renderSlide = ({ item }: { item: typeof slides[0] }) => {
     return (
@@ -93,6 +133,14 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
         </View>
         <Text style={styles.title}>{item.title}</Text>
         <Text style={styles.description}>{item.description}</Text>
+        
+        {/* Render bank statement uploader if this is the upload slide */}
+        {item.component === 'BankStatementUploader' && (
+          <BankStatementUploader
+            onUploadComplete={handleBankStatementUpload}
+            onUploadError={handleBankStatementUploadError}
+          />
+        )}
       </View>
     );
   };
@@ -180,7 +228,7 @@ const styles = StyleSheet.create({
   skipText: {
     color: colors.textSecondary,
     fontSize: 16,
-    fontWeight: 500,
+    fontWeight: '500',
   },
   slideContainer: {
     width,
@@ -198,12 +246,14 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   title: {
-    ...textStyles.heading2,
+    fontSize: 24,
+    fontWeight: '700',
     textAlign: 'center',
     marginBottom: spacing.md,
+    color: colors.text,
   },
   description: {
-    ...textStyles.body,
+    fontSize: 16,
     textAlign: 'center',
     color: colors.textSecondary,
     paddingHorizontal: spacing.lg,
@@ -236,7 +286,7 @@ const styles = StyleSheet.create({
   buttonText: {
     color: colors.background,
     fontSize: 16,
-    fontWeight: 600,
+    fontWeight: '600',
   },
 });
 

@@ -13,12 +13,20 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 // @ts-ignore
 import { LineChart } from 'react-native-chart-kit';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 
 const { width } = Dimensions.get('window');
 
+type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
 const HomeScreen: React.FC = () => {
+  const navigation = useNavigation<HomeScreenNavigationProp>();
+  const [refreshing, setRefreshing] = useState(false);
+
   // Mock data for the dashboard
   const balanceData = {
     currentBalance: 5280.75,
@@ -49,65 +57,83 @@ const HomeScreen: React.FC = () => {
     labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     datasets: [
       {
-        data: [120, 85, 200, 150, 320, 250, 95],
-        color: () => colors.primary,
+        data: [120, 85, 200, 150, 75, 180, 90],
+        color: (opacity = 1) => `rgba(113, 65, 244, ${opacity})`,
         strokeWidth: 2,
       },
     ],
   };
 
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  
   const onRefresh = () => {
-    setIsRefreshing(true);
-    // Refresh data here
-    // For example: fetchUserData(), fetchRecentTransactions(), etc.
-    
-    // Simulate API delay
+    setRefreshing(true);
+    // Simulate data refresh
     setTimeout(() => {
-      setIsRefreshing(false);
+      setRefreshing(false);
     }, 1500);
+  };
+
+  const handleNavigateToBankStatements = () => {
+    navigation.navigate('BankStatements');
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
       <ScrollView 
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            colors={["#4F46E5"]}
-            tintColor="#4F46E5"
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        contentContainerStyle={styles.scrollViewContent}
       >
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Hello, User</Text>
-            <Text style={styles.date}>{new Date().toDateString()}</Text>
+            <Text style={styles.greeting}>Hello, Thabo</Text>
+            <Text style={styles.date}>
+              {new Date().toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })}
+            </Text>
           </View>
-          <TouchableOpacity style={styles.notificationButton}>
-            <Ionicons name="notifications-outline" size={24} color={colors.text} />
+          <TouchableOpacity 
+            style={styles.profileButton}
+            onPress={() => navigation.navigate('Profile')}
+          >
+            <Ionicons name="person-circle-outline" size={32} color={colors.primary} />
           </TouchableOpacity>
         </View>
 
         {/* Balance Card */}
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceTitle}>Current Balance</Text>
+          <View style={styles.balanceHeader}>
+            <Text style={styles.balanceTitle}>Current Balance</Text>
+            <TouchableOpacity 
+              style={styles.uploadButton}
+              onPress={handleNavigateToBankStatements}
+            >
+              <Ionicons name="document-text-outline" size={16} color={colors.white} />
+              <Text style={styles.uploadButtonText}>Bank Statements</Text>
+            </TouchableOpacity>
+          </View>
           <Text style={styles.balanceAmount}>R {balanceData.currentBalance.toFixed(2)}</Text>
           <View style={styles.balanceDetails}>
             <View style={styles.balanceItem}>
-              <Ionicons name="arrow-down-circle-outline" size={20} color={colors.success} />
-              <Text style={styles.balanceItemLabel}>Income</Text>
-              <Text style={styles.balanceItemAmount}>R {balanceData.income.toFixed(2)}</Text>
+              <Ionicons name="arrow-down-circle" size={20} color={colors.success} />
+              <View>
+                <Text style={styles.balanceItemLabel}>Income</Text>
+                <Text style={styles.balanceItemValue}>R {balanceData.income.toFixed(2)}</Text>
+              </View>
             </View>
+            <View style={styles.balanceDivider} />
             <View style={styles.balanceItem}>
-              <Ionicons name="arrow-up-circle-outline" size={20} color={colors.error} />
-              <Text style={styles.balanceItemLabel}>Expenses</Text>
-              <Text style={styles.balanceItemAmount}>R {balanceData.expenses.toFixed(2)}</Text>
+              <Ionicons name="arrow-up-circle" size={20} color={colors.error} />
+              <View>
+                <Text style={styles.balanceItemLabel}>Expenses</Text>
+                <Text style={styles.balanceItemValue}>R {balanceData.expenses.toFixed(2)}</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -246,81 +272,91 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  scrollViewContent: {
-    padding: spacing.lg,
-    paddingBottom: 100,
+  scrollContent: {
+    padding: spacing.md,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   greeting: {
-    fontSize: textStyles.h2.fontSize,
-    fontWeight: textStyles.h2.fontWeight as any,
-    lineHeight: textStyles.h2.lineHeight,
-    color: textStyles.h2.color,
+    fontSize: 20,
+    fontWeight: '600',
+    color: colors.text,
   },
   date: {
-    fontSize: textStyles.body2.fontSize,
-    fontWeight: textStyles.body2.fontWeight as any,
-    lineHeight: textStyles.body2.lineHeight,
+    fontSize: 12,
     color: colors.textSecondary,
   },
-  notificationButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.card,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...shadows.sm,
+  profileButton: {
+    padding: spacing.xs,
   },
   balanceCard: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.background,
     borderRadius: borderRadius.lg,
     padding: spacing.lg,
     marginBottom: spacing.lg,
     ...shadows.md,
   },
+  balanceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
   balanceTitle: {
-    fontSize: textStyles.subtitle2.fontSize,
-    fontWeight: textStyles.subtitle2.fontWeight as any,
-    lineHeight: textStyles.subtitle2.lineHeight,
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.sm,
+  },
+  uploadButtonText: {
     color: colors.white,
-    opacity: 0.8,
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
   },
   balanceAmount: {
-    fontSize: textStyles.h1.fontSize,
-    fontWeight: textStyles.h1.fontWeight as any,
-    lineHeight: textStyles.h1.lineHeight,
-    color: colors.white,
-    marginVertical: spacing.sm,
+    fontSize: 28,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: spacing.md,
   },
   balanceDetails: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: spacing.sm,
+    alignItems: 'center',
   },
   balanceItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+  },
+  balanceDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border,
+    marginHorizontal: spacing.md,
   },
   balanceItemLabel: {
-    fontSize: textStyles.caption.fontSize,
-    fontWeight: textStyles.caption.fontWeight as any,
-    lineHeight: textStyles.caption.lineHeight,
-    color: colors.white,
-    opacity: 0.8,
+    fontSize: 12,
+    color: colors.textSecondary,
     marginLeft: spacing.xs,
-    marginRight: spacing.sm,
   },
-  balanceItemAmount: {
-    fontSize: textStyles.subtitle2.fontSize,
-    fontWeight: textStyles.subtitle2.fontWeight as any,
-    lineHeight: textStyles.subtitle2.lineHeight,
-    color: colors.white,
+  balanceItemValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginLeft: spacing.xs,
   },
   chartCard: {
     backgroundColor: colors.white,

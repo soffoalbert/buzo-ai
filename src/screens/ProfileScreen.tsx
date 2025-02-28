@@ -12,10 +12,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 
+type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
 const ProfileScreen: React.FC = () => {
+  const navigation = useNavigation<ProfileScreenNavigationProp>();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
@@ -54,8 +60,12 @@ const ProfileScreen: React.FC = () => {
   };
   
   const handleOpenAIAdvisor = () => {
-    // In a real app, this would navigate to the AI Advisor screen
-    console.log('Opening AI Advisor');
+    // Navigate to AI advisor chat
+    console.log('Opening AI advisor chat');
+  };
+
+  const handleNavigateToBankStatements = () => {
+    navigation.navigate('BankStatements');
   };
   
   const renderSettingItem = (
@@ -66,23 +76,22 @@ const ProfileScreen: React.FC = () => {
     onPress?: () => void,
   ) => (
     <TouchableOpacity 
-      style={styles.settingItem}
+      style={styles.settingItem} 
       onPress={onPress}
       disabled={!onPress}
     >
-      <View style={styles.settingIconContainer}>
-        <Ionicons name={icon as any} size={22} color={colors.primary} />
+      <View style={styles.settingItemLeft}>
+        <Ionicons name={icon as any} size={24} color={colors.primary} />
+        <Text style={styles.settingItemText}>{title}</Text>
       </View>
-      <Text style={styles.settingTitle}>{title}</Text>
-      {onValueChange && (
+      {onValueChange ? (
         <Switch
           value={value}
           onValueChange={onValueChange}
           trackColor={{ false: colors.border, true: `${colors.primary}80` }}
-          thumbColor={value ? colors.primary : colors.card}
+          thumbColor={value ? colors.primary : colors.textSecondary}
         />
-      )}
-      {onPress && (
+      ) : (
         <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
       )}
     </TouchableOpacity>
@@ -123,6 +132,20 @@ const ProfileScreen: React.FC = () => {
           <Ionicons name="chevron-forward" size={24} color={colors.white} />
         </TouchableOpacity>
         
+        {/* Financial Documents Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Financial Documents</Text>
+          <View style={styles.sectionCard}>
+            {renderSettingItem(
+              'document-text-outline', 
+              'Bank Statements', 
+              undefined, 
+              undefined,
+              handleNavigateToBankStatements
+            )}
+          </View>
+        </View>
+        
         {/* Settings Section */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Settings</Text>
@@ -150,42 +173,35 @@ const ProfileScreen: React.FC = () => {
               'Change Password', 
               undefined, 
               undefined, 
-              () => console.log('Change password')
+              () => console.log('Navigate to change password')
             )}
           </View>
         </View>
         
-        {/* Account Section */}
+        {/* Support Section */}
         <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Account</Text>
+          <Text style={styles.sectionTitle}>Support</Text>
           <View style={styles.sectionCard}>
             {renderSettingItem(
-              'person-outline', 
-              'Edit Profile', 
-              undefined, 
-              undefined, 
-              () => console.log('Edit profile')
-            )}
-            {renderSettingItem(
-              'cloud-download-outline', 
-              'Export Data', 
-              undefined, 
-              undefined, 
-              () => console.log('Export data')
-            )}
-            {renderSettingItem(
               'help-circle-outline', 
-              'Help & Support', 
+              'Help Center', 
               undefined, 
               undefined, 
-              () => console.log('Help & support')
+              () => console.log('Navigate to help center')
             )}
             {renderSettingItem(
-              'document-text-outline', 
-              'Terms & Privacy Policy', 
+              'mail-outline', 
+              'Contact Support', 
               undefined, 
               undefined, 
-              () => console.log('Terms & privacy')
+              () => console.log('Navigate to contact support')
+            )}
+            {renderSettingItem(
+              'star-outline', 
+              'Rate the App', 
+              undefined, 
+              undefined, 
+              () => console.log('Open app store rating')
             )}
           </View>
         </View>
@@ -197,7 +213,7 @@ const ProfileScreen: React.FC = () => {
         </TouchableOpacity>
         
         {/* App Version */}
-        <Text style={styles.versionText}>Buzo v1.0.0</Text>
+        <Text style={styles.versionText}>Version 1.0.0</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -324,21 +340,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  settingIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: `${colors.primary}10`,
-    justifyContent: 'center',
+  settingItemLeft: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginRight: spacing.md,
   },
-  settingTitle: {
-    flex: 1,
+  settingItemText: {
     fontSize: textStyles.body1.fontSize,
     fontWeight: textStyles.body1.fontWeight as any,
     lineHeight: textStyles.body1.lineHeight,
     color: textStyles.body1.color,
+    marginLeft: spacing.md,
   },
   logoutButton: {
     flexDirection: 'row',

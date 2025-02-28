@@ -17,6 +17,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import InsightsScreen from '../screens/InsightsScreen';
 import LearnScreen from '../screens/EducationScreen';
 import ArticleDetailScreen from '../screens/ArticleDetailScreen';
+import BankStatementsScreen from '../screens/BankStatementsScreen';
 
 // Import theme
 import { colors } from '../utils/theme';
@@ -36,9 +37,18 @@ export type MainTabParamList = {
   Learn: undefined;
 };
 
+export type MainStackParamList = {
+  Profile: undefined;
+  BankStatements: undefined;
+  Insights: undefined;
+};
+
 export type RootStackParamList = {
   MainTabs: undefined;
   ArticleDetail: { article: any };
+  Profile: undefined;
+  BankStatements: undefined;
+  Insights: undefined;
 };
 
 // Create navigation stacks
@@ -163,6 +173,9 @@ const RootNavigator = () => {
       <RootStack.Group screenOptions={{ presentation: 'modal' }}>
         <RootStack.Screen name="ArticleDetail" component={ArticleDetailScreen} />
       </RootStack.Group>
+      <RootStack.Screen name="Profile" component={ProfileScreen} />
+      <RootStack.Screen name="BankStatements" component={BankStatementsScreen} />
+      <RootStack.Screen name="Insights" component={InsightsScreen} />
     </RootStack.Navigator>
   );
 };
