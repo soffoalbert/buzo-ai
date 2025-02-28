@@ -90,33 +90,68 @@ export const getUserId = async (): Promise<string | null> => {
  * @param email User's email
  * @param password User's password
  * @param fullName User's full name
- * @returns The user data
+ * @returns The user data and status information
  */
 export const registerUser = async (
   email: string,
   password: string,
   fullName: string
-): Promise<any> => {
+): Promise<{
+  data: any;
+  error: any;
+  needsEmailConfirmation?: boolean;
+  message?: string;
+}> => {
   try {
+    console.log(`Attempting to register user with email: ${email}`);
+    
+    // Validate inputs
+    if (!email || !password || !fullName) {
+      console.error('Registration failed: Missing required fields');
+      return { 
+        data: null, 
+        error: new Error('Email, password, and full name are required'),
+        message: 'Please provide all required information'
+      };
+    }
+    
     // Register the user with Supabase
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          full_name: fullName
+        }
+      }
     });
 
     if (authError) {
       console.error('Supabase auth error:', authError);
-      return { data: null, error: authError };
+      
+      // Provide more user-friendly error messages
+      let message = 'Registration failed';
+      if (authError.message.includes('email')) {
+        message = 'Invalid email format or email already in use';
+      } else if (authError.message.includes('password')) {
+        message = 'Password does not meet requirements';
+      }
+      
+      return { data: null, error: authError, message };
     }
 
     if (!authData.user) {
       const error = new Error('Registration failed: No user data returned');
       console.error(error);
-      return { data: null, error };
+      return { data: null, error, message: 'Registration failed. Please try again.' };
     }
 
+    // Check if email confirmation is required
+    const needsEmailConfirmation = !authData.session;
+    
     // Log successful user creation
     console.log('User created successfully with ID:', authData.user.id);
+    console.log('Email confirmation required:', needsEmailConfirmation);
 
     // Create a user profile in the profiles table with minimal required fields
     try {
@@ -153,6 +188,8 @@ export const registerUser = async (
         if (updateError) {
           console.error('Error updating profile:', updateError);
           // Continue anyway - the user is created
+        } else {
+          console.log('Profile updated successfully');
         }
       } else {
         // Create a new profile with minimal fields
@@ -183,6 +220,8 @@ export const registerUser = async (
             console.log('Row-level security policy violation. Storing profile data locally.');
             await AsyncStorage.setItem('userProfile', JSON.stringify(profileData));
           }
+        } else {
+          console.log('Profile created successfully');
         }
       }
     } catch (profileError) {
@@ -197,22 +236,39 @@ export const registerUser = async (
       await AsyncStorage.setItem('userProfile', JSON.stringify(profileData));
     }
 
-    // Store user data in secure storage
-    try {
-      // Use the new secure storage helper for the token
-      await secureStoreWithFallback('userToken', authData.session?.access_token || '');
-      await AsyncStorage.setItem('userId', authData.user.id);
-      await AsyncStorage.setItem('userEmail', email);
-      await AsyncStorage.setItem('userFullName', fullName);
-    } catch (storageError) {
-      console.error('Storage error:', storageError);
-      // Continue even if storage fails, just log the error
+    // Only store session data if we have a session (user is confirmed)
+    if (authData.session) {
+      // Store user data in secure storage
+      try {
+        // Use the new secure storage helper for the token
+        await secureStoreWithFallback('userToken', authData.session?.access_token || '');
+        await AsyncStorage.setItem('userId', authData.user.id);
+        await AsyncStorage.setItem('userEmail', email);
+        await AsyncStorage.setItem('userFullName', fullName);
+        console.log('User session data stored successfully');
+      } catch (storageError) {
+        console.error('Storage error:', storageError);
+        // Continue even if storage fails, just log the error
+      }
+    } else {
+      console.log('No session available - user needs to confirm email');
     }
 
-    return { data: authData, error: null };
+    return { 
+      data: authData, 
+      error: null,
+      needsEmailConfirmation,
+      message: needsEmailConfirmation 
+        ? 'Please check your email to confirm your account' 
+        : 'Registration successful'
+    };
   } catch (error) {
     console.error('Error in registerUser:', error);
-    return { data: null, error };
+    return { 
+      data: null, 
+      error,
+      message: 'An unexpected error occurred during registration'
+    };
   }
 };
 
@@ -220,10 +276,27 @@ export const registerUser = async (
  * Login a user
  * @param email User's email
  * @param password User's password
- * @returns The user data
+ * @returns The user data and status information
  */
-export const loginUser = async (email: string, password: string): Promise<any> => {
+export const loginUser = async (email: string, password: string): Promise<{
+  data: any;
+  error: any;
+  message?: string;
+  isNewUser?: boolean;
+}> => {
   try {
+    console.log(`Attempting to login user with email: ${email}`);
+    
+    // Validate inputs
+    if (!email || !password) {
+      console.error('Login failed: Missing required fields');
+      return { 
+        data: null, 
+        error: new Error('Email and password are required'),
+        message: 'Please provide both email and password'
+      };
+    }
+    
     // Login the user with Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -232,15 +305,31 @@ export const loginUser = async (email: string, password: string): Promise<any> =
 
     if (error) {
       console.error('Supabase auth error:', error);
-      return { data: null, error };
+      
+      // Provide more user-friendly error messages
+      let message = 'Login failed';
+      if (error.message.includes('Invalid login credentials')) {
+        message = 'Invalid email or password';
+      } else if (error.message.includes('Email not confirmed')) {
+        message = 'Please verify your email address before logging in';
+      } else if (error.message.includes('rate limit')) {
+        message = 'Too many login attempts. Please try again later';
+      }
+      
+      return { data: null, error, message };
     }
 
     if (!data.user) {
       const error = new Error('Login failed: No user data returned');
       console.error(error);
-      return { data: null, error };
+      return { data: null, error, message: 'Login failed. Please try again.' };
     }
 
+    console.log('User logged in successfully with ID:', data.user.id);
+
+    // Check if this is a new user (no profile yet)
+    let isNewUser = false;
+    
     // Get user profile from the profiles table
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
@@ -250,7 +339,41 @@ export const loginUser = async (email: string, password: string): Promise<any> =
 
     if (profileError) {
       console.error('Error fetching user profile:', profileError);
-      // Continue even if profile fetch fails
+      
+      if (profileError.code === 'PGRST116') { // Not found
+        console.log('No profile found for user, may be a new user');
+        isNewUser = true;
+        
+        // Try to create a profile for this user
+        try {
+          const newProfileData = {
+            id: data.user.id,
+            email: email,
+            full_name: data.user.user_metadata?.full_name || '',
+            created_at: new Date().toISOString()
+          };
+          
+          const { error: createError } = supabaseAdmin
+            ? await supabaseAdmin
+                .from('profiles')
+                .insert([newProfileData])
+            : await supabase
+                .from('profiles')
+                .insert([newProfileData]);
+                
+          if (createError) {
+            console.error('Error creating profile for new user:', createError);
+            // Store locally as fallback
+            await AsyncStorage.setItem('userProfile', JSON.stringify(newProfileData));
+          } else {
+            console.log('Created new profile for user');
+          }
+        } catch (createProfileError) {
+          console.error('Unexpected error creating profile:', createProfileError);
+        }
+      }
+    } else {
+      console.log('User profile retrieved successfully');
     }
 
     // Store user data in secure storage
@@ -260,41 +383,119 @@ export const loginUser = async (email: string, password: string): Promise<any> =
       await AsyncStorage.setItem('userId', data.user.id);
       await AsyncStorage.setItem('userEmail', email);
       
-      if (profileData) {
-        await AsyncStorage.setItem('userFullName', profileData.full_name);
+      // Get full name from profile or user metadata
+      const fullName = profileData?.full_name || data.user.user_metadata?.full_name || '';
+      if (fullName) {
+        await AsyncStorage.setItem('userFullName', fullName);
       }
+      
+      console.log('User session data stored successfully');
     } catch (storageError) {
       console.error('Storage error:', storageError);
       // Continue even if storage fails, just log the error
     }
 
-    return { data, error: null };
+    return { 
+      data, 
+      error: null,
+      isNewUser,
+      message: isNewUser ? 'Welcome! Please complete your profile' : 'Login successful'
+    };
   } catch (error) {
     console.error('Error in loginUser:', error);
-    return { data: null, error };
+    return { 
+      data: null, 
+      error,
+      message: 'An unexpected error occurred during login'
+    };
   }
 };
 
 /**
  * Logout the current user
+ * @returns Status information about the logout operation
  */
-export const logoutUser = async (): Promise<void> => {
+export const logoutUser = async (): Promise<{
+  success: boolean;
+  error?: any;
+  message?: string;
+}> => {
   try {
+    console.log('Attempting to log out user');
+    
+    // Get user ID for logging purposes
+    const userId = await AsyncStorage.getItem('userId');
+    if (userId) {
+      console.log(`Logging out user with ID: ${userId}`);
+    }
+    
     // Sign out from Supabase
     const { error } = await supabase.auth.signOut();
     
     if (error) {
+      console.error('Error signing out from Supabase:', error);
       throw new Error(error.message);
     }
 
+    console.log('Successfully signed out from Supabase');
+
     // Clear secure storage
-    await secureDeleteWithFallback('userToken');
-    await AsyncStorage.removeItem('userId');
-    await AsyncStorage.removeItem('userEmail');
-    await AsyncStorage.removeItem('userFullName');
+    try {
+      await secureDeleteWithFallback('userToken');
+      console.log('User token cleared');
+    } catch (tokenError) {
+      console.error('Error clearing user token:', tokenError);
+      // Continue with other cleanup
+    }
+    
+    // Clear all user data from AsyncStorage
+    const keysToRemove = [
+      'userId', 
+      'userEmail', 
+      'userFullName', 
+      'userProfile',
+      'secure_userToken'
+    ];
+    
+    // Add any other user-related keys that might be stored
+    const allKeys = await AsyncStorage.getAllKeys();
+    const userRelatedKeys = allKeys.filter(key => 
+      key.startsWith('user') || 
+      key.startsWith('secure_') || 
+      key.startsWith('buzo_')
+    );
+    
+    // Combine all keys to remove
+    const allKeysToRemove = [...new Set([...keysToRemove, ...userRelatedKeys])];
+    
+    // Remove all keys
+    await AsyncStorage.multiRemove(allKeysToRemove);
+    console.log(`Cleared ${allKeysToRemove.length} items from local storage`);
+    
+    return { 
+      success: true,
+      message: 'You have been successfully logged out'
+    };
   } catch (error) {
     console.error('Error in logoutUser:', error);
-    throw error;
+    
+    // Even if there's an error with Supabase, try to clear local data
+    try {
+      await secureDeleteWithFallback('userToken');
+      await AsyncStorage.removeItem('userId');
+      await AsyncStorage.removeItem('userEmail');
+      await AsyncStorage.removeItem('userFullName');
+      await AsyncStorage.removeItem('userProfile');
+      console.log('Local user data cleared despite Supabase error');
+    } catch (clearError) {
+      console.error('Error clearing local data:', clearError);
+    }
+    
+    return { 
+      success: false, 
+      error,
+      message: 'There was a problem logging out, but your local session has been cleared'
+    };
   }
 };
 
@@ -447,5 +648,209 @@ export const updateUserProfile = async (profileData: any): Promise<any> => {
   } catch (error) {
     console.error('Error in updateUserProfile:', error);
     return { data: null, error };
+  }
+};
+
+/**
+ * Send a password reset email to the user
+ * @param email The email address to send the reset link to
+ * @returns Status information about the password reset request
+ */
+export const resetPassword = async (email: string): Promise<{
+  success: boolean;
+  error?: any;
+  message: string;
+}> => {
+  try {
+    console.log(`Sending password reset email to: ${email}`);
+    
+    if (!email) {
+      return {
+        success: false,
+        error: new Error('Email is required'),
+        message: 'Please provide your email address'
+      };
+    }
+    
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: 'buzoai://reset-password'
+    });
+    
+    if (error) {
+      console.error('Error sending password reset email:', error);
+      return {
+        success: false,
+        error,
+        message: 'Failed to send password reset email. Please try again.'
+      };
+    }
+    
+    console.log('Password reset email sent successfully');
+    return {
+      success: true,
+      message: 'Password reset instructions have been sent to your email'
+    };
+  } catch (error) {
+    console.error('Error in resetPassword:', error);
+    return {
+      success: false,
+      error,
+      message: 'An unexpected error occurred. Please try again later.'
+    };
+  }
+};
+
+/**
+ * Update the user's password
+ * @param newPassword The new password
+ * @returns Status information about the password update
+ */
+export const updatePassword = async (newPassword: string): Promise<{
+  success: boolean;
+  error?: any;
+  message: string;
+}> => {
+  try {
+    console.log('Attempting to update user password');
+    
+    if (!newPassword || newPassword.length < 6) {
+      return {
+        success: false,
+        error: new Error('Invalid password'),
+        message: 'Password must be at least 6 characters long'
+      };
+    }
+    
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+    
+    if (error) {
+      console.error('Error updating password:', error);
+      return {
+        success: false,
+        error,
+        message: 'Failed to update password. Please try again.'
+      };
+    }
+    
+    console.log('Password updated successfully');
+    return {
+      success: true,
+      message: 'Your password has been updated successfully'
+    };
+  } catch (error) {
+    console.error('Error in updatePassword:', error);
+    return {
+      success: false,
+      error,
+      message: 'An unexpected error occurred. Please try again later.'
+    };
+  }
+};
+
+/**
+ * Verify a user's email using a token from the URL
+ * @param token The verification token from the email link
+ * @returns Status information about the verification
+ */
+export const verifyEmail = async (token: string): Promise<{
+  success: boolean;
+  error?: any;
+  message: string;
+}> => {
+  try {
+    console.log('Verifying email with token');
+    
+    if (!token) {
+      return {
+        success: false,
+        error: new Error('Invalid token'),
+        message: 'Verification token is missing or invalid'
+      };
+    }
+    
+    // This is typically handled by the deep link handler in your app
+    // The token would be extracted from the URL and then used to verify the session
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: token,
+      type: 'email'
+    });
+    
+    if (error) {
+      console.error('Error verifying email:', error);
+      return {
+        success: false,
+        error,
+        message: 'Failed to verify your email. The link may have expired.'
+      };
+    }
+    
+    console.log('Email verified successfully');
+    return {
+      success: true,
+      message: 'Your email has been verified successfully'
+    };
+  } catch (error) {
+    console.error('Error in verifyEmail:', error);
+    return {
+      success: false,
+      error,
+      message: 'An unexpected error occurred during verification'
+    };
+  }
+};
+
+/**
+ * Resend verification email to the user
+ * @param email The email address to resend verification to
+ * @returns Status information about the resend request
+ */
+export const resendVerificationEmail = async (email: string): Promise<{
+  success: boolean;
+  error?: any;
+  message: string;
+}> => {
+  try {
+    console.log(`Resending verification email to: ${email}`);
+    
+    if (!email) {
+      return {
+        success: false,
+        error: new Error('Email is required'),
+        message: 'Please provide your email address'
+      };
+    }
+    
+    // Use OTP to send a verification email
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: {
+        emailRedirectTo: 'buzoai://verify-email'
+      }
+    });
+    
+    if (error) {
+      console.error('Error resending verification email:', error);
+      return {
+        success: false,
+        error,
+        message: 'Failed to resend verification email. Please try again.'
+      };
+    }
+    
+    console.log('Verification email resent successfully');
+    return {
+      success: true,
+      message: 'Verification email has been sent. Please check your inbox.'
+    };
+  } catch (error) {
+    console.error('Error in resendVerificationEmail:', error);
+    return {
+      success: false,
+      error,
+      message: 'An unexpected error occurred. Please try again later.'
+    };
   }
 }; 

@@ -21,6 +21,7 @@ import { AuthStackParamList } from '../navigation';
 import { colors, spacing, textStyles, borderRadius } from '../utils/theme';
 import { loginUser } from '../services/authService';
 import { processPendingBankStatementUploads } from '../services/pendingUploadsService';
+import { notifyAuthStateChanged } from '../utils/authStateManager';
 
 type LoginScreenProps = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
@@ -42,11 +43,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 
     try {
       // Call the actual login API
-      const { data, error } = await loginUser(email, password);
+      const { data, error, message, isNewUser } = await loginUser(email, password);
       
       if (error) {
         // Display a more specific error message if available
-        const errorMessage = error.message || 'Login failed. Please check your credentials and try again.';
+        const errorMessage = message || error.message || 'Login failed. Please check your credentials and try again.';
         Alert.alert('Login Failed', errorMessage);
         setIsLoading(false);
         return;
@@ -59,14 +60,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       setEmail('');
       setPassword('');
       
-      // Navigate to the main app
-      // This assumes you have a navigation mechanism to the main app
-      // You might need to adjust this based on your navigation setup
-      // For example, if you're using a navigation container with auth state:
-      // navigation.reset({
-      //   index: 0,
-      //   routes: [{ name: 'Main' }],
-      // });
+      // Notify the app about auth state change
+      notifyAuthStateChanged();
+      
+      // Show welcome message for new users
+      if (isNewUser) {
+        Alert.alert('Welcome!', 'Your account has been set up. Please complete your profile to get the most out of Buzo.');
+      }
+      
+      // No need to manually navigate - the auth state change will trigger
+      // the AppNavigator to show the main app screens automatically
     } catch (error) {
       console.error('Login error:', error);
       Alert.alert('Login Failed', 'An unexpected error occurred. Please try again later.');

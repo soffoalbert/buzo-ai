@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
+import { checkAuthState, subscribeToAuthStateChanges, unsubscribeFromAuthStateChanges } from '../utils/authStateManager';
 
 // Import screens
 import OnboardingScreen from '../screens/OnboardingScreen';
@@ -18,6 +19,7 @@ import InsightsScreen from '../screens/InsightsScreen';
 import LearnScreen from '../screens/EducationScreen';
 import ArticleDetailScreen from '../screens/ArticleDetailScreen';
 import BankStatementsScreen from '../screens/BankStatementsScreen';
+import LoadingScreen from '../components/LoadingScreen';
 
 // Import theme
 import { colors } from '../utils/theme';
@@ -57,12 +59,13 @@ const MainTab = createBottomTabNavigator<MainTabParamList>();
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 
 // Auth Navigator
-const AuthNavigator = () => {
+export const AuthNavigator: React.FC<{ hasOnboarded: boolean }> = ({ hasOnboarded }) => {
   return (
     <AuthStack.Navigator
       screenOptions={{
         headerShown: false,
       }}
+      initialRouteName={hasOnboarded ? "Login" : "Onboarding"}
     >
       <AuthStack.Screen name="Onboarding" component={OnboardingScreen} />
       <AuthStack.Screen name="Login" component={LoginScreen} />
@@ -72,7 +75,7 @@ const AuthNavigator = () => {
 };
 
 // Main Tab Navigator
-const MainNavigator = () => {
+export const MainNavigator: React.FC = () => {
   return (
     <MainTab.Navigator
       screenOptions={({ route }) => ({
@@ -166,7 +169,7 @@ const MainNavigator = () => {
 };
 
 // Root Stack with Main Tabs and Modal Screens
-const RootNavigator = () => {
+export const RootNavigator: React.FC = () => {
   return (
     <RootStack.Navigator screenOptions={{ headerShown: false }}>
       <RootStack.Screen name="MainTabs" component={MainNavigator} />
@@ -181,37 +184,63 @@ const RootNavigator = () => {
 };
 
 // Root Navigator
-const AppNavigator = () => {
+const AppNavigator: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [hasOnboarded, setHasOnboarded] = useState<boolean | null>(null);
+  const [hasOnboarded, setHasOnboarded] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Function to check authentication state
+  const updateAuthState = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Use the checkAuthState function from authStateManager
+      const authStatus = await checkAuthState();
+      const onboardingCompleted = await SecureStore.getItemAsync('onboardingCompleted');
+      
+      console.log('Auth status checked:', authStatus);
+      console.log('Onboarding completed:', !!onboardingCompleted);
+      
+      setIsAuthenticated(authStatus);
+      setHasOnboarded(!!onboardingCompleted);
+    } catch (error) {
+      console.error('Error checking auth state:', error);
+      setIsAuthenticated(false);
+      setHasOnboarded(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Check if user is authenticated and has completed onboarding
-    const checkAuthState = async () => {
-      try {
-        const userToken = await SecureStore.getItemAsync('userToken');
-        const onboardingCompleted = await SecureStore.getItemAsync('onboardingCompleted');
-        
-        setIsAuthenticated(!!userToken);
-        setHasOnboarded(!!onboardingCompleted);
-      } catch (error) {
-        console.error('Error checking auth state:', error);
-        setIsAuthenticated(false);
-        setHasOnboarded(false);
-      }
+    // Check auth state when component mounts
+    updateAuthState();
+    
+    // Set up listener for auth state changes using the utility
+    const subscription = subscribeToAuthStateChanges(() => {
+      console.log('Auth state change detected, rechecking auth status');
+      updateAuthState();
+    });
+    
+    // Clean up listener on unmount
+    return () => {
+      unsubscribeFromAuthStateChanges(subscription);
     };
-
-    checkAuthState();
   }, []);
 
   // Show loading screen while checking auth state
-  if (isAuthenticated === null || hasOnboarded === null) {
-    return null; // Replace with a loading component if needed
+  if (isAuthenticated === null) {
+    return <LoadingScreen message="Starting Buzo..." />;
+  }
+  
+  // Show loading screen during auth state changes
+  if (isLoading) {
+    return <LoadingScreen message="Updating..." />;
   }
 
   return (
     <NavigationContainer>
-      {isAuthenticated ? <RootNavigator /> : <AuthNavigator />}
+      {isAuthenticated ? <RootNavigator /> : <AuthNavigator hasOnboarded={hasOnboarded} />}
     </NavigationContainer>
   );
 };

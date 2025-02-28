@@ -14,12 +14,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import * as SecureStore from 'expo-secure-store';
 
 import { AuthStackParamList } from '../navigation';
 import { colors, spacing, textStyles, borderRadius } from '../utils/theme';
 import { registerUser } from '../services/authService';
 import { processPendingBankStatementUploads } from '../services/pendingUploadsService';
+import { notifyAuthStateChanged } from '../utils/authStateManager';
 
 type RegisterScreenProps = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Register'>;
@@ -55,11 +55,11 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
 
     try {
       // Call the actual registration API
-      const { data, error } = await registerUser(email, password, name);
+      const { data, error, message, needsEmailConfirmation } = await registerUser(email, password, name);
       
       if (error) {
         // Display a more specific error message if available
-        const errorMessage = error.message || 'Registration failed. Please try again later.';
+        const errorMessage = message || error.message || 'Registration failed. Please try again later.';
         Alert.alert('Registration Failed', errorMessage);
         setIsLoading(false);
         return;
@@ -74,23 +74,23 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
       setPassword('');
       setConfirmPassword('');
       
-      // Navigate to the main app
-      // This assumes you have a navigation mechanism to the main app
-      // You might need to adjust this based on your navigation setup
-      Alert.alert('Success', 'Your account has been created successfully!', [
-        { text: 'OK', onPress: () => {
-          // Navigate to the main app after successful registration
-          // This will depend on your navigation structure
-          // For example, if you're using a navigation container with auth state:
-          // navigation.reset({
-          //   index: 0,
-          //   routes: [{ name: 'Main' }],
-          // });
-          
-          // For now, just navigate to Login screen
-          navigation.navigate('Login');
-        }}
-      ]);
+      if (needsEmailConfirmation) {
+        // If email confirmation is required, show a message and navigate to login
+        Alert.alert(
+          'Email Verification Required', 
+          'Please check your email to verify your account before logging in.', 
+          [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
+        );
+      } else {
+        // If no email confirmation is required, notify about auth state change
+        // and the app will automatically navigate to the main screens
+        notifyAuthStateChanged();
+        
+        Alert.alert(
+          'Registration Successful', 
+          'Your account has been created successfully!'
+        );
+      }
     } catch (error) {
       console.error('Registration error:', error);
       Alert.alert('Registration Failed', 'An unexpected error occurred. Please try again later.');
@@ -238,11 +238,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   title: {
-    ...textStyles.h1,
+    fontSize: textStyles.h1.fontSize,
+    fontWeight: textStyles.h1.fontWeight as any,
+    lineHeight: textStyles.h1.lineHeight,
+    color: textStyles.h1.color,
     marginBottom: spacing.xs,
   },
   subtitle: {
-    ...textStyles.body1,
+    fontSize: textStyles.body1.fontSize,
+    fontWeight: textStyles.body1.fontWeight as any,
+    lineHeight: textStyles.body1.lineHeight,
     color: colors.textSecondary,
   },
   form: {
@@ -298,11 +303,15 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
   },
   footerText: {
-    ...textStyles.body2,
+    fontSize: textStyles.body2.fontSize,
+    fontWeight: textStyles.body2.fontWeight as any,
+    lineHeight: textStyles.body2.lineHeight,
     color: colors.textSecondary,
   },
   footerLink: {
-    ...textStyles.subtitle2,
+    fontSize: textStyles.subtitle2.fontSize,
+    fontWeight: textStyles.subtitle2.fontWeight as any,
+    lineHeight: textStyles.subtitle2.lineHeight,
     color: colors.primary,
   },
 });

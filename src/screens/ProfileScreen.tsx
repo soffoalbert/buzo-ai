@@ -7,14 +7,16 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import * as SecureStore from 'expo-secure-store';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
+import { logoutUser } from '../services/authService';
+import { notifyAuthStateChanged } from '../utils/authStateManager';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 
@@ -25,6 +27,7 @@ const ProfileScreen: React.FC = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   
   // Mock user data
   const userData = {
@@ -47,11 +50,28 @@ const ProfileScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await SecureStore.deleteItemAsync('userToken');
-              // In a real app, navigation would be handled by the auth state change
-              console.log('User logged out');
+              setIsLoggingOut(true);
+              
+              // Use the proper logout function from authService
+              const { success, error, message } = await logoutUser();
+              
+              if (success) {
+                console.log('User logged out successfully');
+                
+                // Notify the app about auth state change using the utility
+                notifyAuthStateChanged();
+                
+                // No need to manually navigate - the auth state change will trigger
+                // the AppNavigator to show the auth screens automatically
+              } else {
+                console.error('Error logging out:', error);
+                Alert.alert('Logout Error', message || 'There was a problem logging out. Please try again.');
+              }
             } catch (error) {
-              console.error('Error logging out:', error);
+              console.error('Error during logout:', error);
+              Alert.alert('Logout Error', 'An unexpected error occurred. Please try again.');
+            } finally {
+              setIsLoggingOut(false);
             }
           },
         },
@@ -207,9 +227,15 @@ const ProfileScreen: React.FC = () => {
         </View>
         
         {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <TouchableOpacity 
+          style={styles.logoutButton} 
+          onPress={handleLogout}
+          disabled={isLoggingOut}
+        >
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={styles.logoutText}>Logout</Text>
+          <Text style={styles.logoutText}>
+            {isLoggingOut ? 'Logging out...' : 'Logout'}
+          </Text>
         </TouchableOpacity>
         
         {/* App Version */}

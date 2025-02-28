@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import BankStatementUploader from '../components/BankStatementUploader';
 import { uploadBankStatement } from '../services/bankStatementService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 
 // Get screen dimensions
 const { width, height } = Dimensions.get('window');
@@ -80,8 +81,18 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
     setCurrentIndex(index);
   };
 
+  // Mark onboarding as completed
+  const markOnboardingCompleted = async () => {
+    try {
+      await SecureStore.setItemAsync('onboardingCompleted', 'true');
+      console.log('Onboarding marked as completed');
+    } catch (error) {
+      console.error('Error saving onboarding status:', error);
+    }
+  };
+
   // Navigate to next slide or login screen
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentIndex < slides.length - 1) {
       flatListRef.current?.scrollToIndex({
         index: currentIndex + 1,
@@ -89,6 +100,9 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
       });
       setCurrentIndex(currentIndex + 1);
     } else {
+      // Mark onboarding as completed
+      await markOnboardingCompleted();
+      
       // If user has uploaded a statement, navigate to register
       if (uploadedStatement) {
         navigation.navigate('Register');
@@ -99,7 +113,9 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
   };
 
   // Skip to login screen
-  const handleSkip = () => {
+  const handleSkip = async () => {
+    // Mark onboarding as completed even when skipped
+    await markOnboardingCompleted();
     navigation.navigate('Login');
   };
 
@@ -241,7 +257,10 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
         {currentIndex === slides.length - 1 && (
           <TouchableOpacity
             style={[styles.button, styles.registerButton]}
-            onPress={() => navigation.navigate('Register')}
+            onPress={async () => {
+              await markOnboardingCompleted();
+              navigation.navigate('Register');
+            }}
           >
             <Text style={styles.buttonText}>Create Account</Text>
           </TouchableOpacity>
