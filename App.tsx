@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   statusBarContainer: {
-    paddingTop: 10, // Additional padding to move the status bar down
+    paddingTop: 0, // Removed padding completely
   },
   content: {
     flex: 1,
