@@ -12,6 +12,7 @@ export interface Expense {
     name?: string;
   };
   tags?: string[];
+  paymentMethod?: PaymentMethod;
   createdAt: string;
   updatedAt: string;
 }
@@ -47,9 +48,20 @@ export interface ExpenseStatistics {
   dailyExpenses: {
     date: string;
     amount: number;
+    count: number;
   }[];
   monthlyComparison: {
     month: string;
     amount: number;
   }[];
+  weeklyComparison: {
+    week: string;
+    amount: number;
+  }[];
+  paymentMethodBreakdown: {
+    [method: string]: number;
+  };
+  averageAmount: number;
+  expenseFrequency: number;
+  expenseCount: number;
 } 

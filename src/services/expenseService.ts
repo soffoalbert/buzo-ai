@@ -2,6 +2,7 @@ import { Expense, ExpenseFilters, ExpenseStatistics, PaymentMethod } from '../mo
 import { saveData, loadData, removeData } from './offlineStorage';
 import { generateUUID, groupBy } from '../utils/helpers';
 import { updateBudgetSpending } from './budgetService';
+import { isMockDataEnabled, loadMockExpenses } from './mockDataService';
 
 // Storage keys
 const EXPENSES_STORAGE_KEY = 'buzo_expenses';
@@ -27,8 +28,17 @@ export const saveExpenses = async (expenses: Expense[]): Promise<Expense[]> => {
  */
 export const loadExpenses = async (): Promise<Expense[]> => {
   try {
-    const expenses = await loadData<Expense[]>(EXPENSES_STORAGE_KEY);
-    return expenses || [];
+    // Check if mock data is enabled
+    const mockEnabled = await isMockDataEnabled();
+    
+    if (mockEnabled) {
+      // Load mock expenses
+      return await loadMockExpenses();
+    } else {
+      // Load real expenses
+      const expenses = await loadData<Expense[]>(EXPENSES_STORAGE_KEY);
+      return expenses || [];
+    }
   } catch (error) {
     console.error('Error loading expenses:', error);
     return [];
@@ -304,6 +314,7 @@ export const getExpenseStatistics = async (
   ).map(([date, expenses]) => ({
     date,
     amount: expenses.reduce((sum, expense) => sum + expense.amount, 0),
+    count: expenses.length,
   }));
   
   // Calculate monthly comparison
@@ -323,10 +334,55 @@ export const getExpenseStatistics = async (
     })
   );
   
+  // Calculate weekly comparison
+  const weeklyExpenses = expenses.reduce((acc, expense) => {
+    // Get the week number and year
+    const date = new Date(expense.date);
+    const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+    const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
+    const weekNumber = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+    const weekKey = `${date.getFullYear()}-W${weekNumber}`;
+    
+    if (!acc[weekKey]) {
+      acc[weekKey] = 0;
+    }
+    acc[weekKey] += expense.amount;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  const weeklyComparison = Object.entries(weeklyExpenses).map(
+    ([week, amount]) => ({
+      week,
+      amount,
+    })
+  );
+  
+  // Calculate payment method breakdown
+  const paymentMethodBreakdown = expenses.reduce((acc, expense) => {
+    const method = expense.paymentMethod || 'unknown';
+    if (!acc[method]) {
+      acc[method] = 0;
+    }
+    acc[method] += expense.amount;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  // Calculate average expense amount
+  const averageAmount = totalAmount / (expenses.length || 1);
+  
+  // Calculate expense frequency (expenses per day)
+  const uniqueDays = new Set(expenses.map(expense => expense.date.split('T')[0])).size;
+  const expenseFrequency = uniqueDays > 0 ? expenses.length / uniqueDays : 0;
+  
   return {
     totalAmount,
     categoryBreakdown,
     dailyExpenses,
     monthlyComparison,
+    weeklyComparison,
+    paymentMethodBreakdown,
+    averageAmount,
+    expenseFrequency,
+    expenseCount: expenses.length,
   };
 }; 

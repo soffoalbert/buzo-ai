@@ -11,26 +11,34 @@ export const generateUUID = (): string => {
 };
 
 /**
- * Format currency amount based on locale and currency code
- * @param amount The amount to format
- * @param currencyCode The ISO currency code (e.g., 'ZAR', 'USD')
- * @param locale The locale to use for formatting (defaults to 'en-ZA')
+ * Format a number as currency
+ * @param amount Amount to format
+ * @param locale Locale to use for formatting (default: 'en-ZA')
+ * @param currency Currency code to use (default: 'ZAR')
  * @returns Formatted currency string
  */
 export const formatCurrency = (
   amount: number,
-  currencyCode = 'USD',
-  locale = 'en-US'
+  locale: string = 'en-ZA',
+  currency: string = 'ZAR'
 ): string => {
   try {
+    // For South African Rand, use a specific format
+    if (currency === 'ZAR') {
+      return `R ${amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}`;
+    }
+    
+    // For other currencies, use Intl.NumberFormat
     return new Intl.NumberFormat(locale, {
       style: 'currency',
-      currency: currencyCode,
+      currency: currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   } catch (error) {
-    console.warn(`Error formatting currency: ${error}. Falling back to simple format.`);
-    // Fallback to a simple format if the currency code is invalid
-    return `${currencyCode} ${amount.toFixed(2)}`;
+    console.warn('Error formatting currency:', error);
+    // Fallback to simple format
+    return `${currency} ${amount.toFixed(2)}`;
   }
 };
 

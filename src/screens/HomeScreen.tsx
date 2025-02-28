@@ -84,6 +84,14 @@ const HomeScreen: React.FC = () => {
     navigation.navigate('Notifications');
   };
 
+  const handleNavigateToExpenseAnalytics = () => {
+    navigation.navigate('ExpenseAnalytics');
+  };
+
+  const handleNavigateToTestChart = () => {
+    navigation.navigate('TestChart');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -154,9 +162,14 @@ const HomeScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Spending Chart */}
+        {/* Weekly Spending */}
         <View style={styles.chartCard}>
-          <Text style={styles.cardTitle}>Weekly Spending</Text>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Weekly Spending</Text>
+            <TouchableOpacity onPress={handleNavigateToExpenseAnalytics}>
+              <Text style={styles.seeAllText}>See Analytics</Text>
+            </TouchableOpacity>
+          </View>
           <LineChart
             data={spendingChartData}
             width={width - spacing.lg * 2 - 10}
@@ -391,9 +404,9 @@ const styles = StyleSheet.create({
   },
   chartCard: {
     backgroundColor: colors.white,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
     ...shadows.md,
   },
   chart: {
@@ -402,24 +415,16 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     overflow: 'hidden',
   },
-  sectionCard: {
-    backgroundColor: colors.white,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-    ...shadows.md,
-  },
-  sectionHeader: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    marginBottom: spacing.xs,
   },
   cardTitle: {
     fontSize: textStyles.h3.fontSize,
     fontWeight: textStyles.h3.fontWeight as any,
-    lineHeight: textStyles.h3.lineHeight,
-    color: textStyles.h3.color,
+    color: colors.text,
   },
   seeAllText: {
     fontSize: textStyles.subtitle2.fontSize,
@@ -555,6 +560,31 @@ const styles = StyleSheet.create({
     color: colors.white,
     opacity: 0.8,
     flexWrap: 'wrap',
+  },
+  sectionCard: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    ...shadows.md,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  testButton: {
+    backgroundColor: colors.error,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  testButtonText: {
+    color: colors.white,
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });
 

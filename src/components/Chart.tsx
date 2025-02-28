@@ -130,7 +130,19 @@ const Chart: React.FC<ChartProps> = ({
             data={data as ChartData}
             width={width}
             height={height}
-            chartConfig={chartConfig}
+            chartConfig={{
+              ...chartConfig,
+              strokeWidth: 3,
+              propsForDots: {
+                r: '5',
+                strokeWidth: '2',
+                stroke: '#4F46E5',
+              },
+              fillShadowGradientFrom: '#4F46E5',
+              fillShadowGradientTo: 'rgba(79, 70, 229, 0.1)',
+              fillShadowGradientOpacity: 0.5,
+              useShadowColorFromDataset: false,
+            }}
             bezier
             style={[styles.chart, chartStyle]}
             withInnerLines={showGrid}
@@ -149,7 +161,6 @@ const Chart: React.FC<ChartProps> = ({
             yAxisLabel={yAxisPrefix}
             verticalLabelRotation={30}
             xLabelsOffset={-10}
-            hidePointsAtIndex={[]}
           />
         );
       case 'bar':
@@ -158,7 +169,14 @@ const Chart: React.FC<ChartProps> = ({
             data={data as ChartData}
             width={width}
             height={height}
-            chartConfig={chartConfig}
+            chartConfig={{
+              ...chartConfig,
+              barPercentage: 0.7,
+              fillShadowGradientFrom: '#4F46E5',
+              fillShadowGradientTo: 'rgba(79, 70, 229, 0.1)',
+              fillShadowGradientOpacity: 1,
+              useShadowColorFromDataset: false,
+            }}
             style={[styles.chart, chartStyle]}
             withInnerLines={showGrid}
             withHorizontalLabels={true}

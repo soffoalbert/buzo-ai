@@ -324,9 +324,9 @@ const InsightsScreen: React.FC = () => {
   };
 
   const handleSeeAllCategories = () => {
-    // Navigate to expenses screen with category breakdown
+    // Navigate to expense analytics screen with category breakdown
     // @ts-ignore - navigation typing issue
-    navigation.navigate('ExpensesScreen');
+    navigation.navigate('ExpenseAnalytics');
   };
 
   const handleSeeAllTrends = () => {

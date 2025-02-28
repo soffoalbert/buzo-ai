@@ -24,6 +24,7 @@ import Button from '../components/Button';
 import ReceiptScanner from '../components/ReceiptScanner';
 import { createExpense } from '../services/expenseService';
 import { processReceiptImage, ExtractedReceiptData, createExpenseFromReceipt } from '../services/receiptService';
+import { isMockDataEnabled, setMockDataEnabled, generateAndSaveMockExpenses } from '../services/mockDataService';
 
 // Define the categories
 const EXPENSE_CATEGORIES = [
@@ -52,6 +53,7 @@ const PAYMENT_METHODS = [
 type RootStackParamList = {
   ExpenseScreen: { receiptData?: ExtractedReceiptData; receiptImage?: string } | undefined;
   ExpensesScreen: undefined;
+  ExpenseAnalytics: undefined;
 };
 
 type ExpenseScreenRouteProp = RouteProp<RootStackParamList, 'ExpenseScreen'>;
@@ -75,6 +77,7 @@ const ExpenseScreen: React.FC = () => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [showMockDataOptions, setShowMockDataOptions] = useState(false);
   
   // Initialize form with receipt data if provided
   useEffect(() => {
@@ -189,6 +192,39 @@ const ExpenseScreen: React.FC = () => {
     }
   };
   
+  // Navigate to expense analytics
+  const handleNavigateToAnalytics = () => {
+    navigation.navigate('ExpenseAnalytics');
+  };
+  
+  // Enable mock data for demonstration
+  const handleEnableMockData = async () => {
+    try {
+      setIsLoading(true);
+      await generateAndSaveMockExpenses();
+      await setMockDataEnabled(true);
+      Alert.alert(
+        'Demo Data Enabled',
+        'Demo data has been generated. You can now view analytics with realistic expense patterns.',
+        [
+          {
+            text: 'View Analytics',
+            onPress: handleNavigateToAnalytics,
+          },
+          {
+            text: 'OK',
+            style: 'cancel',
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error enabling mock data:', error);
+      Alert.alert('Error', 'Failed to enable demo data. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="dark" />
@@ -199,11 +235,61 @@ const ExpenseScreen: React.FC = () => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="chevron-back" size={24} color={colors.primary} />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Add Expense</Text>
-        <View style={styles.headerRight} />
+        <View style={styles.headerButtons}>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={() => setShowMockDataOptions(true)}
+          >
+            <Ionicons name="flask-outline" size={22} color={colors.accent} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={handleNavigateToAnalytics}
+          >
+            <Ionicons name="bar-chart-outline" size={22} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
+      
+      {/* Mock Data Options Modal */}
+      {showMockDataOptions && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Demo Data Options</Text>
+              <TouchableOpacity onPress={() => setShowMockDataOptions(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalDescription}>
+              Generate realistic expense data for demonstration purposes. This will allow you to explore the analytics features with meaningful patterns.
+            </Text>
+            <TouchableOpacity 
+              style={styles.modalButton}
+              onPress={() => {
+                setShowMockDataOptions(false);
+                handleEnableMockData();
+              }}
+            >
+              <Ionicons name="flask-outline" size={20} color={colors.white} />
+              <Text style={styles.modalButtonText}>Generate Demo Data</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.secondaryButton]}
+              onPress={() => {
+                setShowMockDataOptions(false);
+                handleNavigateToAnalytics();
+              }}
+            >
+              <Ionicons name="bar-chart-outline" size={20} color={colors.primary} />
+              <Text style={[styles.modalButtonText, styles.secondaryButtonText]}>View Analytics</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -426,8 +512,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerRight: {
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
     width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary + '10',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: spacing.xs,
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -583,6 +679,66 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: spacing.lg,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  modalContent: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    width: '100%',
+    ...shadows.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  modalTitle: {
+    fontSize: textStyles.h3.fontSize,
+    fontWeight: textStyles.h3.fontWeight as any,
+    color: colors.text,
+  },
+  modalDescription: {
+    fontSize: textStyles.body2.fontSize,
+    color: colors.textSecondary,
+    marginBottom: spacing.lg,
+    lineHeight: 20,
+  },
+  modalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.md,
+    ...shadows.sm,
+  },
+  modalButtonText: {
+    fontSize: textStyles.button.fontSize,
+    fontWeight: textStyles.button.fontWeight as any,
+    color: colors.white,
+    marginLeft: spacing.sm,
+  },
+  secondaryButton: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  secondaryButtonText: {
+    color: colors.primary,
   },
 });
 

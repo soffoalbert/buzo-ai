@@ -7,12 +7,13 @@ import * as SecureStore from 'expo-secure-store';
 // Replace these with your actual Supabase URL and anon key
 const supabaseUrl = 'https://tsowtcltuvcbwgmylqxf.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzb3d0Y2x0dXZjYndnbXlscXhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA3MzM3NjUsImV4cCI6MjA1NjMwOTc2NX0.rL2E7XtIUsqO40ZPWf6ZwOHpAXd1dQQyop6T8fXRKg0';
+const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzb3d0Y2x0dXZjYndnbXlscXhmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MDczMzc2NSwiZXhwIjoyMDU2MzA5NzY1fQ.WIAD8T7D__kbfqwM0VEMLB1P3N3T54Qn5o725EIVzVQ'
 
 // Add service role key for admin operations (keep this secure!)
 // This should be used only for server-side operations
 // For security, in a production app, this would be stored in environment variables
 // and only used in secure server contexts, not in the client app
- const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+ const supabaseServiceKey = SUPABASE_SERVICE_KEY;
 
 // Validate Supabase URL format
 try {
