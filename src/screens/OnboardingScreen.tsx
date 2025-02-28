@@ -10,6 +10,7 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../navigation';
@@ -19,7 +20,7 @@ import BankStatementUploader from '../components/BankStatementUploader';
 import { uploadBankStatement } from '../services/bankStatementService';
 
 // Get screen dimensions
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 // Define onboarding slide data
 const slides = [
@@ -126,6 +127,36 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
 
   // Render individual slide
   const renderSlide = ({ item }: { item: typeof slides[0] }) => {
+    // For the bank statement slide, use a ScrollView to make content scrollable
+    if (item.component === 'BankStatementUploader') {
+      return (
+        <ScrollView 
+          style={styles.slideScrollContainer}
+          contentContainerStyle={styles.slideScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.slideContentContainer}>
+            <View style={styles.iconContainer}>
+              <Ionicons name={item.icon as any} size={100} color={colors.primary} />
+            </View>
+            <Text style={styles.title}>{item.title}</Text>
+            <Text style={styles.description}>{item.description}</Text>
+            
+            <View style={styles.uploaderContainer}>
+              <BankStatementUploader
+                onUploadComplete={handleBankStatementUpload}
+                onUploadError={handleBankStatementUploadError}
+              />
+            </View>
+            
+            {/* Add extra space at the bottom to ensure content is not hidden */}
+            <View style={styles.bottomSpacer} />
+          </View>
+        </ScrollView>
+      );
+    }
+    
+    // For other slides, use the regular layout
     return (
       <View style={styles.slideContainer}>
         <View style={styles.iconContainer}>
@@ -133,14 +164,6 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
         </View>
         <Text style={styles.title}>{item.title}</Text>
         <Text style={styles.description}>{item.description}</Text>
-        
-        {/* Render bank statement uploader if this is the upload slide */}
-        {item.component === 'BankStatementUploader' && (
-          <BankStatementUploader
-            onUploadComplete={handleBankStatementUpload}
-            onUploadError={handleBankStatementUploadError}
-          />
-        )}
       </View>
     );
   };
@@ -167,7 +190,10 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       
       {/* Skip button */}
-      <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
+      <TouchableOpacity 
+        style={[styles.skipButton, { marginTop: 50 }]} 
+        onPress={handleSkip}
+      >
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
       
@@ -236,6 +262,19 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingTop: spacing.xxxl,
   },
+  slideScrollContainer: {
+    width,
+  },
+  slideScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 120, // Extra padding to ensure content is not hidden behind buttons
+  },
+  slideContentContainer: {
+    width: '100%',
+    alignItems: 'center',
+    padding: spacing.lg,
+    paddingTop: spacing.xxxl,
+  },
   iconContainer: {
     width: width * 0.6,
     height: width * 0.6,
@@ -258,10 +297,17 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     paddingHorizontal: spacing.lg,
   },
+  uploaderContainer: {
+    width: '100%',
+    marginTop: spacing.md,
+  },
+  bottomSpacer: {
+    height: 100, // Extra space at the bottom
+  },
   paginationContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
   },
   paginationDot: {
     width: 10,
