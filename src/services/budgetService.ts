@@ -230,11 +230,12 @@ export const deleteBudget = async (id: string): Promise<boolean> => {
       await saveBudgetsLocally(updatedBudgets);
       
       // Queue for sync when back online
-      await syncQueueService.addToQueue({
+      await syncQueueService.addToSyncQueue({
+        id,
         type: 'DELETE_BUDGET',
         data: { id },
-        timestamp: new Date().toISOString(),
-      });
+        timestamp: Date.now(),
+      }, 5); // Higher priority for budgets
       
       return true;
     }

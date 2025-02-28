@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { v4 as uuidv4 } from 'uuid';
 import offlineStorage, { PendingSyncItem } from './offlineStorage';
 import * as budgetApi from '../api/budgetApi';
+import { supabase } from '../api/supabaseClient';
 
 // Storage keys
 const SYNC_QUEUE_KEY = 'buzo_sync_queue';
@@ -488,6 +489,18 @@ export const synchronizeBudgets = async (): Promise<void> => {
       for (const localBudget of localBudgets) {
         // Skip budgets with local IDs - they need to be created
         if (!localBudget.id || localBudget.id.includes('local_')) {
+          // Make sure the budget has a user_id
+          if (!localBudget.user_id) {
+            // Try to get the current user ID
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.id) {
+              localBudget.user_id = user.id;
+            } else {
+              console.error('Cannot sync budget without user_id');
+              continue; // Skip this budget
+            }
+          }
+          
           await addToSyncQueue({
             id: localBudget.id,
             type: 'CREATE_BUDGET',
@@ -502,6 +515,18 @@ export const synchronizeBudgets = async (): Promise<void> => {
         
         if (!remoteBudget) {
           // Budget exists locally but not remotely - create it
+          // Make sure the budget has a user_id
+          if (!localBudget.user_id) {
+            // Try to get the current user ID
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.id) {
+              localBudget.user_id = user.id;
+            } else {
+              console.error('Cannot sync budget without user_id');
+              continue; // Skip this budget
+            }
+          }
+          
           await addToSyncQueue({
             id: localBudget.id,
             type: 'CREATE_BUDGET',
@@ -515,10 +540,13 @@ export const synchronizeBudgets = async (): Promise<void> => {
           
           if (localUpdatedAt > remoteUpdatedAt) {
             // Local budget is newer - update remote
+            // Don't include user_id in the update data
+            const { user_id, id, createdAt, updatedAt, ...updateData } = localBudget;
+            
             await addToSyncQueue({
               id: localBudget.id,
               type: 'UPDATE_BUDGET',
-              data: localBudget,
+              data: { id: localBudget.id, ...updateData },
               timestamp: Date.now(),
             }, 5);
           } else if (remoteUpdatedAt > localUpdatedAt) {
@@ -543,6 +571,18 @@ export const synchronizeBudgets = async (): Promise<void> => {
       
       // If we can't fetch remote budgets, queue all local budgets for sync
       for (const budget of localBudgets) {
+        // Skip budgets without user_id
+        if (!budget.user_id) {
+          // Try to get the current user ID
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.id) {
+            budget.user_id = user.id;
+          } else {
+            console.error('Cannot sync budget without user_id');
+            continue; // Skip this budget
+          }
+        }
+        
         const isCreate = !budget.id || budget.id.includes('local_');
         
         await addToSyncQueue({
