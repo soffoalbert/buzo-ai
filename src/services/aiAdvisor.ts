@@ -10,7 +10,7 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 import { FinancialInsight } from '../components/FinancialInsights';
 
 // Default API key (replace with your actual OpenAI API key)
-const DEFAULT_API_KEY = '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';
+const DEFAULT_API_KEY = process.env.OPENAI_API_KEY;
 
 // Interface for financial data
 interface FinancialData {

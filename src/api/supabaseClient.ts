@@ -12,7 +12,7 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 // This should be used only for server-side operations
 // For security, in a production app, this would be stored in environment variables
 // and only used in secure server contexts, not in the client app
-const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzb3d0Y2x0dXZjYndnbXlscXhmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MDczMzc2NSwiZXhwIjoyMDU2MzA5NzY1fQ.WIAD8T7D__kbfqwM0VEMLB1P3N3T54Qn5o725EIVzVQ';
+ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
 // Validate Supabase URL format
 try {
