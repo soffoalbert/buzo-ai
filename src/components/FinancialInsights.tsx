@@ -1,0 +1,607 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Image,
+  Dimensions,
+  Platform
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import Card from './Card';
+import ProgressBar from './ProgressBar';
+import Chart from './Chart';
+import { formatCurrency } from '../utils/helpers';
+
+// Types for financial insights
+export interface FinancialInsight {
+  id: string;
+  title: string;
+  description: string;
+  type: 'tip' | 'warning' | 'achievement' | 'recommendation';
+  priority: 'high' | 'medium' | 'low';
+  category?: string;
+  actionable?: boolean;
+  action?: {
+    label: string;
+    screen?: string;
+    params?: any;
+  };
+  createdAt: string;
+  read?: boolean;
+}
+
+export interface SpendingCategory {
+  name: string;
+  amount: number;
+  percentage: number;
+  color: string;
+  icon: string;
+}
+
+export interface SpendingTrend {
+  month: string;
+  income: number;
+  expenses: number;
+}
+
+interface FinancialInsightsProps {
+  insights: FinancialInsight[];
+  spendingCategories: SpendingCategory[];
+  spendingTrends: SpendingTrend[];
+  savingsRate: number;
+  monthlyIncome?: number;
+  monthlyExpenses?: number;
+  isLoading?: boolean;
+  onInsightPress?: (insight: FinancialInsight) => void;
+  onSeeAllInsights?: () => void;
+  onSeeAllCategories?: () => void;
+  onSeeAllTrends?: () => void;
+  currency?: string;
+  locale?: string;
+}
+
+const FinancialInsights: React.FC<FinancialInsightsProps> = ({
+  insights = [],
+  spendingCategories = [],
+  spendingTrends = [],
+  savingsRate = 0,
+  monthlyIncome,
+  monthlyExpenses,
+  isLoading = false,
+  onInsightPress,
+  onSeeAllInsights,
+  onSeeAllCategories,
+  onSeeAllTrends,
+  currency = 'ZAR',
+  locale = 'en-ZA',
+}) => {
+  const [activeInsights, setActiveInsights] = useState<FinancialInsight[]>([]);
+  
+  // Filter insights to show only high and medium priority ones (max 3)
+  useEffect(() => {
+    const filtered = insights
+      .filter(insight => insight.priority !== 'low')
+      .sort((a, b) => {
+        // Sort by priority first
+        const priorityOrder = { high: 0, medium: 1, low: 2 };
+        if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+          return priorityOrder[a.priority] - priorityOrder[b.priority];
+        }
+        // Then by date (newest first)
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      })
+      .slice(0, 3);
+    
+    setActiveInsights(filtered);
+  }, [insights]);
+  
+  // Prepare data for pie chart
+  const prepareCategoryData = () => {
+    return spendingCategories.map(category => ({
+      name: category.name,
+      value: category.percentage,
+      color: category.color,
+      legendFontColor: '#6B7280',
+      legendFontSize: 12,
+    }));
+  };
+  
+  // Prepare data for line chart
+  const prepareTrendData = () => {
+    return {
+      labels: spendingTrends.map(trend => trend.month),
+      datasets: [
+        {
+          data: spendingTrends.map(trend => trend.income),
+          color: () => '#43A047', // Green for income
+          strokeWidth: 2,
+        },
+        {
+          data: spendingTrends.map(trend => trend.expenses),
+          color: () => '#E53935', // Red for expenses
+          strokeWidth: 2,
+        },
+      ],
+      legend: ['Income', 'Expenses'],
+    };
+  };
+  
+  // Get icon for insight type
+  const getInsightIcon = (type: FinancialInsight['type']) => {
+    switch (type) {
+      case 'tip':
+        return 'bulb-outline';
+      case 'warning':
+        return 'warning-outline';
+      case 'achievement':
+        return 'trophy-outline';
+      case 'recommendation':
+        return 'star-outline';
+      default:
+        return 'information-circle-outline';
+    }
+  };
+  
+  // Get color for insight type
+  const getInsightColor = (type: FinancialInsight['type']) => {
+    switch (type) {
+      case 'tip':
+        return '#4F46E5'; // Indigo
+      case 'warning':
+        return '#F59E0B'; // Amber
+      case 'achievement':
+        return '#10B981'; // Green
+      case 'recommendation':
+        return '#8B5CF6'; // Purple
+      default:
+        return '#6B7280'; // Gray
+    }
+  };
+  
+  // Render loading state
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4F46E5" />
+        <Text style={styles.loadingText}>Analyzing your financial data...</Text>
+      </View>
+    );
+  }
+  
+  // Render empty state
+  if (insights.length === 0 && spendingCategories.length === 0 && spendingTrends.length === 0) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Image 
+          source={{ uri: 'https://via.placeholder.com/150?text=No+Insights' }} 
+          style={styles.emptyImage} 
+        />
+        <Text style={styles.emptyTitle}>No insights available yet</Text>
+        <Text style={styles.emptyText}>
+          Add more transactions and budget data to receive personalized financial insights.
+        </Text>
+      </View>
+    );
+  }
+  
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Savings Rate */}
+      {savingsRate > 0 && (
+        <Card
+          title="Savings Rate"
+          subtitle={`You're saving ${savingsRate}% of your income`}
+          style={styles.card}
+          variant="savings"
+        >
+          <View style={styles.savingsContainer}>
+            <ProgressBar
+              progress={savingsRate}
+              variant="savings"
+              showPercentage={true}
+              size="medium"
+            />
+            <Text style={styles.savingsText}>
+              {savingsRate < 10 ? 'Try to save at least 10% of your income' : 
+               savingsRate < 20 ? 'Good job! Aim for 20% for better financial security' :
+               'Excellent! You have a healthy savings rate'}
+            </Text>
+          </View>
+        </Card>
+      )}
+      
+      {/* Financial Insights */}
+      {activeInsights.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Financial Insights</Text>
+            {insights.length > 3 && onSeeAllInsights && (
+              <TouchableOpacity onPress={onSeeAllInsights}>
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {activeInsights.map(insight => (
+            <TouchableOpacity
+              key={insight.id}
+              style={styles.insightCard}
+              onPress={() => onInsightPress && onInsightPress(insight)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.insightIconContainer, { backgroundColor: `${getInsightColor(insight.type)}20` }]}>
+                <Ionicons name={getInsightIcon(insight.type)} size={24} color={getInsightColor(insight.type)} />
+              </View>
+              <View style={styles.insightContent}>
+                <Text style={styles.insightTitle}>{insight.title}</Text>
+                <Text style={styles.insightDescription} numberOfLines={2}>
+                  {insight.description}
+                </Text>
+                {insight.actionable && insight.action && (
+                  <View style={styles.insightAction}>
+                    <Text style={[styles.insightActionText, { color: getInsightColor(insight.type) }]}>
+                      {insight.action.label}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color={getInsightColor(insight.type)} />
+                  </View>
+                )}
+              </View>
+              {!insight.read && <View style={styles.unreadDot} />}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+      
+      {/* Monthly Overview */}
+      {monthlyIncome !== undefined && monthlyExpenses !== undefined && (
+        <Card
+          title="Monthly Overview"
+          style={styles.card}
+        >
+          <View style={styles.overviewContainer}>
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>Income</Text>
+              <Text style={styles.overviewIncome}>
+                {formatCurrency(monthlyIncome, locale, currency)}
+              </Text>
+            </View>
+            <View style={styles.overviewDivider} />
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>Expenses</Text>
+              <Text style={styles.overviewExpense}>
+                {formatCurrency(monthlyExpenses, locale, currency)}
+              </Text>
+            </View>
+            <View style={styles.overviewDivider} />
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>Balance</Text>
+              <Text style={[
+                styles.overviewBalance,
+                { color: monthlyIncome - monthlyExpenses >= 0 ? '#43A047' : '#E53935' }
+              ]}>
+                {formatCurrency(monthlyIncome - monthlyExpenses, locale, currency)}
+              </Text>
+            </View>
+          </View>
+        </Card>
+      )}
+      
+      {/* Spending Categories */}
+      {spendingCategories.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Spending Breakdown</Text>
+            {onSeeAllCategories && (
+              <TouchableOpacity onPress={onSeeAllCategories}>
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          <Card style={styles.card}>
+            <View style={styles.chartContainer}>
+              <Chart
+                type="pie"
+                data={prepareCategoryData()}
+                width={Dimensions.get('window').width - 64}
+                height={180}
+                showLegend={true}
+                backgroundColor="transparent"
+                containerStyle={styles.chart}
+              />
+            </View>
+            
+            <View style={styles.categoriesList}>
+              {spendingCategories.slice(0, 3).map(category => (
+                <View key={category.name} style={styles.categoryItem}>
+                  <View style={[styles.categoryIcon, { backgroundColor: `${category.color}20` }]}>
+                    <Ionicons name={category.icon as any} size={18} color={category.color} />
+                  </View>
+                  <View style={styles.categoryDetails}>
+                    <Text style={styles.categoryName}>{category.name}</Text>
+                    <View style={styles.categoryValues}>
+                      <Text style={styles.categoryAmount}>
+                        {formatCurrency(category.amount, locale, currency)}
+                      </Text>
+                      <Text style={styles.categoryPercentage}>
+                        {category.percentage}%
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </Card>
+        </View>
+      )}
+      
+      {/* Spending Trends */}
+      {spendingTrends.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Income vs. Expenses</Text>
+            {onSeeAllTrends && (
+              <TouchableOpacity onPress={onSeeAllTrends}>
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          <Card style={styles.card}>
+            <View style={styles.chartContainer}>
+              <Chart
+                type="line"
+                data={prepareTrendData()}
+                width={Dimensions.get('window').width - 64}
+                height={220}
+                yAxisSuffix=""
+                formatYLabel={(value) => formatCurrency(Number(value), locale, currency)}
+                showLegend={true}
+                showGrid={true}
+                backgroundColor="transparent"
+                containerStyle={styles.chart}
+              />
+            </View>
+            
+            <View style={styles.trendSummary}>
+              <Text style={styles.trendText}>
+                {spendingTrends[spendingTrends.length - 1].income > spendingTrends[spendingTrends.length - 1].expenses
+                  ? 'You spent less than you earned this month. Great job!'
+                  : 'You spent more than you earned this month. Try to reduce expenses.'}
+              </Text>
+            </View>
+          </Card>
+        </View>
+      )}
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyImage: {
+    width: 120,
+    height: 120,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  card: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  section: {
+    marginBottom: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  seeAllText: {
+    fontSize: 14,
+    color: '#4F46E5',
+    fontWeight: '500',
+  },
+  savingsContainer: {
+    marginTop: 8,
+  },
+  savingsText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+  },
+  insightCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  insightIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  insightContent: {
+    flex: 1,
+  },
+  insightTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  insightDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  insightAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  insightActionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginRight: 4,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#4F46E5',
+    position: 'absolute',
+    top: 16,
+    right: 16,
+  },
+  overviewContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  overviewItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  overviewDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#E5E7EB',
+  },
+  overviewLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  overviewIncome: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#43A047',
+  },
+  overviewExpense: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#E53935',
+  },
+  overviewBalance: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  chartContainer: {
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  chart: {
+    marginVertical: 0,
+    padding: 0,
+    elevation: 0,
+    shadowOpacity: 0,
+    backgroundColor: 'transparent',
+  },
+  categoriesList: {
+    marginTop: 8,
+  },
+  categoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  categoryIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  categoryDetails: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  categoryName: {
+    fontSize: 14,
+    color: '#1F2937',
+  },
+  categoryValues: {
+    alignItems: 'flex-end',
+  },
+  categoryAmount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  categoryPercentage: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  trendSummary: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  trendText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+});
+
+export default FinancialInsights; 
