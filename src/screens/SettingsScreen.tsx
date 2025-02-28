@@ -93,6 +93,10 @@ const SettingsScreen: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [error, setError] = useState<string | null>(null);
+  const [dataUsage, setDataUsage] = useState<'low' | 'medium' | 'high'>('medium');
+  const [showDeveloperOptions, setShowDeveloperOptions] = useState(false);
+  const developerTapCount = useRef(0);
+  const lastTapTime = useRef(0);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -458,6 +462,30 @@ const SettingsScreen: React.FC = () => {
     );
   };
   
+  // Handle opening the testing screen
+  const handleOpenTestingScreen = () => {
+    triggerHaptic();
+    navigation.navigate('Testing');
+  };
+
+  // Handle developer mode activation
+  const handleLogoPress = () => {
+    const now = Date.now();
+    if (now - lastTapTime.current < 500) {
+      // Double tap detected
+      developerTapCount.current += 1;
+      if (developerTapCount.current >= 7) {
+        setShowDeveloperOptions(true);
+        Alert.alert('Developer Mode', 'Developer options are now available.');
+        developerTapCount.current = 0;
+      }
+    } else {
+      // Reset counter if too much time has passed
+      developerTapCount.current = 1;
+    }
+    lastTapTime.current = now;
+  };
+  
   // Render a setting item with a switch
   const renderSwitchItem = (
     icon: string, 
@@ -559,219 +587,241 @@ const SettingsScreen: React.FC = () => {
   }
   
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar style="auto" />
       
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={handleBackPress}
+        >
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
         <View style={styles.headerRight} />
       </View>
       
-      {/* Error message if any */}
+      {/* Error message */}
       {error && (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
       
-      {/* Settings content */}
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View 
-          style={[
-            styles.animatedContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: translateY }]
-            }
-          ]}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading settings...</Text>
+        </View>
+      ) : (
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          {/* Account Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account</Text>
-            {renderButtonItem(
-              'person-outline',
-              'Edit Profile',
-              () => navigation.navigate('EditProfile'),
-              'Update your personal information'
-            )}
-            {renderButtonItem(
-              'key-outline',
-              'Change Password',
-              handleChangePassword,
-              'Update your account password'
-            )}
-            {renderSwitchItem(
-              'finger-print-outline',
-              'Biometric Authentication',
-              preferences.securitySettings.biometricAuth,
-              handleToggleBiometrics,
-              'Use fingerprint or face ID to log in'
-            )}
-          </View>
-          
-          {/* Subscription Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Subscription</Text>
-            {renderSubscriptionCard()}
-          </View>
-          
-          {/* Notifications Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Notifications</Text>
-            {renderSwitchItem(
-              'notifications-outline',
-              'Enable Notifications',
-              preferences.notifications.budgetAlerts,
-              handleToggleNotifications,
-              'Receive important updates and alerts'
-            )}
+          <Animated.View 
+            style={[
+              styles.animatedContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: translateY }]
+              }
+            ]}
+          >
+            {/* Account Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Account</Text>
+              {renderButtonItem(
+                'person-outline',
+                'Edit Profile',
+                () => navigation.navigate('EditProfile'),
+                'Update your personal information'
+              )}
+              {renderButtonItem(
+                'key-outline',
+                'Change Password',
+                handleChangePassword,
+                'Update your account password'
+              )}
+              {renderSwitchItem(
+                'finger-print-outline',
+                'Biometric Authentication',
+                preferences.securitySettings.biometricAuth,
+                handleToggleBiometrics,
+                'Use fingerprint or face ID to log in'
+              )}
+            </View>
             
-            {preferences.notifications.budgetAlerts && (
-              <>
-                {renderSwitchItem(
-                  'wallet-outline',
-                  'Budget Alerts',
-                  preferences.notifications.budgetAlerts,
-                  handleToggleBudgetAlerts,
-                  'Get notified when approaching budget limits'
-                )}
-                {renderSwitchItem(
-                  'trending-up-outline',
-                  'Savings Reminders',
-                  preferences.notifications.savingsMilestones,
-                  handleToggleSavingsReminders,
-                  'Receive reminders about your savings goals'
-                )}
-                {renderSwitchItem(
-                  'bulb-outline',
-                  'Financial Tips',
-                  preferences.notifications.financialTips,
-                  handleToggleFinancialTips,
-                  'Get personalized financial advice'
-                )}
-              </>
-            )}
-          </View>
-          
-          {/* Appearance Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Appearance</Text>
-            {renderSwitchItem(
-              'moon-outline',
-              'Dark Mode',
-              preferences.theme === 'dark',
-              handleToggleDarkMode,
-              'Switch between light and dark themes'
-            )}
-            {renderButtonItem(
-              'language-outline',
-              'Language',
-              handleLanguageChange,
-              `Current: ${preferences.language}`
-            )}
-            {renderButtonItem(
-              'cash-outline',
-              'Currency',
-              handleCurrencyChange,
-              `Current: ${preferences.currency}`
-            )}
-          </View>
-          
-          {/* Data Usage Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Data Usage</Text>
-            <View style={styles.dataUsageContainer}>
-              {renderDataUsageOption(
-                'Low',
-                'low',
-                'Minimal data usage, basic features only'
+            {/* Subscription Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Subscription</Text>
+              {renderSubscriptionCard()}
+            </View>
+            
+            {/* Notifications Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Notifications</Text>
+              {renderSwitchItem(
+                'notifications-outline',
+                'Enable Notifications',
+                preferences.notifications.budgetAlerts,
+                handleToggleNotifications,
+                'Receive important updates and alerts'
               )}
-              {renderDataUsageOption(
-                'Medium',
-                'medium',
-                'Balanced data usage with most features'
-              )}
-              {renderDataUsageOption(
-                'High',
-                'high',
-                'Full experience with all features'
+              
+              {preferences.notifications.budgetAlerts && (
+                <>
+                  {renderSwitchItem(
+                    'wallet-outline',
+                    'Budget Alerts',
+                    preferences.notifications.budgetAlerts,
+                    handleToggleBudgetAlerts,
+                    'Get notified when approaching budget limits'
+                  )}
+                  {renderSwitchItem(
+                    'trending-up-outline',
+                    'Savings Reminders',
+                    preferences.notifications.savingsMilestones,
+                    handleToggleSavingsReminders,
+                    'Receive reminders about your savings goals'
+                  )}
+                  {renderSwitchItem(
+                    'bulb-outline',
+                    'Financial Tips',
+                    preferences.notifications.financialTips,
+                    handleToggleFinancialTips,
+                    'Get personalized financial advice'
+                  )}
+                </>
               )}
             </View>
-          </View>
-          
-          {/* Support Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Support</Text>
-            {renderButtonItem(
-              'help-circle-outline',
-              'Help Center',
-              handleHelpCenter,
-              'Find answers to common questions'
-            )}
-            {renderButtonItem(
-              'mail-outline',
-              'Contact Support',
-              handleContactSupport,
-              'Get help from our support team'
-            )}
-          </View>
-          
-          {/* Developer Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Developer</Text>
-            {renderButtonItem(
-              'cloud-offline-outline',
-              'Offline Mode Testing',
-              () => navigation.navigate('OfflineTest'),
-              'Test offline functionality and data synchronization'
-            )}
-          </View>
-          
-          {/* Legal Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Legal</Text>
-            {renderButtonItem(
-              'shield-outline',
-              'Privacy Policy',
-              handlePrivacyPolicy
-            )}
-            {renderButtonItem(
-              'document-text-outline',
-              'Terms of Service',
-              handleTermsOfService
-            )}
-          </View>
-          
-          {/* Danger Zone */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Danger Zone</Text>
-            {renderButtonItem(
-              'trash-outline',
-              'Delete Account',
-              handleDeleteAccount,
-              'Permanently delete your account and all data',
-              colors.error
-            )}
-          </View>
-          
-          {/* App Info */}
-          <View style={styles.appInfo}>
-            <View style={styles.appLogoContainer}>
-              <Ionicons name="wallet-outline" size={40} color={colors.primary} />
+            
+            {/* Appearance Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Appearance</Text>
+              {renderSwitchItem(
+                'moon-outline',
+                'Dark Mode',
+                preferences.theme === 'dark',
+                handleToggleDarkMode,
+                'Switch between light and dark themes'
+              )}
+              {renderButtonItem(
+                'language-outline',
+                'Language',
+                handleLanguageChange,
+                `Current: ${preferences.language}`
+              )}
+              {renderButtonItem(
+                'cash-outline',
+                'Currency',
+                handleCurrencyChange,
+                `Current: ${preferences.currency}`
+              )}
             </View>
-            <Text style={styles.appVersion}>Buzo AI v1.0.0</Text>
-            <Text style={styles.appCopyright}>© 2023 Buzo AI. All rights reserved.</Text>
-          </View>
-        </Animated.View>
-      </ScrollView>
+            
+            {/* Data Usage Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Data Usage</Text>
+              <View style={styles.dataUsageContainer}>
+                {renderDataUsageOption(
+                  'Low',
+                  'low',
+                  'Minimal data usage, basic features only'
+                )}
+                {renderDataUsageOption(
+                  'Medium',
+                  'medium',
+                  'Balanced data usage with most features'
+                )}
+                {renderDataUsageOption(
+                  'High',
+                  'high',
+                  'Full experience with all features'
+                )}
+              </View>
+            </View>
+            
+            {/* Support Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Support</Text>
+              {renderButtonItem(
+                'help-circle-outline',
+                'Help Center',
+                handleHelpCenter,
+                'Find answers to common questions'
+              )}
+              {renderButtonItem(
+                'mail-outline',
+                'Contact Support',
+                handleContactSupport,
+                'Get help from our support team'
+              )}
+            </View>
+            
+            {/* Developer Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Developer</Text>
+              {renderButtonItem(
+                'cloud-offline-outline',
+                'Offline Mode Testing',
+                () => navigation.navigate('OfflineTest'),
+                'Test offline functionality and data synchronization'
+              )}
+              
+              {/* Only show the end-to-end testing option if developer mode is enabled */}
+              {showDeveloperOptions && (
+                renderButtonItem(
+                  'code-working',
+                  'End-to-End Testing',
+                  handleOpenTestingScreen,
+                  'Run comprehensive tests for all app features'
+                )
+              )}
+            </View>
+            
+            {/* Legal Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Legal</Text>
+              {renderButtonItem(
+                'shield-outline',
+                'Privacy Policy',
+                handlePrivacyPolicy
+              )}
+              {renderButtonItem(
+                'document-text-outline',
+                'Terms of Service',
+                handleTermsOfService
+              )}
+            </View>
+            
+            {/* Danger Zone */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Danger Zone</Text>
+              {renderButtonItem(
+                'trash-outline',
+                'Delete Account',
+                handleDeleteAccount,
+                'Permanently delete your account and all data',
+                colors.error
+              )}
+            </View>
+            
+            {/* App Info */}
+            <View style={styles.appInfo}>
+              <TouchableOpacity 
+                style={styles.appLogoContainer}
+                onPress={handleLogoPress}
+              >
+                <Ionicons name="wallet-outline" size={40} color={colors.primary} />
+              </TouchableOpacity>
+              <Text style={styles.appVersion}>Buzo AI v1.0.0</Text>
+              <Text style={styles.appCopyright}>© 2023 Buzo AI. All rights reserved.</Text>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 };

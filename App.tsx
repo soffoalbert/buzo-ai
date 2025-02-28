@@ -10,6 +10,7 @@ import AppNavigator from './src/navigation';
 import deepLinkHandler from './src/utils/deepLinkHandler';
 import notificationService from './src/services/notifications';
 import syncService from './src/services/syncService';
+import { initNetworkListeners } from './src/services/budgetService';
 import OfflineStatusBar from './src/components/OfflineStatusBar';
 // Import the API key migration function
 import { migrateApiKeyToSupabase } from './src/services/apiKeyManager';
@@ -34,6 +35,7 @@ export default function App() {
   const notificationReceivedListener = useRef<Notifications.Subscription>();
   const notificationResponseListener = useRef<Notifications.Subscription>();
   const syncServiceCleanup = useRef<(() => void) | null>(null);
+  const networkListenerCleanup = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     // Initialize app services
@@ -52,6 +54,9 @@ export default function App() {
         // Initialize sync service
         syncServiceCleanup.current = syncService.initializeSyncService();
         
+        // Initialize budget network listeners
+        networkListenerCleanup.current = initNetworkListeners();
+        
         return () => {
           // Clean up deep links
           if (cleanupDeepLinks && typeof cleanupDeepLinks === 'function') {
@@ -61,6 +66,11 @@ export default function App() {
           // Clean up sync service
           if (syncServiceCleanup.current) {
             syncServiceCleanup.current();
+          }
+          
+          // Clean up network listeners
+          if (networkListenerCleanup.current) {
+            networkListenerCleanup.current();
           }
         };
       } catch (error) {

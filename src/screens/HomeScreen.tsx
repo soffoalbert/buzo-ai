@@ -92,6 +92,10 @@ const HomeScreen: React.FC = () => {
     navigation.navigate('TestChart');
   };
 
+  const handleNavigateToSettings = () => {
+    navigation.navigate('Settings');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -115,6 +119,12 @@ const HomeScreen: React.FC = () => {
             </Text>
           </View>
           <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              style={styles.iconButton}
+              onPress={handleNavigateToSettings}
+            >
+              <Ionicons name="settings-outline" size={28} color={colors.primary} />
+            </TouchableOpacity>
             <TouchableOpacity 
               style={styles.iconButton}
               onPress={handleNavigateToNotifications}

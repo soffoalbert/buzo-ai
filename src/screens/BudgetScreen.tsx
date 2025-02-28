@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,36 +7,77 @@ import {
   TouchableOpacity,
   FlatList,
   RefreshControl,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
+import { RootStackParamList } from '../navigation';
+import { Budget } from '../models/Budget';
+import { loadBudgets, getBudgetStatistics } from '../services/budgetService';
 
-// Mock data for budget categories
-const BUDGET_CATEGORIES = [
-  { id: '1', name: 'Housing', budget: 1500, spent: 1500, color: colors.primary, icon: 'home-outline' },
-  { id: '2', name: 'Food', budget: 1200, spent: 950, color: colors.secondary, icon: 'restaurant-outline' },
-  { id: '3', name: 'Transport', budget: 800, spent: 420, color: colors.accent, icon: 'car-outline' },
-  { id: '4', name: 'Entertainment', budget: 500, spent: 349.25, color: colors.info, icon: 'film-outline' },
-  { id: '5', name: 'Utilities', budget: 600, spent: 580, color: colors.error, icon: 'flash-outline' },
-  { id: '6', name: 'Shopping', budget: 400, spent: 320, color: colors.success, icon: 'cart-outline' },
-  { id: '7', name: 'Savings', budget: 1000, spent: 0, color: '#6366F1', icon: 'wallet-outline' },
-];
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const BudgetScreen: React.FC = () => {
+  const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('categories');
-  
-  // Calculate total budget and spending
-  const totalBudget = BUDGET_CATEGORIES.reduce((sum, category) => sum + category.budget, 0);
-  const totalSpent = BUDGET_CATEGORIES.reduce((sum, category) => sum + category.spent, 0);
-  const remainingBudget = totalBudget - totalSpent;
-  const spentPercentage = (totalSpent / totalBudget) * 100;
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [statistics, setStatistics] = useState({
+    totalBudgeted: 0,
+    totalSpent: 0,
+    remainingBudget: 0,
+    spendingPercentage: 0,
+  });
 
-  const renderCategoryItem = ({ item }: { item: typeof BUDGET_CATEGORIES[0] }) => {
-    const spentPercentage = (item.spent / item.budget) * 100;
-    const isOverBudget = item.spent > item.budget;
+  const fetchBudgets = async () => {
+    try {
+      setIsLoading(true);
+      const loadedBudgets = await loadBudgets();
+      setBudgets(loadedBudgets);
+      
+      // Get budget statistics
+      const stats = await getBudgetStatistics();
+      setStatistics({
+        totalBudgeted: stats.totalBudgeted,
+        totalSpent: stats.totalSpent,
+        remainingBudget: stats.remainingBudget,
+        spendingPercentage: stats.spendingPercentage,
+      });
+    } catch (error) {
+      console.error('Error loading budgets:', error);
+      Alert.alert('Error', 'Failed to load budgets. Please try again.');
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  // Fetch budgets when the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchBudgets();
+    }, [])
+  );
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchBudgets();
+  };
+
+  const navigateToAddBudget = () => {
+    navigation.navigate('AddBudget');
+  };
+
+  const renderCategoryItem = ({ item }: { item: Budget }) => {
+    const spentPercentage = (item.spent / item.amount) * 100;
+    const isOverBudget = item.spent > item.amount;
     
     return (
       <TouchableOpacity style={styles.categoryCard}>
@@ -47,7 +88,7 @@ const BudgetScreen: React.FC = () => {
           <View style={styles.categoryInfo}>
             <Text style={styles.categoryName}>{item.name}</Text>
             <Text style={styles.categoryAmount}>
-              R {item.spent.toFixed(2)} <Text style={styles.budgetLimit}>/ R {item.budget.toFixed(2)}</Text>
+              R {item.spent.toFixed(2)} <Text style={styles.budgetLimit}>/ R {item.amount.toFixed(2)}</Text>
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
@@ -71,8 +112,8 @@ const BudgetScreen: React.FC = () => {
             isOverBudget ? styles.overBudgetText : null
           ]}>
             {isOverBudget 
-              ? `R ${(item.spent - item.budget).toFixed(2)} over budget` 
-              : `R ${(item.budget - item.spent).toFixed(2)} remaining`
+              ? `R ${(item.spent - item.amount).toFixed(2)} over budget` 
+              : `R ${(item.amount - item.spent).toFixed(2)} remaining`
             }
           </Text>
           <Text style={styles.percentageText}>{spentPercentage.toFixed(0)}%</Text>
@@ -81,6 +122,31 @@ const BudgetScreen: React.FC = () => {
     );
   };
 
+  const renderEmptyState = () => (
+    <View style={styles.emptyStateContainer}>
+      <Ionicons name="wallet-outline" size={64} color={colors.textSecondary} />
+      <Text style={styles.emptyStateTitle}>No budgets yet</Text>
+      <Text style={styles.emptyStateText}>
+        Create your first budget to start tracking your spending
+      </Text>
+      <TouchableOpacity 
+        style={styles.emptyStateButton}
+        onPress={navigateToAddBudget}
+      >
+        <Text style={styles.emptyStateButtonText}>Create Budget</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (isLoading && !refreshing) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading budgets...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -88,7 +154,10 @@ const BudgetScreen: React.FC = () => {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Budget</Text>
-        <TouchableOpacity style={styles.headerButton}>
+        <TouchableOpacity 
+          style={styles.headerButton}
+          onPress={navigateToAddBudget}
+        >
           <Ionicons name="add-circle" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
@@ -98,19 +167,19 @@ const BudgetScreen: React.FC = () => {
         <View style={styles.summaryRow}>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryLabel}>Total Budget</Text>
-            <Text style={styles.summaryValue}>R {totalBudget.toFixed(2)}</Text>
+            <Text style={styles.summaryValue}>R {statistics.totalBudgeted.toFixed(2)}</Text>
           </View>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryLabel}>Spent</Text>
-            <Text style={styles.summaryValue}>R {totalSpent.toFixed(2)}</Text>
+            <Text style={styles.summaryValue}>R {statistics.totalSpent.toFixed(2)}</Text>
           </View>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryLabel}>Remaining</Text>
             <Text style={[
               styles.summaryValue,
-              remainingBudget < 0 ? styles.negativeAmount : styles.positiveAmount
+              statistics.remainingBudget < 0 ? styles.negativeAmount : styles.positiveAmount
             ]}>
-              R {remainingBudget.toFixed(2)}
+              R {statistics.remainingBudget.toFixed(2)}
             </Text>
           </View>
         </View>
@@ -120,17 +189,17 @@ const BudgetScreen: React.FC = () => {
             style={[
               styles.progressBar, 
               { 
-                width: `${Math.min(spentPercentage, 100)}%`,
-                backgroundColor: spentPercentage > 90 ? colors.error : colors.primary
+                width: `${Math.min(statistics.spendingPercentage, 100)}%`,
+                backgroundColor: statistics.spendingPercentage > 90 ? colors.error : colors.primary
               }
             ]} 
           />
         </View>
         
         <Text style={styles.progressText}>
-          {spentPercentage > 100 
-            ? `You've spent ${(spentPercentage - 100).toFixed(0)}% more than your budget`
-            : `You've spent ${spentPercentage.toFixed(0)}% of your budget`
+          {statistics.spendingPercentage > 100 
+            ? `You've spent ${(statistics.spendingPercentage - 100).toFixed(0)}% more than your budget`
+            : `You've spent ${statistics.spendingPercentage.toFixed(0)}% of your budget`
           }
         </Text>
       </View>
@@ -158,11 +227,19 @@ const BudgetScreen: React.FC = () => {
       {/* Categories List */}
       {activeTab === 'categories' ? (
         <FlatList
-          data={BUDGET_CATEGORIES}
+          data={budgets}
           renderItem={renderCategoryItem}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[colors.primary]}
+            />
+          }
+          ListEmptyComponent={renderEmptyState}
         />
       ) : (
         <View style={styles.emptyStateContainer}>
@@ -172,7 +249,10 @@ const BudgetScreen: React.FC = () => {
       )}
       
       {/* Add Budget Button */}
-      <TouchableOpacity style={styles.floatingButton}>
+      <TouchableOpacity 
+        style={styles.floatingButton}
+        onPress={navigateToAddBudget}
+      >
         <Ionicons name="add" size={24} color={colors.white} />
       </TouchableOpacity>
     </SafeAreaView>
@@ -183,6 +263,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: textStyles.body1.fontSize,
+    color: colors.textSecondary,
   },
   header: {
     flexDirection: 'row',
@@ -259,32 +350,34 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderRadius: borderRadius.md,
     backgroundColor: colors.card,
-    overflow: 'hidden',
+    padding: spacing.xs,
+    ...shadows.sm,
   },
   tab: {
     flex: 1,
     paddingVertical: spacing.sm,
     alignItems: 'center',
+    borderRadius: borderRadius.sm,
   },
   activeTab: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.white,
+    ...shadows.sm,
   },
   tabText: {
     fontSize: textStyles.subtitle2.fontSize,
     fontWeight: textStyles.subtitle2.fontWeight as any,
-    lineHeight: textStyles.subtitle2.lineHeight,
     color: colors.textSecondary,
   },
   activeTabText: {
-    color: colors.white,
+    color: colors.primary,
   },
   listContainer: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxxl,
   },
   categoryCard: {
     backgroundColor: colors.white,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
     ...shadows.sm,
@@ -297,7 +390,7 @@ const styles = StyleSheet.create({
   categoryIconContainer: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: borderRadius.round,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.sm,
@@ -306,16 +399,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categoryName: {
-    fontSize: textStyles.subtitle1.fontSize,
-    fontWeight: textStyles.subtitle1.fontWeight as any,
-    lineHeight: textStyles.subtitle1.lineHeight,
-    color: textStyles.subtitle1.color,
+    fontSize: textStyles.subtitle2.fontSize,
+    fontWeight: textStyles.subtitle2.fontWeight as any,
+    color: colors.text,
+    marginBottom: spacing.xs,
   },
   categoryAmount: {
     fontSize: textStyles.body2.fontSize,
-    fontWeight: textStyles.body2.fontWeight as any,
-    lineHeight: textStyles.body2.lineHeight,
-    color: textStyles.body2.color,
+    color: colors.text,
   },
   budgetLimit: {
     color: colors.textSecondary,
@@ -323,12 +414,11 @@ const styles = StyleSheet.create({
   categoryFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: spacing.xs,
   },
   remainingText: {
     fontSize: textStyles.caption.fontSize,
-    fontWeight: textStyles.caption.fontWeight as any,
-    lineHeight: textStyles.caption.lineHeight,
     color: colors.success,
   },
   overBudgetText: {
@@ -337,22 +427,38 @@ const styles = StyleSheet.create({
   percentageText: {
     fontSize: textStyles.caption.fontSize,
     fontWeight: textStyles.caption.fontWeight as any,
-    lineHeight: textStyles.caption.lineHeight,
     color: colors.textSecondary,
   },
   emptyStateContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.lg,
+    padding: spacing.xl,
+  },
+  emptyStateTitle: {
+    fontSize: textStyles.h3.fontSize,
+    fontWeight: textStyles.h3.fontWeight as any,
+    color: colors.text,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
   },
   emptyStateText: {
     fontSize: textStyles.body1.fontSize,
-    fontWeight: textStyles.body1.fontWeight as any,
-    lineHeight: textStyles.body1.lineHeight,
     color: colors.textSecondary,
-    marginTop: spacing.md,
     textAlign: 'center',
+    marginBottom: spacing.lg,
+  },
+  emptyStateButton: {
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.md,
+    ...shadows.sm,
+  },
+  emptyStateButtonText: {
+    color: colors.white,
+    fontSize: textStyles.button.fontSize,
+    fontWeight: textStyles.button.fontWeight as any,
   },
   floatingButton: {
     position: 'absolute',
@@ -365,9 +471,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     ...shadows.lg,
-  },
-  scrollViewContent: {
-    paddingBottom: 100,
   },
 });
 

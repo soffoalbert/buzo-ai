@@ -263,6 +263,10 @@ const NotificationScreen: React.FC = () => {
     }
   };
 
+  const handleNavigateToSettings = () => {
+    navigation.navigate('Settings');
+  };
+
   // Format notification timestamp
   const formatTimestamp = (timestamp: number): string => {
     const date = new Date(timestamp);
@@ -553,6 +557,15 @@ const NotificationScreen: React.FC = () => {
             </View>
           </>
         )}
+        
+        {/* More settings button */}
+        <TouchableOpacity 
+          style={styles.moreSettingsButton}
+          onPress={handleNavigateToSettings}
+        >
+          <Text style={styles.moreSettingsText}>More Settings</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+        </TouchableOpacity>
       </View>
       
       {/* Notification History */}
@@ -862,6 +875,21 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     marginLeft: spacing.sm,
+  },
+  moreSettingsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.lg,
+    padding: spacing.md,
+    backgroundColor: `${colors.primary}10`,
+    borderRadius: borderRadius.md,
+  },
+  moreSettingsText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.primary,
+    marginRight: spacing.xs,
   },
 });
 

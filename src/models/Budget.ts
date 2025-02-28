@@ -8,6 +8,7 @@ export interface Budget {
   icon: string;
   createdAt: string;
   updatedAt: string;
+  user_id?: string;
 }
 
 export interface BudgetCategory {

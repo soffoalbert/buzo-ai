@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { v4 as uuidv4 } from 'uuid';
 import offlineStorage, { PendingSyncItem } from './offlineStorage';
+import * as budgetApi from '../api/budgetApi';
 
 // Storage keys
 const SYNC_QUEUE_KEY = 'buzo_sync_queue';
@@ -8,11 +9,19 @@ const SYNC_ATTEMPTS_KEY = 'buzo_sync_attempts';
 const SYNC_STATUS_KEY = 'buzo_sync_status';
 
 // Types
+export type SyncQueueItemType = 
+  | 'CREATE_BUDGET' 
+  | 'UPDATE_BUDGET' 
+  | 'DELETE_BUDGET'
+  // Add other types as needed
+
 export interface SyncQueueItem extends PendingSyncItem {
   priority: number; // Higher number = higher priority
   attempts: number; // Number of sync attempts
   lastAttempt: number | null; // Timestamp of last attempt
   error?: string; // Last error message if sync failed
+  type: SyncQueueItemType; // Type of sync operation
+  data: any; // Data associated with the sync operation
 }
 
 export interface SyncStatus {
@@ -85,7 +94,7 @@ export const updateSyncStatus = async (updates: Partial<SyncStatus>): Promise<vo
  * Add an item to the sync queue
  */
 export const addToSyncQueue = async (
-  item: Omit<PendingSyncItem, 'timestamp'>, 
+  item: Omit<PendingSyncItem, 'timestamp'> & { type: SyncQueueItemType; data: any; }, 
   priority: number = 1
 ): Promise<string> => {
   try {
@@ -292,6 +301,266 @@ initSyncStatus().catch(error => {
   console.error('Error during sync status initialization:', error);
 });
 
+// Fix the processSyncItem function
+const processSyncItem = async (item: SyncQueueItem): Promise<boolean> => {
+  try {
+    console.log(`Processing sync item: ${item.type}`, item.data);
+    
+    switch (item.type) {
+      // Add your existing cases here if any
+      
+      case 'CREATE_BUDGET':
+        try {
+          // For budget creation, we need to create it in Supabase
+          // The data should contain the complete budget object
+          const budget = item.data;
+          
+          // Remove local ID and use Supabase to generate a new one
+          // Note: user_id will be added by the budgetApi.createBudget function
+          const { id, createdAt, updatedAt, ...budgetData } = budget;
+          
+          await budgetApi.createBudget(budgetData);
+          return true;
+        } catch (error) {
+          console.error('Error syncing CREATE_BUDGET:', error);
+          return false;
+        }
+        
+      case 'UPDATE_BUDGET':
+        try {
+          // For budget updates, we need to update it in Supabase
+          // The data should contain the budget ID and the fields to update
+          const { id, ...updateData } = item.data;
+          
+          if (!id) {
+            console.error('Missing budget ID for UPDATE_BUDGET');
+            return false;
+          }
+          
+          // Remove user_id from update data if present
+          // This is because we can't update the user_id of a budget
+          const { user_id, ...cleanUpdateData } = updateData;
+          
+          await budgetApi.updateBudget(id, cleanUpdateData);
+          return true;
+        } catch (error) {
+          console.error('Error syncing UPDATE_BUDGET:', error);
+          return false;
+        }
+        
+      case 'DELETE_BUDGET':
+        try {
+          // For budget deletion, we need to delete it from Supabase
+          // The data should contain the budget ID
+          const { id } = item.data;
+          
+          if (!id) {
+            console.error('Missing budget ID for DELETE_BUDGET');
+            return false;
+          }
+          
+          await budgetApi.deleteBudget(id);
+          return true;
+        } catch (error) {
+          console.error('Error syncing DELETE_BUDGET:', error);
+          return false;
+        }
+      
+      default:
+        console.error(`Unknown sync item type: ${item.type}`);
+        return false;
+    }
+  } catch (error) {
+    console.error('Error processing sync item:', error);
+    return false;
+  }
+};
+
+/**
+ * Process all items in the sync queue
+ */
+export const processAllSyncItems = async (): Promise<void> => {
+  try {
+    // Get current sync status
+    const status = await getSyncStatus();
+    
+    // If already syncing, don't start another sync
+    if (status?.isSyncing) {
+      console.log('Sync already in progress, skipping');
+      return;
+    }
+    
+    // Update sync status to indicate sync is in progress
+    await updateSyncStatus({
+      isSyncing: true,
+      lastSyncAttempt: Date.now(),
+      syncProgress: 0,
+    });
+    
+    // Get prioritized sync queue
+    const queue = await getPrioritizedSyncQueue();
+    
+    if (queue.length === 0) {
+      // No items to sync
+      await updateSyncStatus({
+        isSyncing: false,
+        syncProgress: 100,
+      });
+      return;
+    }
+    
+    console.log(`Processing ${queue.length} sync items`);
+    
+    // Process each item in the queue
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (let i = 0; i < queue.length; i++) {
+      const item = queue[i];
+      
+      // Update sync progress
+      await updateSyncStatus({
+        syncProgress: Math.round((i / queue.length) * 100),
+      });
+      
+      // Process the item
+      const success = await processSyncItem(item);
+      
+      if (success) {
+        // Remove the item from the queue
+        await removeFromSyncQueue([item.id]);
+        successCount++;
+      } else {
+        // Mark the item as attempted
+        await markSyncAttempt(item.id, 'Failed to sync');
+        failCount++;
+      }
+    }
+    
+    // Update sync status
+    await updateSyncStatus({
+      isSyncing: false,
+      lastSuccessfulSync: successCount > 0 ? Date.now() : status?.lastSuccessfulSync,
+      syncProgress: 100,
+      pendingCount: failCount,
+      failedCount: failCount,
+    });
+    
+    console.log(`Sync complete: ${successCount} succeeded, ${failCount} failed`);
+  } catch (error) {
+    console.error('Error processing sync queue:', error);
+    
+    // Update sync status to indicate sync failed
+    await updateSyncStatus({
+      isSyncing: false,
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Synchronize budgets when the app comes back online
+ */
+export const synchronizeBudgets = async (): Promise<void> => {
+  try {
+    // Get all budgets from local storage
+    const localBudgetsStr = await AsyncStorage.getItem('buzo_budgets');
+    const localBudgets = localBudgetsStr ? JSON.parse(localBudgetsStr) : [];
+    
+    if (localBudgets.length === 0) {
+      console.log('No local budgets to synchronize');
+      return;
+    }
+    
+    console.log(`Synchronizing ${localBudgets.length} local budgets`);
+    
+    // Try to fetch remote budgets
+    try {
+      const remoteBudgets = await budgetApi.fetchBudgets();
+      
+      // Create a map of remote budgets by ID for quick lookup
+      const remoteBudgetsMap = new Map();
+      remoteBudgets.forEach(budget => {
+        remoteBudgetsMap.set(budget.id, budget);
+      });
+      
+      // For each local budget, determine if it needs to be created, updated, or is already in sync
+      for (const localBudget of localBudgets) {
+        // Skip budgets with local IDs - they need to be created
+        if (!localBudget.id || localBudget.id.includes('local_')) {
+          await addToSyncQueue({
+            id: localBudget.id,
+            type: 'CREATE_BUDGET',
+            data: localBudget,
+            timestamp: Date.now(),
+          }, 5); // Higher priority for budgets
+          continue;
+        }
+        
+        // Check if the budget exists remotely
+        const remoteBudget = remoteBudgetsMap.get(localBudget.id);
+        
+        if (!remoteBudget) {
+          // Budget exists locally but not remotely - create it
+          await addToSyncQueue({
+            id: localBudget.id,
+            type: 'CREATE_BUDGET',
+            data: localBudget,
+            timestamp: Date.now(),
+          }, 5);
+        } else {
+          // Budget exists both locally and remotely - check if they're different
+          const localUpdatedAt = new Date(localBudget.updatedAt).getTime();
+          const remoteUpdatedAt = new Date(remoteBudget.updatedAt).getTime();
+          
+          if (localUpdatedAt > remoteUpdatedAt) {
+            // Local budget is newer - update remote
+            await addToSyncQueue({
+              id: localBudget.id,
+              type: 'UPDATE_BUDGET',
+              data: localBudget,
+              timestamp: Date.now(),
+            }, 5);
+          } else if (remoteUpdatedAt > localUpdatedAt) {
+            // Remote budget is newer - update local
+            // This will be handled by the budgetService when it loads budgets
+          }
+        }
+      }
+      
+      // Check for remote budgets that don't exist locally
+      const localBudgetIds = new Set(localBudgets.map(b => b.id));
+      const newRemoteBudgets = remoteBudgets.filter(b => !localBudgetIds.has(b.id));
+      
+      if (newRemoteBudgets.length > 0) {
+        // Save the new remote budgets locally
+        const allBudgets = [...localBudgets, ...newRemoteBudgets];
+        await AsyncStorage.setItem('buzo_budgets', JSON.stringify(allBudgets));
+      }
+      
+    } catch (error) {
+      console.error('Error fetching remote budgets:', error);
+      
+      // If we can't fetch remote budgets, queue all local budgets for sync
+      for (const budget of localBudgets) {
+        const isCreate = !budget.id || budget.id.includes('local_');
+        
+        await addToSyncQueue({
+          id: budget.id,
+          type: isCreate ? 'CREATE_BUDGET' : 'UPDATE_BUDGET',
+          data: budget,
+          timestamp: Date.now(),
+        }, 5); // Higher priority for budgets
+      }
+    }
+    
+    // Process the sync queue
+    await processAllSyncItems();
+  } catch (error) {
+    console.error('Error synchronizing budgets:', error);
+  }
+};
+
 export default {
   addToSyncQueue,
   getSyncQueue,
@@ -305,4 +574,6 @@ export default {
   getSyncStatus,
   updateSyncStatus,
   initSyncStatus,
+  processAllSyncItems,
+  synchronizeBudgets,
 }; 

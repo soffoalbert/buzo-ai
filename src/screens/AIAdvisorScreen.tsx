@@ -280,6 +280,10 @@ const AIAdvisorScreen: React.FC = () => {
     handleSendMessage();
   };
 
+  const handleNavigateToSettings = () => {
+    navigation.navigate('Settings');
+  };
+
   // Format timestamp
   const formatMessageTime = (timestamp: Date) => {
     return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -412,13 +416,19 @@ const AIAdvisorScreen: React.FC = () => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
+          <Ionicons name="arrow-back" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>Ask Buzo</Text>
           <Text style={styles.headerSubtitle}>Your AI Financial Advisor</Text>
         </View>
         {renderPremiumBadge()}
+        <TouchableOpacity 
+          style={styles.settingsButton}
+          onPress={handleNavigateToSettings}
+        >
+          <Ionicons name="settings-outline" size={24} color={colors.white} />
+        </TouchableOpacity>
       </View>
       
       {/* Messages List */}
@@ -757,6 +767,9 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: 'bold',
     fontSize: 12,
+  },
+  settingsButton: {
+    padding: spacing.sm,
   },
 });
 

@@ -381,8 +381,11 @@ const ProfileScreen: React.FC = () => {
   };
   
   const handleEditProfile = () => {
-    triggerHaptic();
     navigation.navigate('EditProfile');
+  };
+
+  const handleNavigateToSettings = () => {
+    navigation.navigate('Settings');
   };
   
   const renderSettingItem = (
@@ -600,36 +603,12 @@ const ProfileScreen: React.FC = () => {
           <Text style={styles.sectionTitle}>Settings</Text>
           <View style={styles.sectionCard}>
             {renderSettingItem(
-              'notifications-outline', 
-              'Push Notifications', 
-              notificationsEnabled, 
-              handleToggleNotifications,
-              undefined,
-              'Receive alerts about your finances'
-            )}
-            {renderSettingItem(
-              'moon-outline', 
-              'Dark Mode', 
-              darkModeEnabled, 
-              handleToggleDarkMode,
-              undefined,
-              'Switch to dark theme'
-            )}
-            {renderSettingItem(
-              'finger-print-outline', 
-              'Biometric Authentication', 
-              biometricsEnabled, 
-              handleToggleBiometrics,
-              undefined,
-              'Use fingerprint or Face ID to login'
-            )}
-            {renderSettingItem(
-              'lock-closed-outline', 
-              'Change Password', 
+              'settings-outline', 
+              'App Settings', 
               undefined, 
-              undefined, 
-              handleChangePassword,
-              'Update your account password'
+              undefined,
+              handleNavigateToSettings,
+              'Configure app preferences, notifications, and more'
             )}
           </View>
         </Animated.View>
