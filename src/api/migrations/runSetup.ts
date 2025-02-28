@@ -1,4 +1,4 @@
-import { supabase } from '../../../../src/api/supabaseClient';
+import { supabase } from '../supabaseClient';
 import * as FileSystem from 'expo-file-system';
 import { Asset } from 'expo-asset';
 
@@ -89,7 +89,9 @@ export const runSetupScript = async (): Promise<{ success: boolean; message: str
     }
     
     // Execute the script
-    const { error } = await supabase.sql(sqlScript);
+    const { error } = await supabase.rpc('execute_sql', {
+      sql: sqlScript
+    });
     
     if (error) {
       console.error('Error running setup script:', error);

@@ -11,6 +11,8 @@ import deepLinkHandler from './src/utils/deepLinkHandler';
 import notificationService from './src/services/notifications';
 import syncService from './src/services/syncService';
 import OfflineStatusBar from './src/components/OfflineStatusBar';
+// Import the API key migration function
+import { migrateApiKeyToSupabase } from './src/services/apiKeyManager';
 
 const AppContent = () => {
   const insets = useSafeAreaInsets();
@@ -34,6 +36,38 @@ export default function App() {
   const syncServiceCleanup = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    // Initialize app services
+    const initializeApp = async () => {
+      try {
+        // Migrate API keys from SecureStore to Supabase
+        await migrateApiKeyToSupabase();
+        console.log('API key migration check completed');
+        
+        // Initialize notifications
+        await initializeNotifications();
+        
+        // Initialize deep link handling and store the cleanup function
+        const cleanupDeepLinks = deepLinkHandler.initDeepLinkHandling();
+        
+        // Initialize sync service
+        syncServiceCleanup.current = syncService.initializeSyncService();
+        
+        return () => {
+          // Clean up deep links
+          if (cleanupDeepLinks && typeof cleanupDeepLinks === 'function') {
+            cleanupDeepLinks();
+          }
+          
+          // Clean up sync service
+          if (syncServiceCleanup.current) {
+            syncServiceCleanup.current();
+          }
+        };
+      } catch (error) {
+        console.error('Error during app initialization:', error);
+      }
+    };
+    
     // Initialize notifications
     const initializeNotifications = async () => {
       try {
@@ -57,13 +91,8 @@ export default function App() {
       }
     };
 
-    initializeNotifications();
-    
-    // Initialize deep link handling and store the cleanup function
-    const cleanupDeepLinks = deepLinkHandler.initDeepLinkHandling();
-    
-    // Initialize sync service
-    syncServiceCleanup.current = syncService.initializeSyncService();
+    // Start the initialization process
+    const cleanup = initializeApp();
     
     // Return a cleanup function for when the component unmounts
     return () => {
@@ -76,14 +105,13 @@ export default function App() {
         Notifications.removeNotificationSubscription(notificationResponseListener.current);
       }
       
-      // Clean up deep links
-      if (cleanupDeepLinks && typeof cleanupDeepLinks === 'function') {
-        cleanupDeepLinks();
-      }
-      
-      // Clean up sync service
-      if (syncServiceCleanup.current) {
-        syncServiceCleanup.current();
+      // Execute the cleanup function returned by initializeApp if it exists
+      if (cleanup && typeof cleanup.then === 'function') {
+        cleanup.then(cleanupFn => {
+          if (cleanupFn && typeof cleanupFn === 'function') {
+            cleanupFn();
+          }
+        });
       }
     };
   }, []);

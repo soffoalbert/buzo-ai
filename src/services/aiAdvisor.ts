@@ -1,16 +1,19 @@
-import * as SecureStore from 'expo-secure-store';
-
-// API key storage key
-const API_KEY_STORAGE_KEY = 'buzo_openai_api_key';
+// Import the Vault functions from supabaseClient
+import { getVaultSecret } from '../api/supabaseClient';
+// Keep the apiKeyManager imports for fallback
+import { getApiKey as getManagerApiKey, setApiKey as setManagerApiKey, clearApiKey as clearManagerApiKey } from './apiKeyManager';
+// Import the global API key manager for development
+import { getGlobalApiKey } from './devApiKeyManager';
 
 // Base URL for OpenAI API
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 
 // Import types from FinancialInsights component
 import { FinancialInsight } from '../components/FinancialInsights';
-const OPENAI_API_KEY='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';
-// Default API key (replace with your actual OpenAI API key)
-const DEFAULT_API_KEY = OPENAI_API_KEY;
+// No default API key - we'll use the apiKeyManager instead
+
+// Whether to use global API keys (for development)
+const USE_GLOBAL_API_KEYS = true;
 
 // Interface for financial data
 interface FinancialData {
@@ -51,13 +54,17 @@ interface AdviceRequest {
   question?: string;
 }
 
+// Vault secret name for OpenAI API key
+const VAULT_SECRET_NAME = 'OPENAI_API_KEY';
+
 /**
  * Set the OpenAI API key securely
  * @param apiKey The OpenAI API key
  */
 export const setApiKey = async (apiKey: string): Promise<void> => {
   try {
-    await SecureStore.setItemAsync(API_KEY_STORAGE_KEY, apiKey);
+    // Use the API key manager instead of directly using SecureStore
+    await setManagerApiKey(apiKey);
   } catch (error) {
     console.error('Error storing API key:', error);
     throw error;
@@ -65,21 +72,37 @@ export const setApiKey = async (apiKey: string): Promise<void> => {
 };
 
 /**
- * Get the stored OpenAI API key
- * @returns The stored API key or the default key if not found
+ * Get the API key from various sources
+ * Prioritizes global API key during development
  */
 export const getApiKey = async (): Promise<string | null> => {
-  try {
-    // First try to get a user-provided key
-    const userKey = await SecureStore.getItemAsync(API_KEY_STORAGE_KEY);
-    
-    // If user has provided a key, use that, otherwise use the default key
-    return userKey || DEFAULT_API_KEY;
-  } catch (error) {
-    console.error('Error retrieving API key:', error);
-    // Return the default key as fallback
-    return DEFAULT_API_KEY;
+  // First try to get the global API key if enabled
+  if (USE_GLOBAL_API_KEYS) {
+    try {
+      const globalApiKey = await getGlobalApiKey();
+      if (globalApiKey) {
+        return globalApiKey;
+      }
+    } catch (error) {
+      console.warn('Error getting global API key, falling back to user key:', error);
+    }
   }
+  
+  // Try to get from Vault first
+  try {
+    const { value: vaultKey, error: vaultError } = await getVaultSecret('OPENAI_API_KEY');
+    if (vaultKey && !vaultError) {
+      return vaultKey;
+    }
+    if (vaultError) {
+      console.warn('Error getting API key from Vault:', vaultError);
+    }
+  } catch (error) {
+    console.warn('Error getting API key from Vault, falling back to apiKeyManager:', error);
+  }
+  
+  // Fall back to apiKeyManager
+  return getManagerApiKey();
 };
 
 /**
@@ -87,7 +110,8 @@ export const getApiKey = async (): Promise<string | null> => {
  */
 export const clearApiKey = async (): Promise<void> => {
   try {
-    await SecureStore.deleteItemAsync(API_KEY_STORAGE_KEY);
+    // Use the API key manager instead of directly using SecureStore
+    await clearManagerApiKey();
   } catch (error) {
     console.error('Error clearing API key:', error);
     throw error;
@@ -101,8 +125,14 @@ export const clearApiKey = async (): Promise<void> => {
  */
 export const getFinancialAdvice = async (request: AdviceRequest): Promise<string> => {
   try {
-    // Get API key (will use default key if user hasn't provided one)
+    // Get API key from Vault with fallbacks
     const apiKey = await getApiKey();
+    
+    // If no API key is available, return a message asking the user to set one
+    if (!apiKey) {
+      return "To get personalized financial advice, please set your OpenAI API key in the settings. " +
+             "You can get an API key from https://platform.openai.com/api-keys.";
+    }
     
     // Create a prompt based on the request type and data
     let prompt = '';
@@ -150,6 +180,17 @@ export const getFinancialAdvice = async (request: AdviceRequest): Promise<string
     if (!response.ok) {
       const errorData = await response.json();
       console.error('OpenAI API error:', errorData);
+      
+      // Check for API key related errors
+      if (errorData.error?.code === 'invalid_api_key' || 
+          errorData.error?.type === 'authentication_error' ||
+          response.status === 401) {
+        // Clear the invalid API key
+        await clearApiKey();
+        return "Your OpenAI API key appears to be invalid. Please update your API key in the settings. " +
+               "You can get a new API key from https://platform.openai.com/api-keys.";
+      }
+      
       throw new Error(`OpenAI API error: ${errorData.error?.message || 'Unknown error'}`);
     }
     
@@ -637,11 +678,35 @@ export const generateFinancialInsights = async (financialData: FinancialData): P
  */
 export const getAIFinancialInsights = async (financialData: FinancialData): Promise<FinancialInsight[]> => {
   try {
+    // Get API key from Vault with fallbacks
     const apiKey = await getApiKey();
     
     if (!apiKey) {
       // Fall back to rule-based insights if no API key
-      return generateFinancialInsights(financialData);
+      console.log('No API key available, using rule-based insights');
+      
+      // Add a special insight to inform the user about setting up an API key
+      const insights = await generateFinancialInsights(financialData);
+      const now = new Date();
+      
+      insights.unshift({
+        id: 'api-key-missing',
+        title: 'Set up your OpenAI API key',
+        description: 'To get personalized AI-powered financial insights, please set your OpenAI API key in the settings.',
+        type: 'tip',
+        priority: 'high',
+        category: 'Settings',
+        actionable: true,
+        action: {
+          label: 'Go to Settings',
+          screen: 'SettingsScreen',
+          params: { section: 'api' },
+        },
+        createdAt: now.toISOString(),
+        read: false,
+      });
+      
+      return insights;
     }
 
     // Create a prompt for generating insights
@@ -695,6 +760,39 @@ export const getAIFinancialInsights = async (financialData: FinancialData): Prom
 
     if (!response.ok) {
       const errorData = await response.json();
+      
+      // Check for API key related errors
+      if (errorData.error?.code === 'invalid_api_key' || 
+          errorData.error?.type === 'authentication_error' ||
+          response.status === 401) {
+        // Clear the invalid API key
+        await clearApiKey();
+        console.error('Invalid API key detected, cleared from storage');
+        
+        // Return rule-based insights with a message about the invalid key
+        const insights = await generateFinancialInsights(financialData);
+        const now = new Date();
+        
+        insights.unshift({
+          id: 'api-key-invalid',
+          title: 'OpenAI API key is invalid',
+          description: 'Your API key appears to be invalid. Please update it in the settings to get AI-powered insights.',
+          type: 'warning',
+          priority: 'high',
+          category: 'Settings',
+          actionable: true,
+          action: {
+            label: 'Update API Key',
+            screen: 'SettingsScreen',
+            params: { section: 'api' },
+          },
+          createdAt: now.toISOString(),
+          read: false,
+        });
+        
+        return insights;
+      }
+      
       throw new Error(`API error: ${errorData.error?.message || 'Unknown error'}`);
     }
 
@@ -864,4 +962,6 @@ export default {
   getApiKey,
   clearApiKey,
   getFinancialAdvice,
+  generateFinancialInsights,
+  getAIFinancialInsights,
 }; 

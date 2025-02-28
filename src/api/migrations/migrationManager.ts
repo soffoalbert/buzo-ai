@@ -4,7 +4,8 @@ import setupMigrationFunctions from './checkSetup';
 // Import all migrations
 import './001_initial_schema';
 import './002_savings_goals';
-import './003_expenses_budgets';
+import './003_api_keys_table';
+import './004_vault_setup';
 
 /**
  * Initialize and run all pending migrations
