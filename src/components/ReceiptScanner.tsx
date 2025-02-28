@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -12,75 +12,85 @@ import {
   Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import Button from './Button';
+import { processReceiptImage } from '../services/receiptService';
+import { colors } from '../utils/theme';
 
 interface ReceiptScannerProps {
   onCapture: (imageUri: string, extractedData?: any) => void;
   onClose: () => void;
   visible: boolean;
   showGalleryOption?: boolean;
-  showFlashOption?: boolean;
-  showGuideLines?: boolean;
   processingEnabled?: boolean;
   title?: string;
   instructions?: string;
 }
-
-// Mock data for demonstration
-const MOCK_RECEIPT_IMAGE = 'https://via.placeholder.com/300x500?text=Receipt+Image';
 
 const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   onCapture,
   onClose,
   visible,
   showGalleryOption = true,
-  showFlashOption = true,
-  showGuideLines = true,
   processingEnabled = true,
   title = 'Scan Receipt',
-  instructions = 'Position the receipt within the frame and ensure it\'s well-lit',
+  instructions = 'Select an image from your gallery to scan the receipt',
 }) => {
-  const [isCapturing, setIsCapturing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   
-  // Simulate taking a picture
-  const takePicture = async () => {
-    if (!isCapturing) {
-      setIsCapturing(true);
-      try {
-        // Simulate camera capture delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Use mock image for demonstration
-        setCapturedImage(MOCK_RECEIPT_IMAGE);
+  // Pick image from gallery
+  const pickImage = async () => {
+    try {
+      // Request permissions first
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Gallery Permission Required',
+          'We need gallery access to select receipt images. Please grant permission in your device settings.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.8,
+        base64: true,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedImage = result.assets[0];
+        setCapturedImage(selectedImage.uri);
         
         if (processingEnabled) {
           setIsProcessing(true);
-          // Simulate processing delay
-          setTimeout(() => {
+          try {
+            // Process the image with OCR
+            const extractedData = await processReceiptImage(selectedImage.uri, selectedImage.base64);
             setIsProcessing(false);
-            // Mock extracted data
-            const mockExtractedData = {
-              merchant: 'Sample Store',
-              date: new Date().toISOString(),
-              total: 123.45,
-              items: [
-                { name: 'Item 1', price: 45.67 },
-                { name: 'Item 2', price: 77.78 }
-              ]
-            };
-            onCapture(MOCK_RECEIPT_IMAGE, mockExtractedData);
-          }, 2000);
+            onCapture(selectedImage.uri, extractedData);
+          } catch (error) {
+            console.error('Error processing receipt:', error);
+            setIsProcessing(false);
+            Alert.alert(
+              'Processing Error',
+              'Could not process the receipt. Please try again or enter details manually.',
+              [{ text: 'OK' }]
+            );
+            // Still provide the image even if processing failed
+            onCapture(selectedImage.uri);
+          }
         } else {
-          onCapture(MOCK_RECEIPT_IMAGE);
+          onCapture(selectedImage.uri);
         }
-      } catch (error) {
-        console.error('Error taking picture:', error);
-        Alert.alert('Error', 'Failed to capture image');
-      } finally {
-        setIsCapturing(false);
       }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image from gallery');
     }
   };
   
@@ -88,24 +98,6 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const retakePicture = () => {
     setCapturedImage(null);
     setIsProcessing(false);
-  };
-  
-  // Pick image from gallery
-  const pickImage = async () => {
-    Alert.alert(
-      'Feature Not Implemented',
-      'Gallery selection will be implemented in a future update',
-      [{ text: 'OK' }]
-    );
-  };
-  
-  // Toggle flash mode (placeholder)
-  const toggleFlashMode = () => {
-    Alert.alert(
-      'Flash Toggle',
-      'Flash toggled (placeholder functionality)',
-      [{ text: 'OK' }]
-    );
   };
   
   return (
@@ -125,33 +117,17 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           <View style={styles.placeholder} />
         </View>
         
-        {/* Camera Preview or Captured Image */}
+        {/* Image Preview or Placeholder */}
         <View style={styles.cameraContainer}>
           {capturedImage ? (
             // Show captured image
-            <Image source={{ uri: capturedImage }} style={styles.camera} />
+            <Image source={{ uri: capturedImage }} style={styles.camera} resizeMode="contain" />
           ) : (
-            // Show camera preview placeholder
+            // Show placeholder
             <View style={styles.cameraPlaceholder}>
-              {/* Guide lines overlay */}
-              {showGuideLines && (
-                <View style={styles.guideContainer}>
-                  <View style={styles.guideFrame} />
-                </View>
-              )}
-              <Text style={styles.placeholderText}>
-                Camera preview would appear here
-              </Text>
-              <Text style={styles.placeholderSubtext}>
-                (Actual camera implementation requires expo-camera setup)
-              </Text>
-            </View>
-          )}
-          
-          {/* Instructions */}
-          {!capturedImage && (
-            <View style={styles.instructionsContainer}>
-              <Text style={styles.instructions}>{instructions}</Text>
+              <Ionicons name="images-outline" size={64} color="#AAAAAA" />
+              <Text style={styles.placeholderText}>No image selected</Text>
+              <Text style={styles.placeholderSubtext}>{instructions}</Text>
             </View>
           )}
           
@@ -170,14 +146,18 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             // Controls for captured image
             <View style={styles.capturedControls}>
               <Button 
-                title="Retake" 
+                title="Select Another" 
                 onPress={retakePicture} 
                 variant="outline"
                 style={styles.controlButton}
               />
               <Button 
-                title="Use Photo" 
-                onPress={() => onCapture(capturedImage)} 
+                title="Use This Image" 
+                onPress={() => {
+                  if (!isProcessing) {
+                    onCapture(capturedImage);
+                  }
+                }} 
                 variant="primary"
                 style={styles.controlButton}
                 isLoading={isProcessing}
@@ -185,38 +165,14 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               />
             </View>
           ) : (
-            // Controls for camera
-            <View style={styles.cameraControls}>
-              {/* Gallery button */}
-              {showGalleryOption && (
-                <TouchableOpacity onPress={pickImage} style={styles.iconButton}>
-                  <Ionicons name="images" size={28} color="#FFFFFF" />
-                </TouchableOpacity>
-              )}
-              
-              {/* Capture button */}
-              <TouchableOpacity 
-                onPress={takePicture} 
-                style={styles.captureButton}
-                disabled={isCapturing}
-              >
-                {isCapturing ? (
-                  <ActivityIndicator size="small" color="#4F46E5" />
-                ) : (
-                  <View style={styles.captureButtonInner} />
-                )}
-              </TouchableOpacity>
-              
-              {/* Flash button */}
-              {showFlashOption && (
-                <TouchableOpacity onPress={toggleFlashMode} style={styles.iconButton}>
-                  <Ionicons 
-                    name="flash" 
-                    size={28} 
-                    color="#FFFFFF" 
-                  />
-                </TouchableOpacity>
-              )}
+            // Controls for selecting image
+            <View style={styles.capturedControls}>
+              <Button 
+                title="Select from Gallery" 
+                onPress={pickImage} 
+                variant="primary"
+                style={{ flex: 1 }}
+              />
             </View>
           )}
         </View>
@@ -226,7 +182,6 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 };
 
 const { width } = Dimensions.get('window');
-const GUIDE_PADDING = 40;
 
 const styles = StyleSheet.create({
   container: {
@@ -251,7 +206,6 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     width: 44,
-    height: 44,
   },
   cameraContainer: {
     flex: 1,
@@ -262,52 +216,21 @@ const styles = StyleSheet.create({
   },
   cameraPlaceholder: {
     flex: 1,
-    backgroundColor: '#333333',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#222222',
   },
   placeholderText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    marginTop: 16,
     marginBottom: 8,
   },
   placeholderSubtext: {
-    color: '#CCCCCC',
-    fontSize: 12,
-    textAlign: 'center',
-    paddingHorizontal: 40,
-  },
-  guideContainer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  guideFrame: {
-    width: width - GUIDE_PADDING * 2,
-    height: (width - GUIDE_PADDING * 2) * 1.4, // Approximate receipt ratio
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    borderRadius: 8,
-    borderStyle: 'dashed',
-  },
-  instructionsContainer: {
-    position: 'absolute',
-    bottom: 20,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  instructions: {
-    color: '#FFFFFF',
+    color: '#AAAAAA',
     fontSize: 14,
     textAlign: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    overflow: 'hidden',
+    paddingHorizontal: 40,
   },
   processingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -321,40 +244,17 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   controls: {
+    backgroundColor: '#000000',
     paddingVertical: 20,
     paddingHorizontal: 20,
-    backgroundColor: '#000000',
-  },
-  cameraControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
   },
   capturedControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  iconButton: {
-    padding: 12,
-  },
-  captureButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  captureButtonInner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#FFFFFF',
   },
   controlButton: {
-    flex: 1,
-    marginHorizontal: 8,
+    flex: 0.48,
+    marginHorizontal: 4,
   },
 });
 

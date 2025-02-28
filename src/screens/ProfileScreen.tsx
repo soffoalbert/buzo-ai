@@ -23,8 +23,23 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
 import { logoutUser, getUserProfile } from '../services/authService';
 import { notifyAuthStateChanged } from '../utils/authStateManager';
+import { loadUserProfile, createUserProfile } from '../services/userService';
+import { User, DEFAULT_USER_PREFERENCES } from '../models/User';
+import { generateUUID } from '../utils/helpers';
+import { v4 as uuidv4 } from 'uuid';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
+
+// Utility function to safely convert any value to a string
+const safeToString = (value: any): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return String(value);
+};
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -36,6 +51,14 @@ const MOCK_USER_DATA = {
   avatarUrl: null,
 };
 
+// Define the type for user data
+type UserData = {
+  name: string;
+  email: string;
+  joinDate: string;
+  avatarUrl: string | null;
+};
+
 const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
   const isFocused = useIsFocused();
@@ -44,7 +67,7 @@ const ProfileScreen: React.FC = () => {
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [userData, setUserData] = useState(MOCK_USER_DATA);
+  const [userData, setUserData] = useState<UserData>(MOCK_USER_DATA);
   const [error, setError] = useState<string | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   
@@ -78,49 +101,94 @@ const ProfileScreen: React.FC = () => {
   
   // Fetch user profile data
   const fetchUserProfile = useCallback(async (showLoading = true) => {
+    if (showLoading) {
+      setIsLoading(true);
+    }
+    
     try {
-      if (showLoading) {
-        setIsLoading(true);
-      }
-      setError(null);
+      let profile = await loadUserProfile();
       
-      // Try to get user profile
-      let profile;
-      try {
-        profile = await getUserProfile();
-      } catch (err) {
-        console.error('Error fetching profile:', err);
-        // Fall back to mock data
-        profile = null;
+      // If no profile exists, create a default one
+      if (!profile) {
+        try {
+          const email = 'user@example.com';
+          const name = 'New User';
+          
+          profile = await createUserProfile(email, name, {
+            profilePicture: undefined,
+            preferences: DEFAULT_USER_PREFERENCES,
+          });
+          
+          console.log('Created default profile:', profile);
+        } catch (createError) {
+          console.error('Error creating default profile:', createError);
+          // Use local fallback if both loading and creating fail
+          profile = {
+            id: uuidv4(),
+            name: 'New User',
+            email: 'user@example.com',
+            joinDate: new Date().toISOString(),
+            lastActive: new Date().toISOString(),
+            profilePicture: undefined,
+            preferences: DEFAULT_USER_PREFERENCES,
+          };
+        }
       }
       
       if (profile) {
-        setUserData({
-          name: profile.full_name || 'Buzo User',
-          email: profile.email || '',
-          joinDate: profile.created_at 
-            ? new Date(profile.created_at).toLocaleDateString('en-US', { 
-                month: 'long', 
-                year: 'numeric' 
+        try {
+          const joinDateStr = typeof profile.joinDate === 'string' 
+            ? new Date(profile.joinDate).toLocaleDateString('en-US', {
+                month: 'long',
+                year: 'numeric',
               })
-            : 'New Member',
-          avatarUrl: profile.avatar_url,
-        });
-      } else {
-        // Use mock data if profile fetch fails
-        console.log('Using mock user data');
-        setUserData(MOCK_USER_DATA);
+            : 'Unknown date';
+            
+          setUserData({
+            name: typeof profile.name === 'string' ? profile.name : 'Buzo User',
+            email: typeof profile.email === 'string' ? profile.email : 'user@example.com',
+            joinDate: joinDateStr,
+            avatarUrl: typeof profile.profilePicture === 'string' ? profile.profilePicture : null,
+          });
+        } catch (formatError) {
+          console.error('Error formatting user data:', formatError);
+          // Use fallback data if formatting fails
+          setUserData({
+            name: 'Buzo User',
+            email: 'user@example.com',
+            joinDate: 'Unknown date',
+            avatarUrl: null,
+          });
+        }
       }
-    } catch (error) {
-      console.error('Error in fetchUserProfile:', error);
-      setError('Could not load profile data');
-      // Fallback to mock data
-      setUserData(MOCK_USER_DATA);
-    } finally {
+      
+      // Clear any previous errors
+      setError(null);
+      
       if (showLoading) {
         setIsLoading(false);
       }
-      setIsInitialLoad(false);
+      
+      return Promise.resolve();
+    } catch (error) {
+      console.error('Error loading profile:', error);
+      
+      // Set error state with a string message
+      setError(typeof error === 'object' ? 'Could not load profile data' : String(error));
+      
+      // Use mock data as fallback
+      setUserData({
+        name: typeof MOCK_USER_DATA.name === 'string' ? MOCK_USER_DATA.name : 'Buzo User',
+        email: typeof MOCK_USER_DATA.email === 'string' ? MOCK_USER_DATA.email : 'user@example.com',
+        joinDate: typeof MOCK_USER_DATA.joinDate === 'string' ? MOCK_USER_DATA.joinDate : 'Unknown date',
+        avatarUrl: null
+      });
+      
+      if (showLoading) {
+        setIsLoading(false);
+      }
+      
+      return Promise.reject(error);
     }
   }, []);
   
@@ -148,7 +216,13 @@ const ProfileScreen: React.FC = () => {
   // Initial load effect
   useEffect(() => {
     if (isInitialLoad) {
-      fetchUserProfile(true);
+      fetchUserProfile(true)
+        .then(() => {
+          setIsInitialLoad(false);
+        })
+        .catch(() => {
+          setIsInitialLoad(false);
+        });
     }
   }, [fetchUserProfile, isInitialLoad]);
   
@@ -202,11 +276,17 @@ const ProfileScreen: React.FC = () => {
                 // the AppNavigator to show the auth screens automatically
               } else {
                 console.error('Error logging out:', error);
-                Alert.alert('Logout Error', message || 'There was a problem logging out. Please try again.');
+                const errorMessage = typeof message === 'object' 
+                  ? 'There was a problem logging out. Please try again.' 
+                  : message || 'There was a problem logging out. Please try again.';
+                Alert.alert('Logout Error', errorMessage);
               }
             } catch (error) {
               console.error('Error during logout:', error);
-              Alert.alert('Logout Error', 'An unexpected error occurred. Please try again.');
+              const errorMessage = typeof error === 'object' 
+                ? 'An unexpected error occurred. Please try again.' 
+                : String(error);
+              Alert.alert('Logout Error', errorMessage);
             } finally {
               setIsLoggingOut(false);
             }
@@ -232,7 +312,10 @@ const ProfileScreen: React.FC = () => {
       navigation.navigate('BankStatements');
     } catch (error) {
       console.error('Navigation error:', error);
-      Alert.alert('Navigation Error', 'Could not open Bank Statements. This feature may not be available yet.');
+      const errorMessage = typeof error === 'object' 
+        ? 'Could not open Bank Statements. This feature may not be available yet.' 
+        : String(error);
+      Alert.alert('Navigation Error', errorMessage);
     }
   };
   
@@ -275,7 +358,8 @@ const ProfileScreen: React.FC = () => {
     triggerHaptic();
     Linking.openURL('mailto:support@buzo.app?subject=Support%20Request').catch(err => {
       console.error('Error opening mail client:', err);
-      Alert.alert('Error', 'Could not open email client.');
+      const errorMessage = typeof err === 'object' ? 'Could not open email client.' : String(err);
+      Alert.alert('Error', errorMessage);
     });
   };
   
@@ -288,18 +372,14 @@ const ProfileScreen: React.FC = () => {
     
     Linking.openURL(storeUrl).catch(err => {
       console.error('Error opening store:', err);
-      Alert.alert('Error', 'Could not open app store.');
+      const errorMessage = typeof err === 'object' ? 'Could not open app store.' : String(err);
+      Alert.alert('Error', errorMessage);
     });
   };
   
   const handleEditProfile = () => {
     triggerHaptic();
-    // Show a message that this feature is coming soon
-    Alert.alert(
-      'Coming Soon',
-      'The Edit Profile feature will be available in the next update!',
-      [{ text: 'OK', style: 'default' }]
-    );
+    navigation.navigate('EditProfile');
   };
   
   const renderSettingItem = (
@@ -326,9 +406,9 @@ const ProfileScreen: React.FC = () => {
           <Ionicons name={icon as any} size={22} color={colors.primary} />
         </View>
         <View style={styles.settingTextContainer}>
-          <Text style={styles.settingItemText}>{title}</Text>
+          <Text style={styles.settingItemText}>{safeToString(title)}</Text>
           {description && (
-            <Text style={styles.settingItemDescription}>{description}</Text>
+            <Text style={styles.settingItemDescription}>{safeToString(description)}</Text>
           )}
         </View>
       </View>
@@ -360,7 +440,9 @@ const ProfileScreen: React.FC = () => {
     return (
       <SafeAreaView style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.errorText}>
+          {safeToString(error)}
+        </Text>
         <TouchableOpacity 
           style={styles.retryButton}
           onPress={() => fetchUserProfile(true)}
@@ -422,13 +504,15 @@ const ProfileScreen: React.FC = () => {
                   resizeMode="cover"
                 />
               ) : (
-                <Text style={styles.avatarText}>{userData.name.charAt(0)}</Text>
+                <Text style={styles.avatarText}>
+                  {userData.name && typeof userData.name === 'string' ? userData.name.charAt(0) : '?'}
+                </Text>
               )}
             </View>
             <View style={styles.userInfo}>
-              <Text style={styles.userName}>{userData.name}</Text>
-              <Text style={styles.userEmail}>{userData.email}</Text>
-              <Text style={styles.userJoinDate}>Member since {userData.joinDate}</Text>
+              <Text style={styles.userName}>{safeToString(userData.name)}</Text>
+              <Text style={styles.userEmail}>{safeToString(userData.email)}</Text>
+              <Text style={styles.userJoinDate}>Member since {safeToString(userData.joinDate)}</Text>
             </View>
           </View>
           <TouchableOpacity 

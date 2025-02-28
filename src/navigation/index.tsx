@@ -12,13 +12,14 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
 import BudgetScreen from '../screens/BudgetScreen';
-import ExpensesScreen from '../screens/ExpensesScreen';
+import ExpenseScreen from '../screens/ExpenseScreen';
 import SavingsScreen from '../screens/SavingsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import InsightsScreen from '../screens/InsightsScreen';
 import LearnScreen from '../screens/EducationScreen';
 import ArticleDetailScreen from '../screens/ArticleDetailScreen';
 import BankStatementsScreen from '../screens/BankStatementsScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
 import LoadingScreen from '../components/LoadingScreen';
 
 // Import theme
@@ -51,6 +52,8 @@ export type RootStackParamList = {
   Profile: undefined;
   BankStatements: undefined;
   Insights: undefined;
+  EditProfile: undefined;
+  ExpenseScreen: { receiptData?: any };
 };
 
 // Create navigation stacks
@@ -145,7 +148,7 @@ export const MainNavigator: React.FC = () => {
       />
       <MainTab.Screen 
         name="Expenses" 
-        component={ExpensesScreen}
+        component={ExpenseScreen}
         options={{
           tabBarShowLabel: true,
         }}
@@ -179,6 +182,8 @@ export const RootNavigator: React.FC = () => {
       <RootStack.Screen name="Profile" component={ProfileScreen} />
       <RootStack.Screen name="BankStatements" component={BankStatementsScreen} />
       <RootStack.Screen name="Insights" component={InsightsScreen} />
+      <RootStack.Screen name="EditProfile" component={EditProfileScreen} />
+      <RootStack.Screen name="ExpenseScreen" component={ExpenseScreen} />
     </RootStack.Navigator>
   );
 };
