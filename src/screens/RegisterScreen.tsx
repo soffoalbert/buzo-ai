@@ -18,6 +18,8 @@ import * as SecureStore from 'expo-secure-store';
 
 import { AuthStackParamList } from '../navigation';
 import { colors, spacing, textStyles, borderRadius } from '../utils/theme';
+import { registerUser } from '../services/authService';
+import { processPendingBankStatementUploads } from '../services/pendingUploadsService';
 
 type RegisterScreenProps = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Register'>;
@@ -52,23 +54,46 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
     setIsLoading(true);
 
     try {
-      // This is a placeholder for actual registration logic
-      // In a real app, you would call your authentication API here
+      // Call the actual registration API
+      const { data, error } = await registerUser(email, password, name);
       
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (error) {
+        // Display a more specific error message if available
+        const errorMessage = error.message || 'Registration failed. Please try again later.';
+        Alert.alert('Registration Failed', errorMessage);
+        setIsLoading(false);
+        return;
+      }
       
-      // For demo purposes, we'll just store a dummy token
-      await SecureStore.setItemAsync('userToken', 'dummy-auth-token');
+      // Process any pending bank statement uploads
+      await processPendingBankStatementUploads();
       
       // Reset form
       setName('');
       setEmail('');
       setPassword('');
       setConfirmPassword('');
+      
+      // Navigate to the main app
+      // This assumes you have a navigation mechanism to the main app
+      // You might need to adjust this based on your navigation setup
+      Alert.alert('Success', 'Your account has been created successfully!', [
+        { text: 'OK', onPress: () => {
+          // Navigate to the main app after successful registration
+          // This will depend on your navigation structure
+          // For example, if you're using a navigation container with auth state:
+          // navigation.reset({
+          //   index: 0,
+          //   routes: [{ name: 'Main' }],
+          // });
+          
+          // For now, just navigate to Login screen
+          navigation.navigate('Login');
+        }}
+      ]);
     } catch (error) {
       console.error('Registration error:', error);
-      Alert.alert('Registration Failed', 'Please try again later');
+      Alert.alert('Registration Failed', 'An unexpected error occurred. Please try again later.');
     } finally {
       setIsLoading(false);
     }

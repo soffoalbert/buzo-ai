@@ -19,6 +19,8 @@ import * as SecureStore from 'expo-secure-store';
 
 import { AuthStackParamList } from '../navigation';
 import { colors, spacing, textStyles, borderRadius } from '../utils/theme';
+import { loginUser } from '../services/authService';
+import { processPendingBankStatementUploads } from '../services/pendingUploadsService';
 
 type LoginScreenProps = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
@@ -39,21 +41,35 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
     setIsLoading(true);
 
     try {
-      // This is a placeholder for actual authentication logic
-      // In a real app, you would call your authentication API here
+      // Call the actual login API
+      const { data, error } = await loginUser(email, password);
       
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (error) {
+        // Display a more specific error message if available
+        const errorMessage = error.message || 'Login failed. Please check your credentials and try again.';
+        Alert.alert('Login Failed', errorMessage);
+        setIsLoading(false);
+        return;
+      }
       
-      // For demo purposes, we'll just store a dummy token
-      await SecureStore.setItemAsync('userToken', 'dummy-auth-token');
+      // Process any pending bank statement uploads
+      await processPendingBankStatementUploads();
       
       // Reset form
       setEmail('');
       setPassword('');
+      
+      // Navigate to the main app
+      // This assumes you have a navigation mechanism to the main app
+      // You might need to adjust this based on your navigation setup
+      // For example, if you're using a navigation container with auth state:
+      // navigation.reset({
+      //   index: 0,
+      //   routes: [{ name: 'Main' }],
+      // });
     } catch (error) {
       console.error('Login error:', error);
-      Alert.alert('Login Failed', 'Please check your credentials and try again');
+      Alert.alert('Login Failed', 'An unexpected error occurred. Please try again later.');
     } finally {
       setIsLoading(false);
     }

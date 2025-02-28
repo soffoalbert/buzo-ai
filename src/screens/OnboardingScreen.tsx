@@ -18,6 +18,7 @@ import { colors, spacing, textStyles, borderRadius } from '../utils/theme';
 import { Ionicons } from '@expo/vector-icons';
 import BankStatementUploader from '../components/BankStatementUploader';
 import { uploadBankStatement } from '../services/bankStatementService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Get screen dimensions
 const { width, height } = Dimensions.get('window');
@@ -88,7 +89,12 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
       });
       setCurrentIndex(currentIndex + 1);
     } else {
-      navigation.navigate('Login');
+      // If user has uploaded a statement, navigate to register
+      if (uploadedStatement) {
+        navigation.navigate('Register');
+      } else {
+        navigation.navigate('Login');
+      }
     }
   };
 
@@ -103,17 +109,23 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
     setIsUploading(true);
     
     try {
-      // Upload the bank statement to Supabase
-      await uploadBankStatement(fileUri, fileName);
+      // Store the bank statement info temporarily in AsyncStorage
+      // It will be uploaded after the user registers/logs in
+      await AsyncStorage.setItem('pendingBankStatement', JSON.stringify({
+        uri: fileUri,
+        name: fileName,
+        timestamp: new Date().toISOString()
+      }));
+      
       Alert.alert(
-        'Upload Successful',
-        'Your bank statement has been uploaded successfully. We\'ll analyze it to provide personalized financial advice.'
+        'Statement Saved',
+        'Your bank statement has been saved. It will be uploaded after you create an account or log in.'
       );
     } catch (error) {
-      console.error('Error uploading bank statement:', error);
+      console.error('Error saving bank statement:', error);
       Alert.alert(
-        'Upload Failed',
-        'There was an error uploading your bank statement. Please try again later.'
+        'Save Failed',
+        'There was an error saving your bank statement. Please try again later.'
       );
     } finally {
       setIsUploading(false);
