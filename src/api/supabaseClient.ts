@@ -236,6 +236,80 @@ export const ensureBankStatementsTable = async (): Promise<{ success: boolean; e
 };
 
 /**
+ * Ensure the feedback tables exist
+ * @returns Promise resolving to success status and any error
+ */
+export const ensureFeedbackTables = async (): Promise<{ success: boolean; error?: any }> => {
+  try {
+    if (!supabaseAdmin) {
+      console.error('Supabase admin client not initialized');
+      return { success: false, error: 'Supabase admin client not initialized' };
+    }
+    
+    // Check if feedback table exists
+    const { error: checkError } = await supabaseAdmin
+      .from('feedback')
+      .select('id')
+      .limit(1);
+    
+    // If table doesn't exist, run the migration
+    if (checkError && checkError.code === '42P01') { // PostgreSQL code for undefined_table
+      // In React Native, we can't use fs to read files from the filesystem
+      // Instead, we'll include the SQL directly in the code
+      // This is a simplified approach - in production, you might want to use a more sophisticated solution
+      
+      const migrationSql = `
+        -- Create feedback table
+        CREATE TABLE IF NOT EXISTS feedback (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+          feature_id TEXT NOT NULL,
+          rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+          comments TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          context JSONB
+        );
+
+        -- Create feature_engagement table
+        CREATE TABLE IF NOT EXISTS feature_engagement (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+          feature_id TEXT NOT NULL,
+          engagement_type TEXT NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          context JSONB
+        );
+
+        -- Add indexes
+        CREATE INDEX IF NOT EXISTS feedback_user_id_idx ON feedback(user_id);
+        CREATE INDEX IF NOT EXISTS feedback_feature_id_idx ON feedback(feature_id);
+        CREATE INDEX IF NOT EXISTS feature_engagement_user_id_idx ON feature_engagement(user_id);
+        CREATE INDEX IF NOT EXISTS feature_engagement_feature_id_idx ON feature_engagement(feature_id);
+      `;
+      
+      // Execute the migration
+      const { error: migrationError } = await supabaseAdmin.rpc('exec_sql', {
+        sql_query: migrationSql
+      });
+      
+      if (migrationError) {
+        console.error('Error running feedback tables migration:', migrationError);
+        return { success: false, error: migrationError };
+      }
+      
+      console.log('Feedback tables created successfully');
+      return { success: true };
+    }
+    
+    // Table already exists
+    return { success: true };
+  } catch (error) {
+    console.error('Error ensuring feedback tables:', error);
+    return { success: false, error };
+  }
+};
+
+/**
  * Ensure all required database tables exist
  * This function checks for required tables and provides guidance if they don't exist
  */
@@ -309,6 +383,12 @@ export const ensureDatabaseTables = async (): Promise<{ success: boolean; error?
       console.log('');
     } else {
       console.log('Supabase Vault is available and properly configured.');
+    }
+    
+    // Ensure feedback tables
+    const feedbackResult = await ensureFeedbackTables();
+    if (!feedbackResult.success) {
+      return feedbackResult;
     }
     
     // If both checks failed, provide guidance for database setup

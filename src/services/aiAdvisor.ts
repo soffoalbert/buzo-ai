@@ -1,5 +1,7 @@
 // Import the Vault functions from supabaseClient
 import { getVaultSecret } from '../api/supabaseClient';
+import { trackFeatureEngagement } from '../services/feedbackService';
+import { FeedbackContext } from '../models/Feedback';
 // Keep the apiKeyManager imports for fallback
 import { getApiKey as getManagerApiKey, setApiKey as setManagerApiKey, clearApiKey as clearManagerApiKey } from './apiKeyManager';
 // Import the global API key manager for development
@@ -257,6 +259,9 @@ export const getFinancialAdvice = async (request: AdviceRequest): Promise<string
     // Get economic tips
     const economicTips = getEconomicTips();
     
+    // Generate a unique ID for this recommendation
+    const recommendationId = generateRecommendationId(request.type);
+    
     // Call the OpenAI API
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -319,13 +324,43 @@ export const getFinancialAdvice = async (request: AdviceRequest): Promise<string
     }
     
     const data = await response.json();
-    return data.choices[0].message.content.trim();
+    const advice = data.choices[0].message.content.trim();
+    
+    // Track this AI recommendation for analytics
+    try {
+      await trackFeatureEngagement(
+        recommendationId,
+        FeedbackContext.AI_RECOMMENDATION,
+        {
+          adviceType: request.type,
+          hasQuestion: !!request.question,
+          promptLength: prompt.length,
+          responseLength: advice.length
+        }
+      );
+    } catch (error) {
+      // Silently fail - analytics should not interrupt user experience
+      console.warn('Error tracking AI recommendation:', error);
+    }
+    
+    return advice;
   } catch (error) {
     console.error('Error getting financial advice:', error);
     
     // If there's an error with the API call, fall back to rule-based advice
     return generateFallbackAdvice(request.financialData, request.type, request.question);
   }
+};
+
+/**
+ * Generate a unique ID for an AI recommendation
+ * @param type The type of advice
+ * @returns A unique recommendation ID
+ */
+const generateRecommendationId = (type: AdviceRequest['type']): string => {
+  const timestamp = Date.now();
+  const random = Math.floor(Math.random() * 10000);
+  return `rec_${type}_${timestamp}_${random}`;
 };
 
 /**
