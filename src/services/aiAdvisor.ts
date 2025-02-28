@@ -4,6 +4,12 @@ import { getVaultSecret } from '../api/supabaseClient';
 import { getApiKey as getManagerApiKey, setApiKey as setManagerApiKey, clearApiKey as clearManagerApiKey } from './apiKeyManager';
 // Import the global API key manager for development
 import { getGlobalApiKey } from './devApiKeyManager';
+// Import user service to get user preferences and profile
+import { getUserPreferences, loadUserProfile } from './userService';
+// Import for location data - using require to avoid TypeScript errors
+import * as Location from 'expo-location';
+// Import economic data service
+import { getEconomicContext, getEconomicTips, getProvincialEconomicData } from './economicDataService';
 
 // Base URL for OpenAI API
 const API_URL = 'https://api.openai.com/v1/chat/completions';
@@ -14,6 +20,23 @@ import { FinancialInsight } from '../components/FinancialInsights';
 
 // Whether to use global API keys (for development)
 const USE_GLOBAL_API_KEYS = true;
+
+// Add spending patterns analysis
+interface SpendingPatterns {
+  frequentCategories: string[];
+  unusualExpenses: Array<{
+    category: string;
+    amount: number;
+    date: string;
+    percentageAboveAverage: number;
+  }>;
+  recurringExpenses: Array<{
+    category: string;
+    averageAmount: number;
+    frequency: 'daily' | 'weekly' | 'monthly';
+  }>;
+  savingsRate?: number; // Percentage of income saved
+}
 
 // Interface for financial data
 interface FinancialData {
@@ -34,6 +57,7 @@ interface FinancialData {
     target: number;
     current: number;
     deadline: string;
+    priority?: 'low' | 'medium' | 'high';
   }>;
   // Add historical data for trends
   historicalExpenses?: Array<{
@@ -45,6 +69,27 @@ interface FinancialData {
     month: string;
     amount: number;
   }>;
+  // Add user profile data
+  userProfile?: {
+    age?: number;
+    occupation?: string;
+    financialGoals?: string[];
+    riskTolerance?: 'low' | 'medium' | 'high';
+    financialInterests?: string[];
+    financialChallenges?: string[];
+  };
+  // Add location data for local economic context
+  locationData?: {
+    city?: string;
+    province?: string;
+    country?: string;
+    coordinates?: {
+      latitude: number;
+      longitude: number;
+    };
+  };
+  // Add spending patterns analysis
+  spendingPatterns?: SpendingPatterns;
 }
 
 // Interface for advice request
@@ -119,6 +164,51 @@ export const clearApiKey = async (): Promise<void> => {
 };
 
 /**
+ * Generate fallback advice when AI is unavailable
+ * @param financialData User's financial data
+ * @param type Type of advice requested
+ * @param question Optional specific question
+ * @returns Basic rule-based advice
+ */
+const generateFallbackAdvice = (
+  financialData: FinancialData, 
+  type: AdviceRequest['type'], 
+  question?: string
+): string => {
+  let advice = "I'm currently unable to provide personalized advice, but here are some general tips:\n\n";
+  
+  switch (type) {
+    case 'budget':
+      advice += "• Aim to follow the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings.\n";
+      advice += "• Track all your expenses to identify areas where you can cut back.\n";
+      advice += "• Review and adjust your budget monthly based on your actual spending.\n";
+      break;
+    
+    case 'expense':
+      advice += "• Look for recurring subscriptions you don't use and cancel them.\n";
+      advice += "• Consider buying groceries in bulk to save money.\n";
+      advice += "• Use public transport or carpooling when possible to reduce transport costs.\n";
+      break;
+    
+    case 'savings':
+      advice += "• Set up automatic transfers to your savings account on payday.\n";
+      advice += "• Start with an emergency fund covering 3-6 months of expenses.\n";
+      advice += "• Consider tax-free savings accounts for long-term goals.\n";
+      break;
+    
+    case 'general':
+    default:
+      advice += "• Pay off high-interest debt first before focusing on savings.\n";
+      advice += "• Build an emergency fund for unexpected expenses.\n";
+      advice += "• Start investing early, even with small amounts.\n";
+      advice += "• Continuously educate yourself about personal finance.\n";
+      break;
+  }
+  
+  return advice;
+};
+
+/**
  * Get personalized financial advice based on user data
  * @param request The advice request containing financial data and question
  * @returns The AI-generated advice
@@ -153,6 +243,20 @@ export const getFinancialAdvice = async (request: AdviceRequest): Promise<string
         break;
     }
     
+    // Get user preferences for cultural context
+    const userPreferences = await getUserPreferences();
+    
+    // Get economic context based on user's location
+    let economicContext = '';
+    if (request.financialData.locationData?.province) {
+      economicContext = getEconomicContext(request.financialData.locationData.province);
+    } else {
+      economicContext = getEconomicContext();
+    }
+    
+    // Get economic tips
+    const economicTips = getEconomicTips();
+    
     // Call the OpenAI API
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -165,7 +269,27 @@ export const getFinancialAdvice = async (request: AdviceRequest): Promise<string
         messages: [
           {
             role: 'system',
-            content: 'You are Buzo, a helpful and friendly financial advisor for young South Africans. Provide clear, actionable advice tailored to their financial situation. Use simple language and avoid jargon. Focus on practical tips that can be implemented immediately. Be encouraging and positive, but realistic.'
+            content: `You are Buzo, a helpful and friendly financial advisor for young South Africans. 
+            Provide clear, actionable advice tailored to their financial situation and cultural context.
+            
+            Consider these South African specific factors in your advice:
+            - Local economic conditions (inflation rate, unemployment rate, interest rates)
+            - Cultural norms around money management in South African communities
+            - Common financial challenges for South African youth (high unemployment, "black tax" family obligations)
+            - Local financial products and services available in South Africa
+            - South African tax implications and regulations
+            - Local cost of living variations between provinces
+            
+            Current economic context: ${economicContext}
+            
+            Relevant economic tips:
+            ${economicTips.join('\n')}
+            
+            Use simple language and avoid jargon. Focus on practical tips that can be implemented immediately.
+            Be encouraging and positive, but realistic about the challenges young South Africans face.
+            
+            User's currency preference: ${userPreferences.currency}
+            User's language preference: ${userPreferences.language}`
           },
           {
             role: 'user',
@@ -211,7 +335,7 @@ export const getFinancialAdvice = async (request: AdviceRequest): Promise<string
  * @returns Formatted prompt for the AI
  */
 const createBudgetPrompt = (financialData: FinancialData, question?: string): string => {
-  const { income, budgets } = financialData;
+  const { income, budgets, spendingPatterns, userProfile, locationData } = financialData;
   
   let prompt = `I need advice on my budget. `;
   
@@ -225,6 +349,53 @@ const createBudgetPrompt = (financialData: FinancialData, question?: string): st
       prompt += `${budget.category}: R${budget.limit} (spent R${budget.spent} so far), `;
     });
     prompt = prompt.slice(0, -2) + '. ';
+  }
+  
+  // Add spending patterns if available
+  if (spendingPatterns) {
+    if (spendingPatterns.frequentCategories && spendingPatterns.frequentCategories.length > 0) {
+      prompt += `I spend most frequently on: ${spendingPatterns.frequentCategories.join(', ')}. `;
+    }
+    
+    if (spendingPatterns.savingsRate !== undefined) {
+      prompt += `My current savings rate is ${spendingPatterns.savingsRate}% of my income. `;
+    }
+    
+    if (spendingPatterns.recurringExpenses && spendingPatterns.recurringExpenses.length > 0) {
+      prompt += `My recurring expenses include: `;
+      spendingPatterns.recurringExpenses.forEach(expense => {
+        prompt += `${expense.category} (R${expense.averageAmount} ${expense.frequency}), `;
+      });
+      prompt = prompt.slice(0, -2) + '. ';
+    }
+  }
+  
+  // Add user profile if available
+  if (userProfile) {
+    if (userProfile.age) {
+      prompt += `I am ${userProfile.age} years old. `;
+    }
+    
+    if (userProfile.occupation) {
+      prompt += `I work as a ${userProfile.occupation}. `;
+    }
+    
+    if (userProfile.financialGoals && userProfile.financialGoals.length > 0) {
+      prompt += `My financial goals include: ${userProfile.financialGoals.join(', ')}. `;
+    }
+    
+    if (userProfile.financialChallenges && userProfile.financialChallenges.length > 0) {
+      prompt += `My financial challenges include: ${userProfile.financialChallenges.join(', ')}. `;
+    }
+  }
+  
+  // Add location data if available
+  if (locationData && locationData.city) {
+    prompt += `I live in ${locationData.city}`;
+    if (locationData.province) {
+      prompt += `, ${locationData.province}`;
+    }
+    prompt += `. `;
   }
   
   if (question) {
@@ -243,22 +414,49 @@ const createBudgetPrompt = (financialData: FinancialData, question?: string): st
  * @returns Formatted prompt for the AI
  */
 const createExpensePrompt = (financialData: FinancialData, question?: string): string => {
-  const { expenses } = financialData;
+  const { expenses, spendingPatterns, userProfile, locationData } = financialData;
   
   let prompt = `I need advice on my expenses. `;
   
   if (expenses && expenses.length > 0) {
-    prompt += `My recent expenses are: `;
-    expenses.forEach(expense => {
+    prompt += `My recent expenses include: `;
+    expenses.slice(0, 5).forEach(expense => {
       prompt += `${expense.title} (${expense.category}): R${expense.amount} on ${expense.date}, `;
     });
     prompt = prompt.slice(0, -2) + '. ';
   }
   
+  // Add spending patterns if available
+  if (spendingPatterns) {
+    if (spendingPatterns.unusualExpenses && spendingPatterns.unusualExpenses.length > 0) {
+      prompt += `I've had some unusual expenses recently: `;
+      spendingPatterns.unusualExpenses.forEach(expense => {
+        prompt += `${expense.category}: R${expense.amount} (${expense.percentageAboveAverage}% above my average), `;
+      });
+      prompt = prompt.slice(0, -2) + '. ';
+    }
+  }
+  
+  // Add user profile if available
+  if (userProfile) {
+    if (userProfile.financialChallenges && userProfile.financialChallenges.length > 0) {
+      prompt += `My financial challenges include: ${userProfile.financialChallenges.join(', ')}. `;
+    }
+  }
+  
+  // Add location data if available
+  if (locationData && locationData.city) {
+    prompt += `I live in ${locationData.city}`;
+    if (locationData.province) {
+      prompt += `, ${locationData.province}`;
+    }
+    prompt += `. `;
+  }
+  
   if (question) {
     prompt += `Specifically, I want to know: ${question}`;
   } else {
-    prompt += `Can you identify any spending patterns or areas where I could cut back?`;
+    prompt += `Can you suggest ways to reduce my expenses? Are there any concerning spending patterns?`;
   }
   
   return prompt;
@@ -271,7 +469,7 @@ const createExpensePrompt = (financialData: FinancialData, question?: string): s
  * @returns Formatted prompt for the AI
  */
 const createSavingsPrompt = (financialData: FinancialData, question?: string): string => {
-  const { income, savingsGoals } = financialData;
+  const { income, savingsGoals, spendingPatterns, userProfile, locationData } = financialData;
   
   let prompt = `I need advice on my savings goals. `;
   
@@ -282,15 +480,49 @@ const createSavingsPrompt = (financialData: FinancialData, question?: string): s
   if (savingsGoals && savingsGoals.length > 0) {
     prompt += `My savings goals are: `;
     savingsGoals.forEach(goal => {
-      prompt += `${goal.title}: R${goal.current} saved of R${goal.target} target by ${goal.deadline}, `;
+      const progress = (goal.current / goal.target) * 100;
+      prompt += `${goal.title}: R${goal.current} saved of R${goal.target} target (${progress.toFixed(1)}% complete, deadline: ${goal.deadline})`;
+      if (goal.priority) {
+        prompt += ` - ${goal.priority} priority`;
+      }
+      prompt += `, `;
     });
     prompt = prompt.slice(0, -2) + '. ';
+  }
+  
+  // Add spending patterns if available
+  if (spendingPatterns && spendingPatterns.savingsRate !== undefined) {
+    prompt += `My current savings rate is ${spendingPatterns.savingsRate}% of my income. `;
+  }
+  
+  // Add user profile if available
+  if (userProfile) {
+    if (userProfile.age) {
+      prompt += `I am ${userProfile.age} years old. `;
+    }
+    
+    if (userProfile.riskTolerance) {
+      prompt += `My risk tolerance is ${userProfile.riskTolerance}. `;
+    }
+    
+    if (userProfile.financialGoals && userProfile.financialGoals.length > 0) {
+      prompt += `My financial goals include: ${userProfile.financialGoals.join(', ')}. `;
+    }
+  }
+  
+  // Add location data if available
+  if (locationData && locationData.city) {
+    prompt += `I live in ${locationData.city}`;
+    if (locationData.province) {
+      prompt += `, ${locationData.province}`;
+    }
+    prompt += `. `;
   }
   
   if (question) {
     prompt += `Specifically, I want to know: ${question}`;
   } else {
-    prompt += `Can you suggest strategies to help me reach my savings goals faster?`;
+    prompt += `Can you suggest strategies to reach my savings goals faster? Are my goals realistic given my income and expenses?`;
   }
   
   return prompt;
@@ -303,7 +535,7 @@ const createSavingsPrompt = (financialData: FinancialData, question?: string): s
  * @returns Formatted prompt for the AI
  */
 const createGeneralPrompt = (financialData: FinancialData, question?: string): string => {
-  const { income, expenses, budgets, savingsGoals } = financialData;
+  const { income, expenses, budgets, savingsGoals, spendingPatterns, userProfile, locationData } = financialData;
   
   let prompt = `I need general financial advice. `;
   
@@ -312,656 +544,224 @@ const createGeneralPrompt = (financialData: FinancialData, question?: string): s
   }
   
   if (expenses && expenses.length > 0) {
-    prompt += `I have ${expenses.length} recorded expenses in the last month. `;
+    let totalExpenses = 0;
+    expenses.forEach(expense => {
+      totalExpenses += expense.amount;
+    });
+    prompt += `My total expenses for the last month were R${totalExpenses}. `;
   }
   
   if (budgets && budgets.length > 0) {
-    prompt += `I have budgets for ${budgets.map(b => b.category).join(', ')}. `;
+    let overBudgetCategories = budgets.filter(budget => budget.spent > budget.limit);
+    if (overBudgetCategories.length > 0) {
+      prompt += `I'm over budget in these categories: `;
+      overBudgetCategories.forEach(budget => {
+        const overBy = budget.spent - budget.limit;
+        prompt += `${budget.category} (over by R${overBy}), `;
+      });
+      prompt = prompt.slice(0, -2) + '. ';
+    }
   }
   
   if (savingsGoals && savingsGoals.length > 0) {
-    prompt += `I'm saving for ${savingsGoals.map(g => g.title).join(', ')}. `;
+    const totalSaved = savingsGoals.reduce((sum, goal) => sum + goal.current, 0);
+    const totalTarget = savingsGoals.reduce((sum, goal) => sum + goal.target, 0);
+    const overallProgress = (totalSaved / totalTarget) * 100;
+    
+    prompt += `Overall, I've saved R${totalSaved} of my R${totalTarget} savings targets (${overallProgress.toFixed(1)}% progress). `;
+  }
+  
+  // Add spending patterns if available
+  if (spendingPatterns) {
+    if (spendingPatterns.savingsRate !== undefined) {
+      prompt += `My current savings rate is ${spendingPatterns.savingsRate}% of my income. `;
+    }
+    
+    if (spendingPatterns.frequentCategories && spendingPatterns.frequentCategories.length > 0) {
+      prompt += `I spend most frequently on: ${spendingPatterns.frequentCategories.join(', ')}. `;
+    }
+  }
+  
+  // Add user profile if available
+  if (userProfile) {
+    if (userProfile.age) {
+      prompt += `I am ${userProfile.age} years old. `;
+    }
+    
+    if (userProfile.occupation) {
+      prompt += `I work as a ${userProfile.occupation}. `;
+    }
+    
+    if (userProfile.financialGoals && userProfile.financialGoals.length > 0) {
+      prompt += `My financial goals include: ${userProfile.financialGoals.join(', ')}. `;
+    }
+    
+    if (userProfile.financialChallenges && userProfile.financialChallenges.length > 0) {
+      prompt += `My financial challenges include: ${userProfile.financialChallenges.join(', ')}. `;
+    }
+  }
+  
+  // Add location data if available
+  if (locationData && locationData.city) {
+    prompt += `I live in ${locationData.city}`;
+    if (locationData.province) {
+      prompt += `, ${locationData.province}`;
+    }
+    prompt += `. `;
   }
   
   if (question) {
     prompt += `Specifically, I want to know: ${question}`;
   } else {
-    prompt += `Can you provide some general financial tips that would be helpful for a young person in South Africa?`;
+    prompt += `What's your assessment of my financial health? What should I focus on improving?`;
   }
   
   return prompt;
 };
 
 /**
- * Generate personalized financial insights based on user data
- * @param financialData User's financial data
- * @returns Array of financial insights
+ * Get user's location data
+ * @returns Promise resolving to location data or null if not available
  */
-export const generateFinancialInsights = async (financialData: FinancialData): Promise<FinancialInsight[]> => {
+export const getUserLocationData = async (): Promise<FinancialData['locationData'] | null> => {
   try {
-    // In a production app, this would call the OpenAI API to generate insights
-    // For now, we'll generate insights based on simple rules
+    // Request permission to access location
+    const { status } = await Location.requestForegroundPermissionsAsync();
     
-    const insights: FinancialInsight[] = [];
-    const now = new Date();
-    
-    // Check budget utilization
-    if (financialData.budgets && financialData.budgets.length > 0) {
-      for (const budget of financialData.budgets) {
-        const utilization = (budget.spent / budget.limit) * 100;
-        
-        // High budget utilization warning
-        if (utilization > 90 && utilization < 100) {
-          insights.push({
-            id: `budget-warning-${budget.category}`,
-            title: `${budget.category} budget almost depleted`,
-            description: `You've used ${utilization.toFixed(0)}% of your ${budget.category} budget. Consider adjusting your spending for the rest of the month.`,
-            type: 'warning',
-            priority: 'high',
-            category: budget.category,
-            actionable: true,
-            action: {
-              label: 'View budget',
-              screen: 'BudgetScreen',
-              params: { category: budget.category },
-            },
-            createdAt: now.toISOString(),
-            read: false,
-          });
-        }
-        
-        // Budget exceeded warning
-        if (utilization >= 100) {
-          insights.push({
-            id: `budget-exceeded-${budget.category}`,
-            title: `${budget.category} budget exceeded`,
-            description: `You've exceeded your ${budget.category} budget by R${(budget.spent - budget.limit).toFixed(2)}. Try to avoid additional expenses in this category.`,
-            type: 'warning',
-            priority: 'high',
-            category: budget.category,
-            actionable: true,
-            action: {
-              label: 'View budget',
-              screen: 'BudgetScreen',
-              params: { category: budget.category },
-            },
-            createdAt: now.toISOString(),
-            read: false,
-          });
-        }
-        
-        // Low budget utilization tip
-        if (utilization < 30 && budget.category !== 'Savings') {
-          insights.push({
-            id: `budget-underused-${budget.category}`,
-            title: `${budget.category} budget underutilized`,
-            description: `You've only used ${utilization.toFixed(0)}% of your ${budget.category} budget. Consider reallocating some funds to savings or debt repayment.`,
-            type: 'tip',
-            priority: 'medium',
-            category: budget.category,
-            actionable: true,
-            action: {
-              label: 'Adjust budget',
-              screen: 'BudgetScreen',
-              params: { category: budget.category },
-            },
-            createdAt: now.toISOString(),
-            read: false,
-          });
-        }
-      }
+    if (status !== 'granted') {
+      console.log('Location permission denied');
+      return null;
     }
     
-    // Check savings goals progress
-    if (financialData.savingsGoals && financialData.savingsGoals.length > 0) {
-      for (const goal of financialData.savingsGoals) {
-        const progress = (goal.current / goal.target) * 100;
-        const deadline = new Date(goal.deadline);
-        const timeLeft = deadline.getTime() - now.getTime();
-        const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
-        
-        // Savings goal milestone achievement
-        if (progress >= 50 && progress < 75) {
-          insights.push({
-            id: `savings-milestone-${goal.title}`,
-            title: `Halfway to your ${goal.title} goal!`,
-            description: `You're ${progress.toFixed(0)}% of the way to your ${goal.title} savings goal. Keep it up!`,
-            type: 'achievement',
-            priority: 'medium',
-            category: 'Savings',
-            actionable: true,
-            action: {
-              label: 'View goal',
-              screen: 'SavingsScreen',
-              params: { goalId: goal.title },
-            },
-            createdAt: now.toISOString(),
-            read: false,
-          });
-        }
-        
-        // Savings goal almost complete
-        if (progress >= 75 && progress < 100) {
-          insights.push({
-            id: `savings-almost-${goal.title}`,
-            title: `Almost there: ${goal.title}`,
-            description: `You're ${progress.toFixed(0)}% of the way to your ${goal.title} savings goal. Just R${(goal.target - goal.current).toFixed(2)} to go!`,
-            type: 'achievement',
-            priority: 'high',
-            category: 'Savings',
-            actionable: true,
-            action: {
-              label: 'View goal',
-              screen: 'SavingsScreen',
-              params: { goalId: goal.title },
-            },
-            createdAt: now.toISOString(),
-            read: false,
-          });
-        }
-        
-        // Savings goal deadline approaching
-        if (daysLeft > 0 && daysLeft <= 30 && progress < 90) {
-          insights.push({
-            id: `savings-deadline-${goal.title}`,
-            title: `${goal.title} deadline approaching`,
-            description: `Your ${goal.title} savings goal deadline is in ${daysLeft} days, but you're only ${progress.toFixed(0)}% there. Consider increasing your contributions.`,
-            type: 'warning',
-            priority: 'high',
-            category: 'Savings',
-            actionable: true,
-            action: {
-              label: 'View goal',
-              screen: 'SavingsScreen',
-              params: { goalId: goal.title },
-            },
-            createdAt: now.toISOString(),
-            read: false,
-          });
-        }
-      }
+    // Get current location
+    const location = await Location.getCurrentPositionAsync({});
+    const { latitude, longitude } = location.coords;
+    
+    // Reverse geocode to get address details
+    const [addressInfo] = await Location.reverseGeocodeAsync({ latitude, longitude });
+    
+    if (!addressInfo) {
+      return {
+        coordinates: { latitude, longitude }
+      };
     }
     
-    // Analyze expense patterns
-    if (financialData.expenses && financialData.expenses.length > 0) {
-      // Group expenses by category
-      const categoryTotals: Record<string, number> = {};
-      for (const expense of financialData.expenses) {
-        categoryTotals[expense.category] = (categoryTotals[expense.category] || 0) + expense.amount;
-      }
-      
-      // Find the highest spending category
-      let highestCategory = '';
-      let highestAmount = 0;
-      for (const [category, amount] of Object.entries(categoryTotals)) {
-        if (amount > highestAmount) {
-          highestCategory = category;
-          highestAmount = amount;
-        }
-      }
-      
-      // High spending in a category
-      if (highestCategory && highestAmount > 0) {
-        // Only add this insight if the highest category is not savings or investments
-        if (!['Savings', 'Investments'].includes(highestCategory)) {
-          insights.push({
-            id: `high-spending-${highestCategory}`,
-            title: `High spending on ${highestCategory}`,
-            description: `You've spent R${highestAmount.toFixed(2)} on ${highestCategory} recently. This is your highest spending category.`,
-            type: 'recommendation',
-            priority: 'medium',
-            category: highestCategory,
-            actionable: true,
-            action: {
-              label: 'View expenses',
-              screen: 'ExpensesScreen',
-              params: { category: highestCategory },
-            },
-            createdAt: now.toISOString(),
-            read: false,
-          });
-        }
-      }
-      
-      // Check for frequent small expenses (e.g., coffee, snacks)
-      const smallExpenses = financialData.expenses.filter(e => e.amount < 100);
-      if (smallExpenses.length >= 10) {
-        insights.push({
-          id: 'small-expenses',
-          title: 'Small expenses adding up',
-          description: `You've made ${smallExpenses.length} small purchases recently, totaling R${smallExpenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)}. These small expenses can add up quickly.`,
-          type: 'tip',
-          priority: 'medium',
-          actionable: true,
-          action: {
-            label: 'View expenses',
-            screen: 'ExpensesScreen',
-            params: { minAmount: 0, maxAmount: 100 },
-          },
-          createdAt: now.toISOString(),
-          read: false,
-        });
-      }
-    }
+    // Get provincial economic data if available
+    const province = addressInfo.region || undefined;
+    const provincialData = province ? getProvincialEconomicData(province) : undefined;
     
-    // Analyze income vs. expenses
-    if (financialData.income && financialData.expenses) {
-      const totalExpenses = financialData.expenses.reduce((sum, expense) => sum + expense.amount, 0);
-      const savingsRate = ((financialData.income - totalExpenses) / financialData.income) * 100;
-      
-      // Low savings rate
-      if (savingsRate < 10 && savingsRate >= 0) {
-        insights.push({
-          id: 'low-savings-rate',
-          title: 'Increase your savings rate',
-          description: `You're currently saving only ${savingsRate.toFixed(1)}% of your income. Financial experts recommend saving at least 20% of your income.`,
-          type: 'recommendation',
-          priority: 'high',
-          category: 'Savings',
-          actionable: true,
-          action: {
-            label: 'View budget',
-            screen: 'BudgetScreen',
-            params: {},
-          },
-          createdAt: now.toISOString(),
-          read: false,
-        });
-      }
-      
-      // Negative savings rate (spending more than earning)
-      if (savingsRate < 0) {
-        insights.push({
-          id: 'negative-savings',
-          title: 'Spending exceeds income',
-          description: `You're spending more than you earn. Consider reducing expenses or finding additional income sources to avoid debt.`,
-          type: 'warning',
-          priority: 'high',
-          actionable: true,
-          action: {
-            label: 'View expenses',
-            screen: 'ExpensesScreen',
-            params: {},
-          },
-          createdAt: now.toISOString(),
-          read: false,
-        });
-      }
-      
-      // Good savings rate achievement
-      if (savingsRate >= 20) {
-        insights.push({
-          id: 'good-savings-rate',
-          title: 'Excellent savings rate',
-          description: `You're saving ${savingsRate.toFixed(1)}% of your income. Great job maintaining financial discipline!`,
-          type: 'achievement',
-          priority: 'medium',
-          category: 'Savings',
-          actionable: false,
-          createdAt: now.toISOString(),
-          read: false,
-        });
-      }
-    }
-    
-    // Add general financial tips
-    const generalTips = [
-      {
-        id: 'tip-emergency-fund',
-        title: 'Build an emergency fund',
-        description: 'Aim to save 3-6 months of living expenses in an easily accessible account for emergencies.',
-        type: 'tip' as const,
-        priority: 'medium' as const,
-        category: 'Savings',
-        actionable: true,
-        action: {
-          label: 'Create savings goal',
-          screen: 'SavingsScreen',
-          params: { createNew: true, suggested: 'Emergency Fund' },
-        },
-        createdAt: now.toISOString(),
-        read: false,
-      },
-      {
-        id: 'tip-50-30-20',
-        title: 'Try the 50/30/20 budget rule',
-        description: 'Allocate 50% of income to needs, 30% to wants, and 20% to savings and debt repayment.',
-        type: 'tip' as const,
-        priority: 'low' as const,
-        category: 'Budget',
-        actionable: true,
-        action: {
-          label: 'Adjust budget',
-          screen: 'BudgetScreen',
-          params: {},
-        },
-        createdAt: now.toISOString(),
-        read: false,
-      },
-      {
-        id: 'tip-automate-savings',
-        title: 'Automate your savings',
-        description: 'Set up automatic transfers to your savings account on payday to make saving effortless.',
-        type: 'tip' as const,
-        priority: 'low' as const,
-        category: 'Savings',
-        actionable: false,
-        createdAt: now.toISOString(),
-        read: false,
-      },
-    ];
-    
-    // Add 1-2 general tips if we have few insights
-    if (insights.length < 3) {
-      insights.push(...generalTips.slice(0, 3 - insights.length));
-    }
-    
-    // Sort insights by priority and date
-    return insights.sort((a, b) => {
-      const priorityOrder = { high: 0, medium: 1, low: 2 };
-      if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-        return priorityOrder[a.priority] - priorityOrder[b.priority];
-      }
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-    
+    return {
+      city: addressInfo.city || addressInfo.subregion || undefined,
+      province: addressInfo.region || undefined,
+      country: addressInfo.country || undefined,
+      coordinates: { latitude, longitude }
+    };
   } catch (error) {
-    console.error('Error generating financial insights:', error);
-    return [];
+    console.error('Error getting location data:', error);
+    return null;
   }
 };
 
 /**
- * Get financial insights with AI-powered analysis
- * @param financialData User's financial data
- * @returns Array of financial insights
+ * Analyze spending patterns from expense data
+ * @param expenses Array of expenses
+ * @param income User's income
+ * @returns Spending patterns analysis
  */
-export const getAIFinancialInsights = async (financialData: FinancialData): Promise<FinancialInsight[]> => {
-  try {
-    // Get API key from Vault with fallbacks
-    const apiKey = await getApiKey();
-    
-    if (!apiKey) {
-      // Fall back to rule-based insights if no API key
-      console.log('No API key available, using rule-based insights');
-      
-      // Add a special insight to inform the user about setting up an API key
-      const insights = await generateFinancialInsights(financialData);
-      const now = new Date();
-      
-      insights.unshift({
-        id: 'api-key-missing',
-        title: 'Set up your OpenAI API key',
-        description: 'To get personalized AI-powered financial insights, please set your OpenAI API key in the settings.',
-        type: 'tip',
-        priority: 'high',
-        category: 'Settings',
-        actionable: true,
-        action: {
-          label: 'Go to Settings',
-          screen: 'SettingsScreen',
-          params: { section: 'api' },
-        },
-        createdAt: now.toISOString(),
-        read: false,
-      });
-      
-      return insights;
+export const analyzeSpendingPatterns = (
+  expenses: FinancialData['expenses'] = [],
+  income?: number
+): SpendingPatterns => {
+  if (!expenses || expenses.length === 0) {
+    return {
+      frequentCategories: [],
+      unusualExpenses: [],
+      recurringExpenses: []
+    };
+  }
+  
+  // Group expenses by category
+  const expensesByCategory: Record<string, number[]> = {};
+  expenses.forEach(expense => {
+    if (!expensesByCategory[expense.category]) {
+      expensesByCategory[expense.category] = [];
     }
-
-    // Create a prompt for generating insights
-    const prompt = createInsightsPrompt(financialData);
-
-    // Call the OpenAI API
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a financial insights generator for young South Africans. 
-            Analyze financial data and generate personalized insights, tips, warnings, achievements, and recommendations.
-            Your response should be in JSON format as an array of insight objects with the following structure:
-            [
-              {
-                "id": "unique-id",
-                "title": "Short, catchy title",
-                "description": "Detailed explanation (1-2 sentences)",
-                "type": "tip|warning|achievement|recommendation",
-                "priority": "high|medium|low",
-                "category": "Category name or null",
-                "actionable": true|false,
-                "action": {
-                  "label": "Action button text",
-                  "screen": "ScreenName",
-                  "params": {}
-                } or null if not actionable,
-                "createdAt": "ISO date string",
-                "read": false
-              }
-            ]
-            Generate 3-5 high-quality, personalized insights based on the data provided.`,
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 1000,
-        response_format: { type: "json_object" }
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      
-      // Check for API key related errors
-      if (errorData.error?.code === 'invalid_api_key' || 
-          errorData.error?.type === 'authentication_error' ||
-          response.status === 401) {
-        // Clear the invalid API key
-        await clearApiKey();
-        console.error('Invalid API key detected, cleared from storage');
-        
-        // Return rule-based insights with a message about the invalid key
-        const insights = await generateFinancialInsights(financialData);
-        const now = new Date();
-        
-        insights.unshift({
-          id: 'api-key-invalid',
-          title: 'OpenAI API key is invalid',
-          description: 'Your API key appears to be invalid. Please update it in the settings to get AI-powered insights.',
-          type: 'warning',
-          priority: 'high',
-          category: 'Settings',
-          actionable: true,
-          action: {
-            label: 'Update API Key',
-            screen: 'SettingsScreen',
-            params: { section: 'api' },
-          },
-          createdAt: now.toISOString(),
-          read: false,
+    expensesByCategory[expense.category].push(expense.amount);
+  });
+  
+  // Calculate category frequencies
+  const categoryFrequency: Record<string, number> = {};
+  Object.keys(expensesByCategory).forEach(category => {
+    categoryFrequency[category] = expensesByCategory[category].length;
+  });
+  
+  // Sort categories by frequency
+  const frequentCategories = Object.keys(categoryFrequency)
+    .sort((a, b) => categoryFrequency[b] - categoryFrequency[a])
+    .slice(0, 3);
+  
+  // Find unusual expenses (significantly above average for the category)
+  const unusualExpenses: SpendingPatterns['unusualExpenses'] = [];
+  Object.keys(expensesByCategory).forEach(category => {
+    const amounts = expensesByCategory[category];
+    const average = amounts.reduce((sum, amount) => sum + amount, 0) / amounts.length;
+    
+    expenses
+      .filter(expense => expense.category === category && expense.amount > average * 1.5)
+      .forEach(expense => {
+        unusualExpenses.push({
+          category: expense.category,
+          amount: expense.amount,
+          date: expense.date,
+          percentageAboveAverage: Math.round(((expense.amount - average) / average) * 100)
         });
-        
-        return insights;
-      }
-      
-      throw new Error(`API error: ${errorData.error?.message || 'Unknown error'}`);
-    }
-
-    const data = await response.json();
-    const insightsText = data.choices[0].message.content.trim();
-    
-    try {
-      // Parse the JSON response
-      const parsedInsights = JSON.parse(insightsText);
-      
-      // Ensure the response is an array of insights
-      if (Array.isArray(parsedInsights)) {
-        return parsedInsights;
-      } else if (parsedInsights.insights && Array.isArray(parsedInsights.insights)) {
-        return parsedInsights.insights;
-      } else {
-        throw new Error('Invalid insights format');
-      }
-    } catch (parseError) {
-      console.error('Error parsing insights:', parseError);
-      // Fall back to rule-based insights
-      return generateFinancialInsights(financialData);
-    }
-  } catch (error) {
-    console.error('Error getting AI financial insights:', error);
-    // Fall back to rule-based insights
-    return generateFinancialInsights(financialData);
-  }
-};
-
-/**
- * Create a prompt for generating financial insights
- * @param financialData User's financial data
- * @returns Formatted prompt for the AI
- */
-const createInsightsPrompt = (financialData: FinancialData): string => {
-  const { income, expenses, budgets, savingsGoals, historicalExpenses, historicalIncome } = financialData;
-  
-  let prompt = `I need personalized financial insights based on my data. `;
-  
-  if (income) {
-    prompt += `My monthly income is R${income}. `;
-  }
-  
-  if (budgets && budgets.length > 0) {
-    prompt += `My current budget allocations are: `;
-    budgets.forEach(budget => {
-      prompt += `${budget.category}: R${budget.limit} (spent R${budget.spent} so far), `;
-    });
-    prompt = prompt.slice(0, -2) + '. ';
-  }
-  
-  if (expenses && expenses.length > 0) {
-    prompt += `My recent expenses are: `;
-    expenses.forEach(expense => {
-      prompt += `${expense.title} (${expense.category}): R${expense.amount} on ${expense.date}, `;
-    });
-    prompt = prompt.slice(0, -2) + '. ';
-  }
-  
-  if (savingsGoals && savingsGoals.length > 0) {
-    prompt += `My savings goals are: `;
-    savingsGoals.forEach(goal => {
-      prompt += `${goal.title}: R${goal.current} saved of R${goal.target} target by ${goal.deadline}, `;
-    });
-    prompt = prompt.slice(0, -2) + '. ';
-  }
-  
-  if (historicalExpenses && historicalExpenses.length > 0) {
-    prompt += `My historical monthly expenses are: `;
-    historicalExpenses.forEach(month => {
-      prompt += `${month.month}: R${month.totalAmount}, `;
-    });
-    prompt = prompt.slice(0, -2) + '. ';
-  }
-  
-  if (historicalIncome && historicalIncome.length > 0) {
-    prompt += `My historical monthly income is: `;
-    historicalIncome.forEach(month => {
-      prompt += `${month.month}: R${month.amount}, `;
-    });
-    prompt = prompt.slice(0, -2) + '. ';
-  }
-  
-  prompt += `Please analyze this data and generate personalized financial insights, including tips, warnings, achievements, and recommendations. Focus on actionable advice that can help me improve my financial health.`;
-  
-  return prompt;
-};
-
-/**
- * Generate fallback advice when the API call fails
- * @param financialData User's financial data
- * @param type Type of advice requested
- * @param question Optional question from the user
- * @returns Rule-based financial advice
- */
-const generateFallbackAdvice = (
-  financialData: FinancialData, 
-  type: AdviceRequest['type'], 
-  question?: string
-): string => {
-  // Default response if we can't determine specific advice
-  let advice = "I'm sorry, I couldn't connect to my knowledge base at the moment. Here are some general financial tips:\n\n" +
-    "• Create a budget and track your expenses regularly\n" +
-    "• Try to save at least 10-20% of your income\n" +
-    "• Build an emergency fund covering 3-6 months of expenses\n" +
-    "• Reduce unnecessary expenses and focus on needs before wants\n" +
-    "• Consider low-cost investment options for long-term goals";
-  
-  // If we have financial data, try to provide more specific advice
-  if (financialData) {
-    const { expenses, budgets, savingsGoals } = financialData;
-    
-    // Check if user is overspending in any category
-    if (budgets && budgets.length > 0) {
-      const overspentCategories = budgets.filter(b => b.spent > b.limit);
-      
-      if (overspentCategories.length > 0) {
-        const categories = overspentCategories.map(c => c.category).join(', ');
-        advice = `I notice you're overspending in these categories: ${categories}. Consider reviewing your expenses in these areas and finding ways to reduce costs.`;
-        return advice;
-      }
-    }
-    
-    // Check if user has savings goals that need attention
-    if (savingsGoals && savingsGoals.length > 0) {
-      const behindGoals = savingsGoals.filter(g => {
-        const deadline = new Date(g.deadline);
-        const today = new Date();
-        const timeLeft = deadline.getTime() - today.getTime();
-        const daysLeft = timeLeft / (1000 * 3600 * 24);
-        
-        // Calculate expected progress based on time elapsed
-        const totalDays = (deadline.getTime() - new Date(g.deadline).getTime()) / (1000 * 3600 * 24);
-        const expectedProgress = (totalDays - daysLeft) / totalDays;
-        const actualProgress = g.current / g.target;
-        
-        return actualProgress < expectedProgress * 0.8; // 20% behind schedule
       });
+  });
+  
+  // Identify recurring expenses
+  const recurringExpenses: SpendingPatterns['recurringExpenses'] = [];
+  Object.keys(expensesByCategory).forEach(category => {
+    const amounts = expensesByCategory[category];
+    if (amounts.length >= 3) {
+      const averageAmount = amounts.reduce((sum, amount) => sum + amount, 0) / amounts.length;
       
-      if (behindGoals.length > 0) {
-        const goalNames = behindGoals.map(g => g.title).join(', ');
-        advice = `You might need to focus more on these savings goals: ${goalNames}. Try increasing your contributions to stay on track.`;
-        return advice;
+      // Simple heuristic: if we have 3+ expenses in a category with similar amounts, consider it recurring
+      const similarAmounts = amounts.filter(amount => 
+        Math.abs(amount - averageAmount) / averageAmount < 0.2
+      );
+      
+      if (similarAmounts.length >= 3) {
+        recurringExpenses.push({
+          category,
+          averageAmount: Math.round(averageAmount),
+          frequency: 'monthly' // Assuming monthly for now
+        });
       }
     }
+  });
+  
+  // Calculate savings rate if income is provided
+  let savingsRate: number | undefined = undefined;
+  if (income && income > 0) {
+    const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    savingsRate = Math.round(((income - totalExpenses) / income) * 100);
+    // Cap at 100% and floor at 0%
+    savingsRate = Math.min(100, Math.max(0, savingsRate));
   }
   
-  // Type-specific generic advice if we don't have enough data for personalized advice
-  switch (type) {
-    case 'budget':
-      advice = "To improve your budget, try using the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings and debt repayment. Review your expenses regularly and look for areas where you can cut back.";
-      break;
-    case 'expense':
-      advice = "To reduce expenses, consider meal planning to save on food costs, use public transportation when possible, review and cancel unused subscriptions, and look for more affordable alternatives for regular purchases.";
-      break;
-    case 'savings':
-      advice = "To boost your savings, set up automatic transfers to your savings account on payday, challenge yourself to no-spend days, save windfalls like bonuses or tax refunds, and consider a side hustle for extra income.";
-      break;
-  }
-  
-  return advice;
+  return {
+    frequentCategories,
+    unusualExpenses,
+    recurringExpenses,
+    savingsRate
+  };
 };
 
 export default {
+  getFinancialAdvice,
+  getUserLocationData,
+  analyzeSpendingPatterns,
   setApiKey,
   getApiKey,
-  clearApiKey,
-  getFinancialAdvice,
-  generateFinancialInsights,
-  getAIFinancialInsights,
+  clearApiKey
 }; 

@@ -19,14 +19,20 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { getFinancialAdvice } from '../services/aiAdvisor';
+import { 
+  getFinancialAdvice, 
+  getUserLocationData, 
+  analyzeSpendingPatterns 
+} from '../services/aiAdvisor';
 import { loadExpenses } from '../services/expenseService';
 import { loadBudgets } from '../services/budgetService';
 import { loadSavingsGoals } from '../services/savingsService';
+import { loadUserProfile } from '../services/userService';
 import { colors, shadows, borderRadius, spacing, textStyles } from '../utils/theme';
 import Markdown from 'react-native-markdown-display';
 import { accessPremiumFeature, PremiumFeatureType } from '../utils/premiumFeatures';
 import { hasPremiumAccess } from '../services/subscriptionService';
+import { differenceInYears, parseISO } from 'date-fns';
 
 // Define message interface
 interface Message {
@@ -141,6 +147,18 @@ const AIAdvisorScreen: React.FC = () => {
     return formattedText;
   };
 
+  // Calculate user age from date of birth
+  const calculateAge = (dateOfBirth?: string): number | undefined => {
+    if (!dateOfBirth) return undefined;
+    try {
+      const dob = parseISO(dateOfBirth);
+      return differenceInYears(new Date(), dob);
+    } catch (error) {
+      console.error('Error calculating age:', error);
+      return undefined;
+    }
+  };
+
   // Handle sending a message
   const handleSendMessage = async () => {
     if (!inputText.trim()) return;
@@ -175,19 +193,56 @@ const AIAdvisorScreen: React.FC = () => {
           const expenses = await loadExpenses();
           const budgets = await loadBudgets();
           const savingsGoals = await loadSavingsGoals();
+          const userProfile = await loadUserProfile();
+          const locationData = await getUserLocationData();
           
-          // Get AI response
-          const response = await getFinancialAdvice(
-            userMessage.text,
+          // Analyze spending patterns
+          const spendingPatterns = analyzeSpendingPatterns(
             expenses,
-            budgets,
-            savingsGoals
+            userProfile?.financialProfile?.monthlyIncome
           );
+          
+          // Prepare user profile data
+          const userProfileData = userProfile ? {
+            age: calculateAge(userProfile.dateOfBirth),
+            occupation: userProfile.financialProfile?.occupation,
+            financialGoals: userProfile.financialProfile?.financialGoals,
+            riskTolerance: userProfile.financialProfile?.riskTolerance,
+            financialInterests: userProfile.financialProfile?.financialInterests,
+            financialChallenges: userProfile.financialProfile?.financialChallenges
+          } : undefined;
+          
+          // Determine advice type based on question content
+          let adviceType: 'budget' | 'expense' | 'savings' | 'general' = 'general';
+          const question = userMessage.text.toLowerCase();
+          
+          if (question.includes('budget') || question.includes('spending limit') || question.includes('allocate')) {
+            adviceType = 'budget';
+          } else if (question.includes('expense') || question.includes('spending') || question.includes('cost')) {
+            adviceType = 'expense';
+          } else if (question.includes('saving') || question.includes('goal') || question.includes('target')) {
+            adviceType = 'savings';
+          }
+          
+          // Get AI response with enhanced context
+          const response = await getFinancialAdvice({
+            type: adviceType,
+            financialData: {
+              income: userProfile?.financialProfile?.monthlyIncome,
+              expenses,
+              budgets,
+              savingsGoals,
+              userProfile: userProfileData,
+              locationData,
+              spendingPatterns
+            },
+            question: userMessage.text
+          });
           
           // Create AI message
           const aiMessage: Message = {
             id: (Date.now() + 1).toString(),
-            text: response,
+            text: formatAIResponse(response),
             sender: 'ai',
             timestamp: new Date(),
             formattedText: true
@@ -221,6 +276,7 @@ const AIAdvisorScreen: React.FC = () => {
 
   // Handle suggested question tap
   const handleSuggestedQuestionTap = (question: string) => {
+    setInputText(question);
     handleSendMessage();
   };
 
