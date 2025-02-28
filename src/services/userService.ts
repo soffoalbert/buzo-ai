@@ -167,4 +167,23 @@ export const addUserAchievement = async (
   
   await saveUserProfile(updatedUser);
   return updatedUser;
+};
+
+/**
+ * Get user preferences
+ * @returns Promise resolving to the user preferences or default preferences if not found
+ */
+export const getUserPreferences = async (): Promise<UserPreferences> => {
+  try {
+    const user = await loadUserProfile();
+    
+    if (!user) {
+      return DEFAULT_USER_PREFERENCES;
+    }
+    
+    return user.preferences;
+  } catch (error) {
+    console.error('Error loading user preferences:', error);
+    return DEFAULT_USER_PREFERENCES;
+  }
 }; 
