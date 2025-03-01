@@ -275,10 +275,7 @@ const HomeScreen: React.FC = () => {
       const weeklyExpenses = await filterExpenses({
         startDate: format(start, 'yyyy-MM-dd'),
         endDate: format(end, 'yyyy-MM-dd'),
-      });
-
-      console.log('weeklyExpenses', expenseStats);
-      
+      });      
       // Only set hasWeeklySpendingData to true if there are real expenses
       if (weeklyExpenses.length > 0) {
         setHasWeeklySpendingData(true);
