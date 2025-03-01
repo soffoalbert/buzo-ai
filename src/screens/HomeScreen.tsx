@@ -371,17 +371,6 @@ const HomeScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
-      {usingMockData ? (
-        <View style={styles.mockDataBanner}>
-          <Ionicons name="alert-circle" size={18} color={colors.white} />
-          <Text style={styles.mockDataText}>Using demo data - Sign in to see your data</Text>
-        </View>
-      ) : (
-        <View style={styles.dataSourceBanner}>
-          <Ionicons name="checkmark-circle" size={18} color={colors.white} />
-          <Text style={styles.dataSourceText}>Using your Supabase data</Text>
-        </View>
-      )}
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
         refreshControl={
