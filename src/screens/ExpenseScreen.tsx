@@ -25,6 +25,9 @@ import ReceiptScanner from '../components/ReceiptScanner';
 import { createExpense, syncExpensesToSupabase } from '../services/expenseService';
 import { processReceiptImage, ExtractedReceiptData, createExpenseFromReceipt } from '../services/receiptService';
 import { isMockDataEnabled, setMockDataEnabled, generateAndSaveMockExpenses } from '../services/mockDataService';
+import notificationService from '../services/notifications';
+import PremiumFeatureGate from '../components/PremiumFeatureGate';
+import subscriptionService, { PremiumFeature } from '../services/subscriptionService';
 
 // Define the categories
 const EXPENSE_CATEGORIES = [
@@ -78,6 +81,8 @@ const ExpenseScreen: React.FC = () => {
   const [showReceiptScanner, setShowReceiptScanner] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [showMockDataOptions, setShowMockDataOptions] = useState(false);
+  const [scanLimitReached, setScanLimitReached] = useState(false);
+  const [remainingScans, setRemainingScans] = useState<number | null>(null);
   
   // Initialize form with receipt data if provided
   useEffect(() => {
@@ -95,6 +100,21 @@ const ExpenseScreen: React.FC = () => {
       setReceiptImage(expenseData.receiptImage);
     }
   }, [route.params]);
+  
+  // Check scan limits when screen loads
+  useEffect(() => {
+    const checkScanLimits = async () => {
+      try {
+        const remaining = await subscriptionService.getRemainingReceiptScans();
+        setRemainingScans(remaining);
+        setScanLimitReached(remaining <= 0);
+      } catch (error) {
+        console.error('Error checking scan limits:', error);
+      }
+    };
+    
+    checkScanLimits();
+  }, []);
   
   // Handle date change
   const onDateChange = (event: any, selectedDate?: Date) => {
@@ -183,6 +203,9 @@ const ExpenseScreen: React.FC = () => {
         // Continue with the flow even if sync fails
       }
       
+      // Check if any budget thresholds have been reached
+      await notificationService.scheduleBudgetCheck();
+      
       Alert.alert(
         'Success',
         'Expense saved successfully',
@@ -234,6 +257,38 @@ const ExpenseScreen: React.FC = () => {
     }
   };
   
+  // Handle scan receipt
+  const handleScanReceipt = async () => {
+    try {
+      // Check remaining scans for free users
+      const isPremium = await subscriptionService.hasPremiumAccess();
+      
+      if (!isPremium) {
+        const remaining = await subscriptionService.getRemainingReceiptScans();
+        setRemainingScans(remaining);
+        
+        // Show upgrade modal if limit reached
+        if (remaining <= 0) {
+          subscriptionService.showPremiumUpgradeModal(PremiumFeature.RECEIPT_SCANNING, navigation);
+          return;
+        }
+        
+        // Increment scan count
+        await subscriptionService.incrementReceiptScanCount();
+        
+        // Update remaining scans
+        const newRemaining = await subscriptionService.getRemainingReceiptScans();
+        setRemainingScans(newRemaining);
+      }
+      
+      // Open receipt scanner
+      setShowReceiptScanner(true);
+    } catch (error) {
+      console.error('Error scanning receipt:', error);
+      Alert.alert('Error', 'Could not start receipt scanning. Please try again.');
+    }
+  };
+  
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="dark" />
@@ -248,12 +303,6 @@ const ExpenseScreen: React.FC = () => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Add Expense</Text>
         <View style={styles.headerButtons}>
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={() => setShowMockDataOptions(true)}
-          >
-            <Ionicons name="flask-outline" size={22} color={colors.accent} />
-          </TouchableOpacity>
           <TouchableOpacity 
             style={styles.headerButton}
             onPress={handleNavigateToAnalytics}
@@ -459,13 +508,23 @@ const ExpenseScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity 
-                style={styles.scanReceiptButton}
-                onPress={() => setShowReceiptScanner(true)}
+              <PremiumFeatureGate
+                feature={PremiumFeature.RECEIPT_SCANNING}
+                limitMessage={`You can scan up to ${subscriptionService.FREE_PLAN_LIMITS.MAX_RECEIPT_SCANS_PER_MONTH} receipts per month with a free account.`}
               >
-                <Ionicons name="camera-outline" size={24} color={colors.primary} />
-                <Text style={styles.scanReceiptText}>Scan Receipt</Text>
-              </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.scanReceiptButton}
+                  onPress={handleScanReceipt}
+                >
+                  <Ionicons name="camera-outline" size={24} color={colors.primary} />
+                  <Text style={styles.scanReceiptText}>
+                    Scan Receipt
+                    {remainingScans !== null && remainingScans < Infinity && (
+                      <Text style={styles.remainingScanText}> ({remainingScans} left)</Text>
+                    )}
+                  </Text>
+                </TouchableOpacity>
+              </PremiumFeatureGate>
             )}
           </View>
           
@@ -667,6 +726,11 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '600',
     marginLeft: spacing.sm,
+  },
+  remainingScanText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: 'normal',
   },
   receiptImageContainer: {
     position: 'relative',

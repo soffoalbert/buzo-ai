@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,9 @@ import {
   Platform,
   Linking,
   Vibration,
+  Dimensions,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -27,11 +30,14 @@ import {
   hasPremiumAccess, 
   processSubscriptionPayment,
   cancelPremiumSubscription,
-  getPremiumFeatures
+  getPremiumFeatures,
+  FREE_PLAN_LIMITS
 } from '../services/subscriptionService';
 import { SubscriptionInfo, SubscriptionTier } from '../models/User';
 
 type SubscriptionScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const { width, height } = Dimensions.get('window');
 
 const MONTHLY_PRICE = 49.99;
 const ANNUAL_PRICE = 499.99;
@@ -45,12 +51,57 @@ const SubscriptionScreen: React.FC = () => {
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('monthly');
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Trigger haptic feedback
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
+  const animatedCardValues = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0)
+  ]).current;
+  
+  // Run entrance animations when component mounts
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 500,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      })
+    ]).start();
+    
+    // Staggered animation for cards
+    Animated.stagger(200, [
+      Animated.timing(animatedCardValues[0], {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(animatedCardValues[1], {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, []);
+
+  // Enhanced haptic feedback
   const triggerHaptic = () => {
     if (Platform.OS === 'ios') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } else {
-      // Android
       Vibration.vibrate(20);
     }
   };
@@ -193,10 +244,25 @@ const SubscriptionScreen: React.FC = () => {
     
     return (
       <View style={styles.featuresContainer}>
-        <Text style={styles.featuresTitle}>Premium Features</Text>
+        <Text style={styles.sectionTitle}>Premium Features</Text>
         
         {features.map((feature, index) => (
-          <View key={index} style={styles.featureItem}>
+          <Animated.View 
+            key={index} 
+            style={[
+              styles.featureItem,
+              {
+                opacity: fadeAnim,
+                transform: [
+                  { translateY: translateY.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 15 * (index + 1)]
+                    })
+                  }
+                ]
+              }
+            ]}
+          >
             <View style={styles.featureIconContainer}>
               <Ionicons name={feature.icon as any} size={24} color={colors.primary} />
             </View>
@@ -204,9 +270,139 @@ const SubscriptionScreen: React.FC = () => {
               <Text style={styles.featureTitle}>{feature.title}</Text>
               <Text style={styles.featureDescription}>{feature.description}</Text>
             </View>
-          </View>
+          </Animated.View>
         ))}
       </View>
+    );
+  };
+  
+  // Render comparison table
+  const renderComparisonTable = () => {
+    const comparisonFeatures = [
+      {
+        name: 'Savings Goals',
+        free: `Limited (${FREE_PLAN_LIMITS.MAX_SAVINGS_GOALS})`,
+        premium: 'Unlimited',
+        icon: 'trending-up-outline'
+      },
+      {
+        name: 'Budget Categories',
+        free: `Limited (${FREE_PLAN_LIMITS.MAX_BUDGETS})`,
+        premium: 'Unlimited',
+        icon: 'wallet-outline'
+      },
+      {
+        name: 'Receipt Scanning',
+        free: `${FREE_PLAN_LIMITS.MAX_RECEIPT_SCANS_PER_MONTH}/month`,
+        premium: 'Unlimited',
+        icon: 'camera-outline'
+      },
+      {
+        name: 'Bank Statement Analysis',
+        free: `${FREE_PLAN_LIMITS.MAX_BANK_STATEMENTS_PER_MONTH}/month`,
+        premium: 'Unlimited',
+        icon: 'document-text-outline'
+      },
+      {
+        name: 'Personalized Coaching',
+        free: 'Not available',
+        premium: 'Included',
+        icon: 'person-outline'
+      },
+      {
+        name: 'Detailed Analytics',
+        free: 'Basic',
+        premium: 'Advanced',
+        icon: 'analytics-outline'
+      },
+      {
+        name: 'Financial Tips',
+        free: 'Weekly',
+        premium: 'Daily',
+        icon: 'bulb-outline'
+      },
+      {
+        name: 'Priority Support',
+        free: 'Not available',
+        premium: 'Included',
+        icon: 'headset-outline'
+      },
+      {
+        name: 'Ad-Free Experience',
+        free: 'Ads shown',
+        premium: 'No ads',
+        icon: 'shield-checkmark-outline'
+      },
+      {
+        name: 'Custom Categories',
+        free: 'Not available',
+        premium: 'Included',
+        icon: 'options-outline'
+      }
+    ];
+    
+    return (
+      <Animated.View 
+        style={[
+          styles.comparisonContainer,
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY }, { scale: scaleAnim }]
+          }
+        ]}
+      >
+        <Text style={styles.sectionTitle}>Plan Comparison</Text>
+        
+        {/* Header Row */}
+        <View style={styles.comparisonHeaderRow}>
+          <Text style={[styles.comparisonHeaderCell, styles.featureCell]}>Feature</Text>
+          <Text style={[styles.comparisonHeaderCell, styles.freeCell]}>Free</Text>
+          <Text style={[styles.comparisonHeaderCell, styles.premiumCell]}>Premium</Text>
+        </View>
+        
+        {/* Feature Rows */}
+        {comparisonFeatures.map((feature, index) => (
+          <Animated.View 
+            key={index} 
+            style={[
+              styles.comparisonRow,
+              index === comparisonFeatures.length - 1 && styles.comparisonRowLast,
+              {
+                opacity: fadeAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 1]
+                }),
+                transform: [{ 
+                  translateY: fadeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [20, 0]
+                  })
+                }]
+              }
+            ]}
+          >
+            <View style={[styles.comparisonCell, styles.featureCell]}>
+              <Ionicons name={feature.icon as any} size={18} color={colors.text} style={styles.featureIcon} />
+              <Text style={styles.featureName}>{feature.name}</Text>
+            </View>
+            <View style={[styles.comparisonCell, styles.freeCell]}>
+              <Text 
+                style={[
+                  styles.planValue,
+                  feature.free.includes('Not') && styles.notAvailableText
+                ]}
+              >
+                {feature.free}
+              </Text>
+            </View>
+            <View style={[styles.comparisonCell, styles.premiumCell]}>
+              <Text style={[styles.planValue, styles.premiumValue]}>
+                {feature.premium}
+              </Text>
+            </View>
+          </Animated.View>
+        ))}
+      </Animated.View>
     );
   };
   
@@ -214,75 +410,111 @@ const SubscriptionScreen: React.FC = () => {
   const renderSubscriptionPlans = () => {
     return (
       <View style={styles.plansContainer}>
-        <Text style={styles.plansTitle}>Choose Your Plan</Text>
+        <Text style={styles.sectionTitle}>Choose Your Plan</Text>
         
         <View style={styles.planOptions}>
           {/* Monthly Plan */}
-          <TouchableOpacity
-            style={[
-              styles.planCard,
-              selectedPlan === 'monthly' && styles.selectedPlan
-            ]}
-            onPress={() => {
-              triggerHaptic();
-              setSelectedPlan('monthly');
-            }}
-            activeOpacity={0.7}
-          >
-            <View style={styles.planHeader}>
-              <Text style={styles.planTitle}>Monthly</Text>
-              {selectedPlan === 'monthly' && (
-                <View style={styles.selectedBadge}>
-                  <Text style={styles.selectedBadgeText}>Selected</Text>
-                </View>
-              )}
-            </View>
-            
-            <Text style={styles.planPrice}>
-              {CURRENCY}{MONTHLY_PRICE}
-              <Text style={styles.planPeriod}>/month</Text>
-            </Text>
-            
-            <Text style={styles.planDescription}>
-              Flexible monthly billing with no long-term commitment
-            </Text>
-          </TouchableOpacity>
+          <Animated.View style={{
+            flex: 1,
+            opacity: animatedCardValues[0],
+            transform: [{ 
+              translateY: animatedCardValues[0].interpolate({
+                inputRange: [0, 1],
+                outputRange: [50, 0]
+              })
+            }]
+          }}>
+            <TouchableOpacity
+              style={[
+                styles.planCard,
+                selectedPlan === 'monthly' && styles.selectedPlan
+              ]}
+              onPress={() => {
+                triggerHaptic();
+                setSelectedPlan('monthly');
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.planHeader}>
+                <Text style={styles.planTitle}>Monthly</Text>
+                {selectedPlan === 'monthly' && (
+                  <View style={styles.selectedBadge}>
+                    <Text style={styles.selectedBadgeText}>Selected</Text>
+                  </View>
+                )}
+              </View>
+              
+              <Text style={styles.planPrice}>
+                {CURRENCY}{MONTHLY_PRICE}
+                <Text style={styles.planPeriod}>/month</Text>
+              </Text>
+              
+              <Text style={styles.planDescription}>
+                Flexible monthly billing with no long-term commitment
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
           
           {/* Annual Plan */}
-          <TouchableOpacity
-            style={[
-              styles.planCard,
-              selectedPlan === 'annual' && styles.selectedPlan
-            ]}
-            onPress={() => {
-              triggerHaptic();
-              setSelectedPlan('annual');
-            }}
-            activeOpacity={0.7}
-          >
-            <View style={styles.planHeader}>
-              <Text style={styles.planTitle}>Annual</Text>
-              {selectedPlan === 'annual' && (
-                <View style={styles.selectedBadge}>
-                  <Text style={styles.selectedBadgeText}>Selected</Text>
-                </View>
-              )}
-            </View>
-            
-            <Text style={styles.planPrice}>
-              {CURRENCY}{ANNUAL_PRICE}
-              <Text style={styles.planPeriod}>/year</Text>
-            </Text>
-            
-            <Text style={styles.planDescription}>
-              Save 17% compared to monthly billing
-            </Text>
-            
-            <View style={styles.savingsBadge}>
-              <Text style={styles.savingsBadgeText}>Best Value</Text>
-            </View>
-          </TouchableOpacity>
+          <Animated.View style={{
+            flex: 1,
+            opacity: animatedCardValues[1],
+            transform: [{ 
+              translateY: animatedCardValues[1].interpolate({
+                inputRange: [0, 1],
+                outputRange: [50, 0]
+              })
+            }]
+          }}>
+            <TouchableOpacity
+              style={[
+                styles.planCard,
+                selectedPlan === 'annual' && styles.selectedPlan
+              ]}
+              onPress={() => {
+                triggerHaptic();
+                setSelectedPlan('annual');
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.planHeader}>
+                <Text style={styles.planTitle}>Annual</Text>
+                {selectedPlan === 'annual' && (
+                  <View style={styles.selectedBadge}>
+                    <Text style={styles.selectedBadgeText}>Selected</Text>
+                  </View>
+                )}
+              </View>
+              
+              <Text style={styles.planPrice}>
+                {CURRENCY}{ANNUAL_PRICE}
+                <Text style={styles.planPeriod}>/year</Text>
+              </Text>
+              
+              <Text style={styles.planDescription}>
+                Save 17% compared to monthly billing
+              </Text>
+              
+              <View style={styles.savingsBadge}>
+                <Text style={styles.savingsBadgeText}>Best Value</Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
+        
+        <TouchableOpacity
+          style={[
+            styles.subscribeButton,
+            isProcessing && styles.subscribeButtonDisabled
+          ]}
+          onPress={handleSubscribe}
+          disabled={isProcessing}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.subscribeButtonText}>
+            {isProcessing ? 'Processing...' : 'Subscribe Now'}
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -301,6 +533,7 @@ const SubscriptionScreen: React.FC = () => {
         <View style={styles.currentSubscriptionHeader}>
           <Text style={styles.currentSubscriptionTitle}>Current Subscription</Text>
           <View style={styles.premiumBadge}>
+            <Ionicons name="star" size={14} color={colors.white} style={{ marginRight: 4 }} />
             <Text style={styles.premiumBadgeText}>Premium</Text>
           </View>
         </View>
@@ -324,102 +557,139 @@ const SubscriptionScreen: React.FC = () => {
           </View>
         </View>
         
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={handleCancelSubscription}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.cancelButtonText}>
-            {subscription.autoRenew ? 'Cancel Subscription' : 'Subscription will end on renewal date'}
-          </Text>
-        </TouchableOpacity>
+        {subscription.autoRenew && (
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={handleCancelSubscription}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.cancelButtonText}>
+              Cancel Subscription
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {!subscription.autoRenew && (
+          <View style={styles.expirationContainer}>
+            <Ionicons name="information-circle-outline" size={20} color={colors.secondary} />
+            <Text style={styles.expirationText}>
+              Your subscription will end on {formattedEndDate}
+            </Text>
+          </View>
+        )}
       </View>
     );
   };
-  
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
         <StatusBar style="auto" />
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading subscription information...</Text>
+        <Text style={styles.loadingText}>Loading subscription details...</Text>
       </SafeAreaView>
     );
   }
-  
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="auto" />
+      <StatusBar style="dark" />
       
       <View style={styles.header}>
-        <TouchableOpacity
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()} 
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
-          activeOpacity={0.7}
+          accessibilityLabel="Go back"
+          accessibilityHint="Navigates to the previous screen"
         >
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Buzo Premium</Text>
-        <View style={styles.headerRight} />
+        <Text style={styles.headerTitle}>Premium Experience</Text>
+        <View style={{ width: 24 }} />
       </View>
       
       <ScrollView 
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollViewContent}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        bounces={true}
       >
-        {/* Premium Banner */}
-        <View style={styles.premiumBanner}>
-          <PremiumBanner />
-        </View>
-        
-        {/* Current Subscription (if premium) */}
-        {renderCurrentSubscription()}
-        
-        {/* Subscription Plans (if not premium) */}
-        {!isPremium && renderSubscriptionPlans()}
-        
-        {/* Premium Features */}
-        {renderFeatures()}
-        
-        {/* Subscribe Button (if not premium) */}
-        {!isPremium && (
-          <TouchableOpacity
-            style={styles.subscribeButton}
-            onPress={handleSubscribe}
-            activeOpacity={0.7}
-            disabled={isProcessing}
+        {/* Current subscription with enhanced UI */}
+        {subscription && (
+          <Animated.View 
+            style={[
+              { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+            ]}
           >
-            {isProcessing ? (
-              <ActivityIndicator size="small" color={colors.white} />
-            ) : (
-              <Text style={styles.subscribeButtonText}>
-                Subscribe Now
-              </Text>
-            )}
-          </TouchableOpacity>
+            {renderCurrentSubscription()}
+          </Animated.View>
         )}
         
-        {/* Terms and Privacy */}
-        <View style={styles.termsContainer}>
-          <Text style={styles.termsText}>
-            By subscribing, you agree to our{' '}
-            <Text 
-              style={styles.termsLink}
-              onPress={() => Linking.openURL('https://buzo.app/terms')}
-            >
-              Terms of Service
+        {/* Premium Banner */}
+        <Animated.View
+          style={{
+            opacity: fadeAnim,
+            transform: [{ scale: scaleAnim }]
+          }}
+        >
+          <View style={styles.premiumIntroContainer}>
+            <Ionicons 
+              name="diamond" 
+              size={60} 
+              color={colors.primary} 
+              style={styles.premiumIcon}
+            />
+            <Text style={styles.premiumIntroTitle}>
+              Unlock Your Financial Potential
             </Text>
-            {' '}and{' '}
-            <Text 
-              style={styles.termsLink}
-              onPress={() => Linking.openURL('https://buzo.app/privacy')}
-            >
-              Privacy Policy
+            <Text style={styles.premiumIntroText}>
+              Upgrade to Buzo Premium for exclusive features designed to accelerate your financial growth and literacy.
             </Text>
-          </Text>
-        </View>
+          </View>
+        </Animated.View>
+        
+        {/* Enhanced Features Section */}
+        <Animated.View
+          style={{
+            opacity: fadeAnim,
+            transform: [{ translateY }]
+          }}
+        >
+          {renderFeatures()}
+        </Animated.View>
+        
+        {/* Enhanced Comparison Table */}
+        {renderComparisonTable()}
+        
+        {/* Enhanced Subscription Plans */}
+        {!isPremium && (
+          <Animated.View
+            style={{
+              opacity: fadeAnim,
+              transform: [{ translateY }]
+            }}
+          >
+            {renderSubscriptionPlans()}
+          </Animated.View>
+        )}
+
+        {/* Disclaimer */}
+        <Text style={styles.disclaimer}>
+          By subscribing, you agree to our Terms of Service and Privacy Policy. 
+          Your subscription will automatically renew unless auto-renew is turned off 
+          at least 24 hours before the end of the current period.
+        </Text>
       </ScrollView>
+      
+      {/* Processing Overlay */}
+      {isProcessing && (
+        <View style={styles.processingOverlay}>
+          <View style={styles.processingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.processingText}>Processing your request...</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -445,59 +715,87 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.lg,
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-  },
-  backButton: {
-    padding: spacing.xs,
+    ...shadows.lg,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
     color: colors.text,
   },
-  headerRight: {
-    width: 24,
+  backButton: {
+    padding: 8,
+    borderRadius: borderRadius.sm,
   },
   scrollView: {
     flex: 1,
   },
-  scrollViewContent: {
-    paddingBottom: spacing.xl * 2,
+  scrollContent: {
+    paddingBottom: spacing.xl,
   },
-  premiumBanner: {
+  premiumIntroContainer: {
     alignItems: 'center',
-    padding: spacing.lg,
-  },
-  currentSubscriptionContainer: {
-    margin: spacing.lg,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
     padding: spacing.lg,
     backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.md,
+    ...shadows.md,
+  },
+  premiumIcon: {
+    width: 80,
+    height: 80,
+    marginBottom: spacing.md,
+  },
+  premiumIntroTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.primary,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  premiumIntroText: {
+    fontSize: 16,
+    color: colors.text,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  currentSubscriptionContainer: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.md,
     ...shadows.md,
   },
   currentSubscriptionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.md,
   },
   currentSubscriptionTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
   },
   premiumBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.primary,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs / 2,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
     borderRadius: borderRadius.sm,
   },
   premiumBadgeText: {
-    color: colors.white,
-    fontWeight: 'bold',
     fontSize: 12,
+    fontWeight: '600',
+    color: colors.white,
   },
   subscriptionDetails: {
     marginBottom: spacing.md,
@@ -505,7 +803,7 @@ const styles = StyleSheet.create({
   subscriptionDetailItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -515,124 +813,60 @@ const styles = StyleSheet.create({
   },
   subscriptionDetailValue: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.text,
+  },
+  expirationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    padding: spacing.md,
+    borderRadius: borderRadius.sm,
+    marginTop: spacing.sm,
+  },
+  expirationText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: colors.secondary,
+    flex: 1,
   },
   cancelButton: {
-    marginTop: spacing.md,
-    padding: spacing.sm,
-    borderRadius: borderRadius.md,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: colors.error,
+    borderColor: colors.primary,
+    borderRadius: borderRadius.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
     alignItems: 'center',
+    marginTop: spacing.sm,
   },
   cancelButtonText: {
-    color: colors.error,
     fontSize: 14,
-    fontWeight: '500',
-  },
-  plansContainer: {
-    margin: spacing.lg,
-  },
-  plansTitle: {
-    fontSize: 18,
     fontWeight: '600',
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
-  planOptions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  planCard: {
-    flex: 1,
-    padding: spacing.md,
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    marginHorizontal: spacing.xs,
-    ...shadows.sm,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  selectedPlan: {
-    borderWidth: 2,
-    borderColor: colors.primary,
-  },
-  planHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  planTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  selectedBadge: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs / 4,
-    borderRadius: borderRadius.sm,
-  },
-  selectedBadgeText: {
-    color: colors.white,
-    fontWeight: 'bold',
-    fontSize: 10,
-  },
-  planPrice: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  planPeriod: {
-    fontSize: 14,
-    fontWeight: 'normal',
-    color: colors.textSecondary,
-  },
-  planDescription: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  savingsBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: colors.success,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs / 2,
-    borderBottomLeftRadius: borderRadius.md,
-  },
-  savingsBadgeText: {
-    color: colors.white,
-    fontWeight: 'bold',
-    fontSize: 10,
+    color: colors.primary,
   },
   featuresContainer: {
-    margin: spacing.lg,
-    padding: spacing.lg,
+    marginHorizontal: spacing.md,
+    marginVertical: spacing.md,
+    padding: spacing.md,
     backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.md,
     ...shadows.md,
-  },
-  featuresTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: spacing.md,
   },
   featureItem: {
     flexDirection: 'row',
     marginBottom: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   featureIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: colors.primaryLight,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     marginRight: spacing.md,
   },
   featureContent: {
@@ -640,39 +874,217 @@ const styles = StyleSheet.create({
   },
   featureTitle: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.text,
-    marginBottom: spacing.xs / 2,
+    marginBottom: 4,
   },
   featureDescription: {
     fontSize: 14,
     color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  comparisonContainer: {
+    marginHorizontal: spacing.md,
+    marginVertical: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    ...shadows.md,
+  },
+  comparisonHeaderRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  comparisonRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingVertical: spacing.sm,
+  },
+  comparisonRowLast: {
+    borderBottomWidth: 0,
+  },
+  comparisonHeaderCell: {
+    flex: 1,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingVertical: spacing.xs,
+  },
+  comparisonCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xs,
+  },
+  featureCell: {
+    flex: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  freeCell: {
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+  },
+  premiumCell: {
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+    backgroundColor: colors.primaryLight,
+  },
+  featureIcon: {
+    marginRight: spacing.xs,
+  },
+  featureName: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  planValue: {
+    fontSize: 14,
+    textAlign: 'center',
+    color: colors.text,
+  },
+  premiumValue: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  notAvailableText: {
+    color: colors.textSecondary,
+  },
+  plansContainer: {
+    marginHorizontal: spacing.md,
+    marginVertical: spacing.md,
+  },
+  planOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  planCard: {
+    padding: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    marginHorizontal: spacing.xs,
+    ...shadows.md,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  selectedPlan: {
+    borderWidth: 2,
+    borderColor: colors.primary,
+    ...shadows.md,
+  },
+  planHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  planTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  selectedBadge: {
+    backgroundColor: colors.primary,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: borderRadius.sm,
+  },
+  selectedBadgeText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  planPrice: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.primary,
+    marginBottom: spacing.sm,
+  },
+  planPeriod: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: colors.textSecondary,
+  },
+  planDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  savingsBadge: {
+    position: 'absolute',
+    top: 10,
+    right: -30,
+    backgroundColor: colors.secondary,
+    paddingVertical: 4,
+    paddingHorizontal: 30,
+    transform: [{ rotate: '45deg' }],
+  },
+  savingsBadgeText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '600',
   },
   subscribeButton: {
-    margin: spacing.lg,
-    padding: spacing.md,
     backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
     borderRadius: borderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
     ...shadows.md,
+  },
+  subscribeButtonDisabled: {
+    backgroundColor: colors.textSecondary,
   },
   subscribeButtonText: {
     color: colors.white,
     fontSize: 16,
     fontWeight: '600',
   },
-  termsContainer: {
-    marginHorizontal: spacing.lg,
-  },
-  termsText: {
+  disclaimer: {
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: 'center',
+    marginTop: spacing.md,
+    marginBottom: spacing.xl,
+    paddingHorizontal: spacing.md,
+    lineHeight: 18,
   },
-  termsLink: {
-    color: colors.primary,
-    textDecorationLine: 'underline',
+  processingOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  processingContainer: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    padding: spacing.lg,
+    alignItems: 'center',
+    ...shadows.lg,
+    width: '80%',
+  },
+  processingText: {
+    fontSize: 16,
+    color: colors.text,
+    marginTop: spacing.md,
+    fontWeight: '500',
   },
 });
 

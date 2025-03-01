@@ -54,7 +54,7 @@ export default function App() {
         console.log('API key migration check completed');
         
         // Initialize notifications
-        await initializeNotifications();
+        await notificationService.initializeNotifications();
         
         // Initialize deep link handling and store the cleanup function
         const cleanupDeepLinks = deepLinkHandler.initDeepLinkHandling();

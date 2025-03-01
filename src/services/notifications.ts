@@ -530,6 +530,220 @@ export const shouldShowNotification = async (type: NotificationType): Promise<bo
   }
 };
 
+/**
+ * Check if current time is within quiet hours
+ * @returns True if current time is within quiet hours, false otherwise
+ */
+export const isWithinQuietHours = async (): Promise<boolean> => {
+  try {
+    const preferences = await getNotificationPreferences();
+    
+    // If quiet hours are not enabled, return false
+    if (!preferences.quietHoursEnabled) {
+      return false;
+    }
+    
+    const currentDate = new Date();
+    const currentHours = currentDate.getHours();
+    const currentMinutes = currentDate.getMinutes();
+    
+    const [startHours, startMinutes] = preferences.quietHoursStart.split(':').map(Number);
+    const [endHours, endMinutes] = preferences.quietHoursEnd.split(':').map(Number);
+    
+    const currentTimeInMinutes = currentHours * 60 + currentMinutes;
+    const startTimeInMinutes = startHours * 60 + startMinutes;
+    const endTimeInMinutes = endHours * 60 + endMinutes;
+    
+    // Handle overnight quiet hours
+    if (startTimeInMinutes > endTimeInMinutes) {
+      // Quiet hours cross midnight (e.g., 22:00 to 07:00)
+      return currentTimeInMinutes >= startTimeInMinutes || currentTimeInMinutes <= endTimeInMinutes;
+    } else {
+      // Quiet hours within the same day (e.g., 01:00 to 07:00)
+      return currentTimeInMinutes >= startTimeInMinutes && currentTimeInMinutes <= endTimeInMinutes;
+    }
+  } catch (error) {
+    console.error('Error checking quiet hours:', error);
+    return false;
+  }
+};
+
+/**
+ * Schedule budget alert check based on user's spending patterns
+ * This function should be called when a new expense is added
+ */
+export const scheduleBudgetCheck = async (): Promise<void> => {
+  try {
+    // Import dynamically to avoid circular dependencies
+    const { getBudgetCategories, getCategorySpending } = await import('../services/budgetService');
+    
+    // Get all budget categories
+    const categories = await getBudgetCategories();
+    
+    // Check each category for potential alerts
+    for (const category of categories) {
+      // Get current spending for the category
+      const spending = await getCategorySpending(category.id);
+      
+      // Calculate percentage of budget used
+      const percentage = Math.round((spending / category.limit) * 100);
+      
+      // Send alerts at 50%, 75%, 90%, and 100% thresholds
+      if (percentage >= 50 && percentage < 75 && !category.alerts?.includes('50')) {
+        await sendBudgetAlert(category.name, 50, category.limit);
+        
+        // Mark that we've sent the 50% alert
+        // This would need to be implemented in the budget service
+        await markBudgetAlert(category.id, '50');
+      }
+      else if (percentage >= 75 && percentage < 90 && !category.alerts?.includes('75')) {
+        await sendBudgetAlert(category.name, 75, category.limit);
+        await markBudgetAlert(category.id, '75');
+      }
+      else if (percentage >= 90 && percentage < 100 && !category.alerts?.includes('90')) {
+        await sendBudgetAlert(category.name, 90, category.limit);
+        await markBudgetAlert(category.id, '90');
+      }
+      else if (percentage >= 100 && !category.alerts?.includes('100')) {
+        await sendBudgetAlert(category.name, 100, category.limit);
+        await markBudgetAlert(category.id, '100');
+      }
+    }
+  } catch (error) {
+    console.error('Error scheduling budget check:', error);
+  }
+};
+
+/**
+ * Mark that a budget alert has been sent for a category
+ * @param categoryId The budget category ID
+ * @param alertThreshold The alert threshold (50, 75, 90, or 100)
+ */
+export const markBudgetAlert = async (categoryId: string, alertThreshold: string): Promise<void> => {
+  try {
+    // Import dynamically to avoid circular dependencies
+    const { updateBudgetCategory, getBudgetCategory } = await import('../services/budgetService');
+    
+    // Get the current category
+    const category = await getBudgetCategory(categoryId);
+    
+    if (!category) {
+      return;
+    }
+    
+    // Add the alert to the list of sent alerts
+    const alerts = category.alerts || [];
+    if (!alerts.includes(alertThreshold)) {
+      alerts.push(alertThreshold);
+    }
+    
+    // Update the category
+    await updateBudgetCategory(categoryId, {
+      ...category,
+      alerts
+    });
+  } catch (error) {
+    console.error('Error marking budget alert:', error);
+  }
+};
+
+/**
+ * Schedule daily financial tips
+ * This should be called once during app initialization
+ */
+export const scheduleDailyTips = async (): Promise<void> => {
+  try {
+    const preferences = await getNotificationPreferences();
+    
+    // Skip if financial tips are disabled
+    if (!preferences.financialTips) {
+      return;
+    }
+    
+    // Financial tips to be sent
+    const tips = [
+      "Set aside at least 10% of your income for saving and investing each month.",
+      "Use the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings/debt.",
+      "Create an emergency fund to cover 3-6 months of expenses.",
+      "Pay yourself first - set up automatic transfers to your savings on payday.",
+      "Review your subscriptions and cancel any you don't regularly use.",
+      "Compare prices before making large purchases to get the best deal.",
+      "Consider using cash for discretionary spending to stay within budget.",
+      "Track your expenses daily to stay aware of your spending habits.",
+      "Set specific, measurable, achievable, relevant, and time-bound (SMART) financial goals.",
+      "Use the 24-hour rule: wait 24 hours before making non-essential purchases.",
+    ];
+    
+    // Calculate time until next delivery (10:00 AM tomorrow)
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(10, 0, 0, 0);
+    
+    const delayInSeconds = Math.floor((tomorrow.getTime() - now.getTime()) / 1000);
+    
+    // Pick a random tip
+    const randomTip = tips[Math.floor(Math.random() * tips.length)];
+    
+    // Schedule the notification
+    await sendFinancialTip(randomTip, delayInSeconds);
+    
+    // We could also store that we've scheduled this so we don't schedule duplicates
+  } catch (error) {
+    console.error('Error scheduling daily tips:', error);
+  }
+};
+
+/**
+ * Initialize notification listeners
+ * This should be called once during app initialization
+ */
+export const initializeNotifications = async (): Promise<void> => {
+  try {
+    // Check if notifications are enabled in the app settings
+    const preferences = await getNotificationPreferences();
+    
+    if (!preferences.enabled) {
+      return;
+    }
+    
+    // Register for push notifications to get token
+    const token = await registerForPushNotifications();
+    
+    // Setup notification listeners
+    const receivedSubscription = addNotificationReceivedListener((notification) => {
+      // When a notification is received, add it to history
+      const { title, body, data } = notification.request.content;
+      
+      addNotificationToHistory({
+        id: notification.request.identifier,
+        title: title || 'Buzo Notification',
+        body: body || '',
+        type: (data?.type as NotificationType) || NotificationType.FINANCIAL_TIP,
+        timestamp: Date.now(),
+        read: false,
+        data: data || {},
+      });
+    });
+    
+    const responseSubscription = addNotificationResponseReceivedListener((response) => {
+      // When user taps on a notification, mark it as read
+      const notificationId = response.notification.request.identifier;
+      markNotificationAsRead(notificationId);
+    });
+    
+    // Store subscriptions to clean up later if needed
+    
+    // Schedule daily tips
+    await scheduleDailyTips();
+    
+    return token;
+  } catch (error) {
+    console.error('Error initializing notifications:', error);
+  }
+};
+
+// Export a notification service with all the methods
 export default {
   registerForPushNotifications,
   scheduleNotification,
@@ -540,17 +754,18 @@ export default {
   cancelNotification,
   cancelAllNotifications,
   getAllScheduledNotifications,
-  addNotificationToHistory,
   getNotificationHistory,
   markNotificationAsRead,
   markAllNotificationsAsRead,
   clearNotificationHistory,
   getUnreadNotificationCount,
+  getNotificationPreferences,
+  updateNotificationPreferences,
   addNotificationReceivedListener,
   addNotificationResponseReceivedListener,
   removeNotificationSubscription,
-  getNotificationPreferences,
-  updateNotificationPreferences,
-  shouldShowNotification,
-  DEFAULT_NOTIFICATION_PREFERENCES,
+  initializeNotifications,
+  scheduleBudgetCheck,
+  scheduleDailyTips,
+  isWithinQuietHours
 }; 

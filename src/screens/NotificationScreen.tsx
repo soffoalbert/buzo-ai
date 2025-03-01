@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,9 @@ import {
   RefreshControl,
   TextInput,
   Modal,
+  Animated,
+  Dimensions,
+  Vibration,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -21,6 +24,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
 import { format, isToday, isYesterday } from 'date-fns';
+import * as Haptics from 'expo-haptics';
 
 // Import services and utilities
 import notificationService, {
@@ -32,6 +36,8 @@ import notificationService, {
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import Button from '../components/Button';
 import testNotifications from '../utils/testNotifications';
+
+const { width, height } = Dimensions.get('window');
 
 type NotificationScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -46,115 +52,170 @@ const NotificationScreen: React.FC = () => {
   const [startMinute, setStartMinute] = useState('00');
   const [endHour, setEndHour] = useState('07');
   const [endMinute, setEndMinute] = useState('00');
+  const [showSettings, setShowSettings] = useState(false);
 
-  // Load notifications and preferences
-  const loadData = useCallback(async () => {
+  // Animation values
+  const translateY = useRef(new Animated.Value(50)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const settingsHeight = useRef(new Animated.Value(0)).current;
+  const modalScale = useRef(new Animated.Value(0.9)).current;
+  const modalOpacity = useRef(new Animated.Value(0)).current;
+  
+  // Trigger haptic feedback
+  const triggerHaptic = () => {
+    if (Platform.OS === 'ios') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } else {
+      Vibration.vibrate(20);
+    }
+  };
+
+  // Fetch notifications and preferences
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
+      const notificationHistory = await notificationService.getNotificationHistory();
+      setNotifications(notificationHistory);
       
-      // Load notification history
-      const history = await notificationService.getNotificationHistory();
-      setNotifications(history);
-      
-      // Load notification preferences
-      const prefs = await notificationService.getNotificationPreferences();
-      setPreferences(prefs);
+      const userPrefs = await notificationService.getNotificationPreferences();
+      setPreferences(userPrefs);
       
       // Set quiet hours time inputs
-      if (prefs.quietHoursStart) {
-        const [hour, minute] = prefs.quietHoursStart.split(':');
-        setStartHour(hour);
-        setStartMinute(minute);
+      if (userPrefs.quietHoursStart) {
+        const [hr, min] = userPrefs.quietHoursStart.split(':');
+        setStartHour(hr);
+        setStartMinute(min);
       }
       
-      if (prefs.quietHoursEnd) {
-        const [hour, minute] = prefs.quietHoursEnd.split(':');
-        setEndHour(hour);
-        setEndMinute(minute);
+      if (userPrefs.quietHoursEnd) {
+        const [hr, min] = userPrefs.quietHoursEnd.split(':');
+        setEndHour(hr);
+        setEndMinute(min);
       }
     } catch (error) {
-      console.error('Error loading notification data:', error);
+      console.error('Error fetching notification data:', error);
       Alert.alert('Error', 'Failed to load notifications. Please try again.');
     } finally {
       setIsLoading(false);
-      setRefreshing(false);
     }
   }, []);
-
+  
+  // Animate elements when component mounts
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 400,
+        useNativeDriver: true
+      }),
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true
+      })
+    ]).start();
+  }, []);
+  
+  // Animate settings panel
+  useEffect(() => {
+    Animated.timing(settingsHeight, {
+      toValue: showSettings ? 1 : 0,
+      duration: 300,
+      useNativeDriver: false
+    }).start();
+  }, [showSettings]);
+  
   // Refresh data when screen is focused
   useFocusEffect(
     useCallback(() => {
-      loadData();
-    }, [loadData])
+      fetchData();
+    }, [fetchData])
   );
-
-  // Handle refresh
+  
+  // Handle pull-to-refresh
   const handleRefresh = () => {
     setRefreshing(true);
-    loadData();
+    fetchData().then(() => setRefreshing(false));
   };
-
+  
   // Handle back button press
   const handleBackPress = () => {
+    triggerHaptic();
     navigation.goBack();
   };
-
-  // Handle notification item press
+  
+  // Handle notification press
   const handleNotificationPress = async (notification: NotificationHistoryItem) => {
-    // Mark notification as read
+    triggerHaptic();
+    
+    // Mark as read if not already
     if (!notification.read) {
       await notificationService.markNotificationAsRead(notification.id);
       
-      // Update notifications list
-      setNotifications(prevNotifications => 
-        prevNotifications.map(item => 
+      // Update local state
+      setNotifications(prev => 
+        prev.map(item => 
           item.id === notification.id ? { ...item, read: true } : item
         )
       );
     }
     
-    // Navigate based on notification type
+    // Navigate to the appropriate screen based on notification type
     switch (notification.type) {
       case NotificationType.BUDGET_ALERT:
-        navigation.navigate('Budget');
+        navigation.navigate('ExpenseAnalytics');
         break;
       case NotificationType.SAVINGS_MILESTONE:
-        navigation.navigate('Savings');
+        navigation.navigate('AIAdvisor');
         break;
       case NotificationType.EXPENSE_REMINDER:
-        navigation.navigate('Expenses');
+        navigation.navigate('ExpensesScreen');
         break;
       case NotificationType.FINANCIAL_TIP:
-        navigation.navigate('Learn');
+        navigation.navigate('BankStatements');
         break;
       default:
         // Do nothing
         break;
     }
   };
-
+  
   // Handle mark all as read
   const handleMarkAllAsRead = async () => {
+    triggerHaptic();
+    
+    if (notifications.filter(n => !n.read).length === 0) {
+      Alert.alert('No Unread Notifications', 'All notifications are already marked as read.');
+      return;
+    }
+    
     try {
       await notificationService.markAllNotificationsAsRead();
       
-      // Update notifications list
-      setNotifications(prevNotifications => 
-        prevNotifications.map(item => ({ ...item, read: true }))
+      // Update local state
+      setNotifications(prev => 
+        prev.map(item => ({ ...item, read: true }))
       );
       
-      Alert.alert('Success', 'All notifications marked as read.');
+      Alert.alert('Success', 'All notifications marked as read');
     } catch (error) {
-      console.error('Error marking all notifications as read:', error);
-      Alert.alert('Error', 'Failed to mark all notifications as read. Please try again.');
+      console.error('Error marking all as read:', error);
+      Alert.alert('Error', 'Failed to mark notifications as read. Please try again.');
     }
   };
-
+  
   // Handle clear all notifications
   const handleClearAll = async () => {
+    triggerHaptic();
+    
+    if (notifications.length === 0) {
+      Alert.alert('No Notifications', 'There are no notifications to clear.');
+      return;
+    }
+    
     Alert.alert(
       'Clear All Notifications',
-      'Are you sure you want to clear all notifications? This action cannot be undone.',
+      'Are you sure you want to delete all notifications? This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
@@ -164,7 +225,7 @@ const NotificationScreen: React.FC = () => {
             try {
               await notificationService.clearNotificationHistory();
               setNotifications([]);
-              Alert.alert('Success', 'All notifications cleared.');
+              Alert.alert('Success', 'All notifications have been cleared');
             } catch (error) {
               console.error('Error clearing notifications:', error);
               Alert.alert('Error', 'Failed to clear notifications. Please try again.');
@@ -174,99 +235,102 @@ const NotificationScreen: React.FC = () => {
       ]
     );
   };
-
-  // Handle toggle notification preference
+  
+  // Toggle notification preference
   const handleTogglePreference = async (key: keyof NotificationPreferences, value: boolean) => {
+    triggerHaptic();
+    
     try {
-      const updatedPreferences = { ...preferences, [key]: value };
+      // Create updated preferences object
+      const updatedPreferences = {
+        ...preferences,
+        [key]: value
+      };
       
-      // If disabling all notifications, confirm with user
-      if (key === 'enabled' && !value) {
-        Alert.alert(
-          'Disable Notifications',
-          'Are you sure you want to disable all notifications? You may miss important updates about your finances.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Disable', 
-              style: 'destructive',
-              onPress: async () => {
-                await notificationService.updateNotificationPreferences(updatedPreferences);
-                setPreferences(updatedPreferences);
-              }
-            }
-          ]
-        );
-        return;
-      }
-      
+      // Save to service
       await notificationService.updateNotificationPreferences(updatedPreferences);
+      
+      // Update local state
       setPreferences(updatedPreferences);
     } catch (error) {
       console.error('Error updating notification preferences:', error);
       Alert.alert('Error', 'Failed to update notification preferences. Please try again.');
     }
   };
-
-  // Handle save quiet hours
+  
+  // Save quiet hours settings
   const handleSaveQuietHours = async () => {
+    triggerHaptic();
+    
     try {
-      // Validate inputs
+      // Validate time inputs
       const startHourNum = parseInt(startHour, 10);
       const startMinuteNum = parseInt(startMinute, 10);
       const endHourNum = parseInt(endHour, 10);
       const endMinuteNum = parseInt(endMinute, 10);
       
       if (
-        isNaN(startHourNum) || isNaN(startMinuteNum) || isNaN(endHourNum) || isNaN(endMinuteNum) ||
-        startHourNum < 0 || startHourNum > 23 || startMinuteNum < 0 || startMinuteNum > 59 ||
-        endHourNum < 0 || endHourNum > 23 || endMinuteNum < 0 || endMinuteNum > 59
+        isNaN(startHourNum) || startHourNum < 0 || startHourNum > 23 ||
+        isNaN(startMinuteNum) || startMinuteNum < 0 || startMinuteNum > 59 ||
+        isNaN(endHourNum) || endHourNum < 0 || endHourNum > 23 ||
+        isNaN(endMinuteNum) || endMinuteNum < 0 || endMinuteNum > 59
       ) {
-        Alert.alert('Invalid Time', 'Please enter valid hours (0-23) and minutes (0-59).');
+        Alert.alert('Invalid Time', 'Please enter valid times in 24-hour format.');
         return;
       }
       
-      // Format times
-      const quietHoursStart = `${startHourNum.toString().padStart(2, '0')}:${startMinuteNum.toString().padStart(2, '0')}`;
-      const quietHoursEnd = `${endHourNum.toString().padStart(2, '0')}:${endMinuteNum.toString().padStart(2, '0')}`;
+      // Format time strings
+      const formattedStartHour = startHourNum.toString().padStart(2, '0');
+      const formattedStartMinute = startMinuteNum.toString().padStart(2, '0');
+      const formattedEndHour = endHourNum.toString().padStart(2, '0');
+      const formattedEndMinute = endMinuteNum.toString().padStart(2, '0');
       
-      // Update preferences
-      const updatedPreferences = { 
-        ...preferences, 
-        quietHoursStart, 
-        quietHoursEnd,
-        quietHoursEnabled: true
+      const quietHoursStart = `${formattedStartHour}:${formattedStartMinute}`;
+      const quietHoursEnd = `${formattedEndHour}:${formattedEndMinute}`;
+      
+      // Create updated preferences object
+      const updatedPreferences = {
+        ...preferences,
+        quietHoursStart,
+        quietHoursEnd
       };
       
+      // Save to service
       await notificationService.updateNotificationPreferences(updatedPreferences);
+      
+      // Update local state
       setPreferences(updatedPreferences);
+      
+      // Close modal
       setShowQuietHoursModal(false);
+      
+      Alert.alert('Success', 'Quiet hours updated successfully');
     } catch (error) {
-      console.error('Error saving quiet hours:', error);
-      Alert.alert('Error', 'Failed to save quiet hours. Please try again.');
+      console.error('Error updating quiet hours:', error);
+      Alert.alert('Error', 'Failed to update quiet hours. Please try again.');
     }
   };
-
-  // Handle sending test notifications
+  
+  // Send test notifications
   const handleSendTestNotifications = async () => {
+    triggerHaptic();
+    
     try {
       await testNotifications.sendAllTestNotifications();
-      Alert.alert('Success', 'Test notifications sent successfully. Check your notification history in a few seconds.');
-      
-      // Refresh the notification list after a short delay
-      setTimeout(() => {
-        loadData();
-      }, 1000);
+      setTimeout(() => fetchData(), 500);
+      Alert.alert('Success', 'Test notifications have been added');
     } catch (error) {
-      console.error('Error sending test notifications:', error);
-      Alert.alert('Error', 'Failed to send test notifications. Please try again.');
+      console.error('Error adding test notifications:', error);
+      Alert.alert('Error', 'Failed to add test notifications. Please try again.');
     }
   };
-
+  
+  // Navigate to settings
   const handleNavigateToSettings = () => {
-    navigation.navigate('Settings');
+    triggerHaptic();
+    setShowSettings(!showSettings);
   };
-
+  
   // Format notification timestamp
   const formatTimestamp = (timestamp: number): string => {
     const date = new Date(timestamp);
@@ -279,71 +343,82 @@ const NotificationScreen: React.FC = () => {
       return format(date, 'MMM d, yyyy h:mm a');
     }
   };
-
-  // Get icon for notification type
-  const getNotificationIcon = (type: NotificationType): string => {
+  
+  // Get notification icon based on type
+  const getNotificationIcon = (type: NotificationType): any => {
     switch (type) {
       case NotificationType.BUDGET_ALERT:
-        return 'wallet-outline';
+        return 'alert-circle-outline';
       case NotificationType.SAVINGS_MILESTONE:
-        return 'trending-up-outline';
+        return 'trophy-outline';
       case NotificationType.EXPENSE_REMINDER:
-        return 'cash-outline';
+        return 'calendar-outline';
       case NotificationType.FINANCIAL_TIP:
         return 'bulb-outline';
       default:
         return 'notifications-outline';
     }
   };
-
+  
   // Render notification item
   const renderNotificationItem = ({ item }: { item: NotificationHistoryItem }) => (
     <TouchableOpacity
-      style={[styles.notificationItem, item.read ? styles.notificationItemRead : null]}
+      style={[styles.notificationItem, !item.read && styles.unreadItem]}
       onPress={() => handleNotificationPress(item)}
       activeOpacity={0.7}
     >
-      <View style={styles.notificationIcon}>
-        <Ionicons name={getNotificationIcon(item.type) as any} size={24} color={colors.primary} />
+      <View style={[styles.iconContainer, { backgroundColor: item.read ? colors.card : colors.primaryLight }]}>
+        <Ionicons name={getNotificationIcon(item.type)} size={24} color={item.read ? colors.textSecondary : colors.primary} />
       </View>
       <View style={styles.notificationContent}>
-        <Text style={styles.notificationTitle}>{item.title}</Text>
-        <Text style={styles.notificationBody}>{item.body}</Text>
+        <Text style={[styles.notificationTitle, !item.read && styles.unreadText]}>{item.title}</Text>
+        <Text style={styles.notificationBody} numberOfLines={2}>{item.body}</Text>
         <Text style={styles.notificationTime}>{formatTimestamp(item.timestamp)}</Text>
       </View>
       {!item.read && <View style={styles.unreadIndicator} />}
     </TouchableOpacity>
   );
-
+  
   // Render empty state
   const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Ionicons name="notifications-off-outline" size={64} color={colors.textSecondary} />
-      <Text style={styles.emptyStateTitle}>No Notifications</Text>
+    <View style={styles.emptyStateContainer}>
+      <Ionicons name="notifications-off-outline" size={60} color={colors.textSecondary} />
+      <Text style={styles.emptyStateTitle}>No notifications yet</Text>
       <Text style={styles.emptyStateText}>
-        You don't have any notifications yet. We'll notify you about budget alerts, savings milestones, and financial tips.
+        When you receive notifications, they will appear here
       </Text>
+      <Button 
+        title="Send Test Notifications" 
+        onPress={handleSendTestNotifications}
+        style={styles.testButton}
+      />
     </View>
   );
-
+  
   // Render quiet hours modal
   const renderQuietHoursModal = () => (
     <Modal
       visible={showQuietHoursModal}
-      transparent
-      animationType="fade"
+      animationType="none"
+      transparent={true}
       onRequestClose={() => setShowQuietHoursModal(false)}
     >
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        <Animated.View 
+          style={[
+            styles.modalContainer,
+            {
+              opacity: modalOpacity,
+              transform: [{ scale: modalScale }]
+            }
+          ]}
+        >
           <Text style={styles.modalTitle}>Set Quiet Hours</Text>
-          <Text style={styles.modalDescription}>
-            During quiet hours, notifications will be silenced. They will still appear in your notification history.
-          </Text>
+          <Text style={styles.modalSubtitle}>Notifications will be silenced during these hours</Text>
           
           <View style={styles.timeInputContainer}>
-            <Text style={styles.timeInputLabel}>Start Time:</Text>
-            <View style={styles.timeInputs}>
+            <Text style={styles.timeLabel}>Start Time:</Text>
+            <View style={styles.timeInputRow}>
               <TextInput
                 style={styles.timeInput}
                 value={startHour}
@@ -352,7 +427,7 @@ const NotificationScreen: React.FC = () => {
                 maxLength={2}
                 placeholder="HH"
               />
-              <Text style={styles.timeInputSeparator}>:</Text>
+              <Text style={styles.timeSeparator}>:</Text>
               <TextInput
                 style={styles.timeInput}
                 value={startMinute}
@@ -365,8 +440,8 @@ const NotificationScreen: React.FC = () => {
           </View>
           
           <View style={styles.timeInputContainer}>
-            <Text style={styles.timeInputLabel}>End Time:</Text>
-            <View style={styles.timeInputs}>
+            <Text style={styles.timeLabel}>End Time:</Text>
+            <View style={styles.timeInputRow}>
               <TextInput
                 style={styles.timeInput}
                 value={endHour}
@@ -375,7 +450,7 @@ const NotificationScreen: React.FC = () => {
                 maxLength={2}
                 placeholder="HH"
               />
-              <Text style={styles.timeInputSeparator}>:</Text>
+              <Text style={styles.timeSeparator}>:</Text>
               <TextInput
                 style={styles.timeInput}
                 value={endMinute}
@@ -387,220 +462,263 @@ const NotificationScreen: React.FC = () => {
             </View>
           </View>
           
+          <Text style={styles.timeHint}>
+            *Use 24-hour format (00:00 - 23:59)
+          </Text>
+          
           <View style={styles.modalButtons}>
-            <Button
-              title="Cancel"
+            <TouchableOpacity
+              style={[styles.modalButton, styles.cancelButton]}
               onPress={() => setShowQuietHoursModal(false)}
-              variant="secondary"
-              size="small"
-              style={styles.modalButton}
-            />
-            <Button
-              title="Save"
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.saveButton]}
               onPress={handleSaveQuietHours}
-              variant="primary"
-              size="small"
-              style={styles.modalButton}
-            />
+            >
+              <Text style={styles.saveButtonText}>Save</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
 
-  if (isLoading && !refreshing) {
+  // Render notification settings
+  const renderNotificationSettings = () => {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading notifications...</Text>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        <View style={styles.headerRight}>
-          {notifications.length > 0 && (
-            <TouchableOpacity onPress={handleClearAll} style={styles.clearButton}>
-              <Ionicons name="trash-outline" size={22} color={colors.error} />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-      
-      {/* Notification Preferences */}
-      <View style={styles.preferencesContainer}>
-        <Text style={styles.sectionTitle}>Notification Settings</Text>
+      <Animated.View style={[
+        styles.settingsContainer,
+        {
+          maxHeight: settingsHeight.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, 1000]
+          }),
+          opacity: settingsHeight
+        }
+      ]}>
+        <Text style={styles.settingsTitle}>Notification Settings</Text>
         
-        <View style={styles.preferenceItem}>
-          <View style={styles.preferenceContent}>
-            <Text style={styles.preferenceTitle}>Enable Notifications</Text>
-            <Text style={styles.preferenceDescription}>
-              Receive alerts about your finances
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingTitle}>Enable Notifications</Text>
+            <Text style={styles.settingDescription}>
+              Turn on/off all notifications from Buzo
             </Text>
           </View>
           <Switch
             value={preferences.enabled}
             onValueChange={(value) => handleTogglePreference('enabled', value)}
             trackColor={{ false: colors.border, true: colors.primaryLight }}
-            thumbColor={preferences.enabled ? colors.primary : '#f4f3f4'}
+            thumbColor={preferences.enabled ? colors.primary : colors.text}
             ios_backgroundColor={colors.border}
           />
         </View>
         
-        {preferences.enabled && (
-          <>
-            <View style={styles.preferenceItem}>
-              <View style={styles.preferenceContent}>
-                <Text style={styles.preferenceTitle}>Budget Alerts</Text>
-                <Text style={styles.preferenceDescription}>
-                  Get notified when approaching budget limits
-                </Text>
-              </View>
-              <Switch
-                value={preferences.budgetAlerts}
-                onValueChange={(value) => handleTogglePreference('budgetAlerts', value)}
-                trackColor={{ false: colors.border, true: colors.primaryLight }}
-                thumbColor={preferences.budgetAlerts ? colors.primary : '#f4f3f4'}
-                ios_backgroundColor={colors.border}
-              />
+        <View style={styles.settingSeparator} />
+        
+        <Text style={styles.settingsSectionTitle}>Notification Types</Text>
+        
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingTitle}>Budget Alerts</Text>
+            <Text style={styles.settingDescription}>
+              Alerts when you're approaching your budget limits
+            </Text>
+          </View>
+          <Switch
+            value={preferences.budgetAlerts}
+            onValueChange={(value) => handleTogglePreference('budgetAlerts', value)}
+            trackColor={{ false: colors.border, true: colors.primaryLight }}
+            thumbColor={preferences.budgetAlerts ? colors.primary : colors.text}
+            ios_backgroundColor={colors.border}
+          />
+        </View>
+        
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingTitle}>Savings Milestones</Text>
+            <Text style={styles.settingDescription}>
+              Celebrate when you reach savings milestones
+            </Text>
+          </View>
+          <Switch
+            value={preferences.savingsMilestones}
+            onValueChange={(value) => handleTogglePreference('savingsMilestones', value)}
+            trackColor={{ false: colors.border, true: colors.primaryLight }}
+            thumbColor={preferences.savingsMilestones ? colors.primary : colors.text}
+            ios_backgroundColor={colors.border}
+          />
+        </View>
+        
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingTitle}>Expense Reminders</Text>
+            <Text style={styles.settingDescription}>
+              Reminders to record your regular expenses
+            </Text>
+          </View>
+          <Switch
+            value={preferences.expenseReminders}
+            onValueChange={(value) => handleTogglePreference('expenseReminders', value)}
+            trackColor={{ false: colors.border, true: colors.primaryLight }}
+            thumbColor={preferences.expenseReminders ? colors.primary : colors.text}
+            ios_backgroundColor={colors.border}
+          />
+        </View>
+        
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingTitle}>Financial Tips</Text>
+            <Text style={styles.settingDescription}>
+              Helpful financial tips and advice
+            </Text>
+          </View>
+          <Switch
+            value={preferences.financialTips}
+            onValueChange={(value) => handleTogglePreference('financialTips', value)}
+            trackColor={{ false: colors.border, true: colors.primaryLight }}
+            thumbColor={preferences.financialTips ? colors.primary : colors.text}
+            ios_backgroundColor={colors.border}
+          />
+        </View>
+        
+        <View style={styles.settingSeparator} />
+        
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingTitle}>Quiet Hours</Text>
+            <Text style={styles.settingDescription}>
+              Silence notifications during specified hours
+            </Text>
+          </View>
+          <Switch
+            value={preferences.quietHoursEnabled}
+            onValueChange={(value) => handleTogglePreference('quietHoursEnabled', value)}
+            trackColor={{ false: colors.border, true: colors.primaryLight }}
+            thumbColor={preferences.quietHoursEnabled ? colors.primary : colors.text}
+            ios_backgroundColor={colors.border}
+          />
+        </View>
+        
+        {preferences.quietHoursEnabled && (
+          <TouchableOpacity
+            style={styles.quietHoursButton}
+            onPress={() => {
+              triggerHaptic();
+              setShowQuietHoursModal(true);
+              
+              // Animate modal opening
+              modalScale.setValue(0.9);
+              modalOpacity.setValue(0);
+              
+              Animated.parallel([
+                Animated.timing(modalScale, {
+                  toValue: 1,
+                  duration: 300,
+                  useNativeDriver: true
+                }),
+                Animated.timing(modalOpacity, {
+                  toValue: 1,
+                  duration: 300,
+                  useNativeDriver: true
+                })
+              ]).start();
+            }}
+          >
+            <View style={styles.quietHoursButtonContent}>
+              <Ionicons name="time-outline" size={20} color={colors.primary} />
+              <Text style={styles.quietHoursButtonText}>
+                {preferences.quietHoursStart} - {preferences.quietHoursEnd}
+              </Text>
             </View>
-            
-            <View style={styles.preferenceItem}>
-              <View style={styles.preferenceContent}>
-                <Text style={styles.preferenceTitle}>Savings Milestones</Text>
-                <Text style={styles.preferenceDescription}>
-                  Celebrate when you reach savings goals
-                </Text>
-              </View>
-              <Switch
-                value={preferences.savingsMilestones}
-                onValueChange={(value) => handleTogglePreference('savingsMilestones', value)}
-                trackColor={{ false: colors.border, true: colors.primaryLight }}
-                thumbColor={preferences.savingsMilestones ? colors.primary : '#f4f3f4'}
-                ios_backgroundColor={colors.border}
-              />
-            </View>
-            
-            <View style={styles.preferenceItem}>
-              <View style={styles.preferenceContent}>
-                <Text style={styles.preferenceTitle}>Expense Reminders</Text>
-                <Text style={styles.preferenceDescription}>
-                  Reminders to log your expenses
-                </Text>
-              </View>
-              <Switch
-                value={preferences.expenseReminders}
-                onValueChange={(value) => handleTogglePreference('expenseReminders', value)}
-                trackColor={{ false: colors.border, true: colors.primaryLight }}
-                thumbColor={preferences.expenseReminders ? colors.primary : '#f4f3f4'}
-                ios_backgroundColor={colors.border}
-              />
-            </View>
-            
-            <View style={styles.preferenceItem}>
-              <View style={styles.preferenceContent}>
-                <Text style={styles.preferenceTitle}>Financial Tips</Text>
-                <Text style={styles.preferenceDescription}>
-                  Receive helpful financial advice
-                </Text>
-              </View>
-              <Switch
-                value={preferences.financialTips}
-                onValueChange={(value) => handleTogglePreference('financialTips', value)}
-                trackColor={{ false: colors.border, true: colors.primaryLight }}
-                thumbColor={preferences.financialTips ? colors.primary : '#f4f3f4'}
-                ios_backgroundColor={colors.border}
-              />
-            </View>
-            
-            <View style={styles.preferenceItem}>
-              <View style={styles.preferenceContent}>
-                <Text style={styles.preferenceTitle}>Quiet Hours</Text>
-                <Text style={styles.preferenceDescription}>
-                  {preferences.quietHoursEnabled
-                    ? `From ${preferences.quietHoursStart} to ${preferences.quietHoursEnd}`
-                    : 'Set hours when notifications are silenced'}
-                </Text>
-              </View>
-              <View style={styles.quietHoursControls}>
-                <Switch
-                  value={preferences.quietHoursEnabled}
-                  onValueChange={(value) => {
-                    if (value) {
-                      setShowQuietHoursModal(true);
-                    } else {
-                      handleTogglePreference('quietHoursEnabled', false);
-                    }
-                  }}
-                  trackColor={{ false: colors.border, true: colors.primaryLight }}
-                  thumbColor={preferences.quietHoursEnabled ? colors.primary : '#f4f3f4'}
-                  ios_backgroundColor={colors.border}
-                />
-                {preferences.quietHoursEnabled && (
-                  <TouchableOpacity
-                    style={styles.editButton}
-                    onPress={() => setShowQuietHoursModal(true)}
-                  >
-                    <Ionicons name="pencil-outline" size={18} color={colors.primary} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          </>
+            <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+          </TouchableOpacity>
         )}
         
-        {/* More settings button */}
+        <View style={styles.settingSeparator} />
+        
+        <View style={styles.actionButtonsContainer}>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={handleMarkAllAsRead}
+          >
+            <Ionicons name="checkmark-circle-outline" size={24} color={colors.primary} />
+            <Text style={styles.actionButtonText}>Mark All as Read</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.actionButton, styles.deleteButton]}
+            onPress={handleClearAll}
+          >
+            <Ionicons name="trash-outline" size={24} color={colors.error} />
+            <Text style={[styles.actionButtonText, styles.deleteButtonText]}>Clear All Notifications</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+    );
+  };
+  
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar style="auto" />
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading notifications...</Text>
+      </SafeAreaView>
+    );
+  }
+  
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar style="dark" />
+      
+      {/* Header */}
+      <View style={styles.header}>
         <TouchableOpacity 
-          style={styles.moreSettingsButton}
-          onPress={handleNavigateToSettings}
+          onPress={handleBackPress} 
+          style={styles.backButton}
+          accessibilityLabel="Go back"
+          accessibilityHint="Navigates to the previous screen"
         >
-          <Text style={styles.moreSettingsText}>More Settings</Text>
-          <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Notifications</Text>
+        <TouchableOpacity 
+          onPress={handleNavigateToSettings}
+          style={styles.settingsButton}
+          accessibilityLabel="Notification settings"
+          accessibilityHint="Opens notification settings panel"
+        >
+          <Ionicons 
+            name={showSettings ? "close" : "settings-outline"} 
+            size={24} 
+            color={colors.primary} 
+          />
         </TouchableOpacity>
       </View>
       
-      {/* Notification History */}
-      <View style={styles.historyContainer}>
-        <View style={styles.historyHeader}>
-          <Text style={styles.sectionTitle}>Notification History</Text>
-          <View style={styles.historyActions}>
-            {notifications.length > 0 && (
-              <TouchableOpacity onPress={handleMarkAllAsRead} style={styles.markAllButton}>
-                <Text style={styles.markAllText}>Mark all as read</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={handleSendTestNotifications} style={styles.testButton}>
-              <Text style={styles.testButtonText}>Test</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        
-        <FlatList
-          data={notifications}
-          renderItem={renderNotificationItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.notificationsList}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={renderEmptyState}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-        />
-      </View>
+      {/* Settings Panel */}
+      {renderNotificationSettings()}
+      
+      {/* Notifications List */}
+      <FlatList
+        data={notifications}
+        renderItem={renderNotificationItem}
+        keyExtractor={(item, index) => `notification-${item.id}-${index}`}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={renderEmptyState}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      />
       
       {/* Quiet Hours Modal */}
       {renderQuietHoursModal()}
@@ -620,139 +738,58 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   loadingText: {
-    fontSize: 16,
-    fontWeight: "normal",
-    lineHeight: 24,
-    color: colors.text,
     marginTop: spacing.md,
+    fontSize: 16,
+    color: colors.text,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-  },
-  backButton: {
-    padding: spacing.xs,
+    ...shadows.md,
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    lineHeight: 32,
+    fontSize: 20,
+    fontWeight: '700',
     color: colors.text,
   },
-  headerRight: {
-    width: 40,
-    alignItems: 'flex-end',
-  },
-  clearButton: {
-    padding: spacing.xs,
-  },
-  preferencesContainer: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600" as const,
-    lineHeight: 24,
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
-  preferenceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  preferenceContent: {
-    flex: 1,
-    marginRight: spacing.md,
-  },
-  preferenceTitle: {
-    fontSize: 16,
-    fontWeight: "500" as const,
-    lineHeight: 22,
-    color: colors.text,
-  },
-  preferenceDescription: {
-    fontSize: 14,
-    fontWeight: "normal",
-    lineHeight: 18,
-    color: colors.textSecondary,
-    marginTop: spacing.xs / 2,
-  },
-  quietHoursControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  editButton: {
-    marginLeft: spacing.sm,
-    padding: spacing.xs,
-  },
-  historyContainer: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  historyActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  markAllButton: {
-    padding: spacing.xs,
-    marginRight: spacing.sm,
-  },
-  markAllText: {
-    fontSize: 14,
-    fontWeight: "500" as const,
-    color: colors.primary,
-  },
-  testButton: {
-    backgroundColor: colors.primaryLight,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs / 2,
+  backButton: {
+    padding: 8,
     borderRadius: borderRadius.sm,
   },
-  testButtonText: {
-    fontSize: 12,
-    fontWeight: "500" as const,
-    color: colors.primary,
+  settingsButton: {
+    padding: 8,
+    borderRadius: borderRadius.sm,
   },
-  notificationsList: {
-    flexGrow: 1,
+  listContent: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
+    flexGrow: 1,
   },
   notificationItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: spacing.md,
-    marginBottom: spacing.sm,
     backgroundColor: colors.card,
     borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
+    padding: spacing.md,
     ...shadows.sm,
   },
-  notificationItemRead: {
-    opacity: 0.7,
+  unreadItem: {
+    backgroundColor: colors.white,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    ...shadows.md,
   },
-  notificationIcon: {
+  iconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: `${colors.primary}10`,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md,
@@ -762,23 +799,23 @@ const styles = StyleSheet.create({
   },
   notificationTitle: {
     fontSize: 16,
-    fontWeight: "600" as const,
-    lineHeight: 22,
+    fontWeight: '500',
+    color: colors.text,
+    marginBottom: spacing.xs / 2,
+  },
+  unreadText: {
+    fontWeight: '700',
     color: colors.text,
   },
   notificationBody: {
     fontSize: 14,
-    fontWeight: "normal",
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
     lineHeight: 20,
-    color: colors.text,
-    marginTop: spacing.xs / 2,
   },
   notificationTime: {
     fontSize: 12,
-    fontWeight: "normal",
-    lineHeight: 16,
     color: colors.textSecondary,
-    marginTop: spacing.xs,
   },
   unreadIndicator: {
     width: 10,
@@ -786,29 +823,119 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: colors.primary,
     marginLeft: spacing.sm,
-    marginTop: spacing.xs,
+    alignSelf: 'center',
   },
-  emptyState: {
+  emptyStateContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
   },
   emptyStateTitle: {
-    fontSize: 18,
-    fontWeight: "600" as const,
-    lineHeight: 24,
+    fontSize: 20,
+    fontWeight: '600',
     color: colors.text,
     marginTop: spacing.md,
     marginBottom: spacing.sm,
   },
   emptyStateText: {
-    fontSize: 14,
-    fontWeight: "normal",
-    lineHeight: 20,
+    fontSize: 16,
     color: colors.textSecondary,
     textAlign: 'center',
+    marginBottom: spacing.lg,
+  },
+  testButton: {
+    marginTop: spacing.md,
+  },
+  settingsContainer: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+    ...shadows.md,
+  },
+  settingsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  settingsSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  settingTextContainer: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.text,
+    marginBottom: 2,
+  },
+  settingDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  settingSeparator: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  quietHoursButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    padding: spacing.md,
+    borderRadius: borderRadius.sm,
+    marginTop: spacing.sm,
+  },
+  quietHoursButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quietHoursButtonText: {
+    fontSize: 14,
+    color: colors.text,
+    marginLeft: spacing.sm,
+  },
+  actionButtonsContainer: {
+    marginTop: spacing.sm,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    padding: spacing.md,
+    borderRadius: borderRadius.sm,
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  actionButtonText: {
+    fontSize: 14,
+    color: colors.primary,
+    marginLeft: spacing.sm,
+    fontWeight: '500',
+  },
+  deleteButton: {
+    borderColor: colors.error,
+  },
+  deleteButtonText: {
+    color: colors.error,
   },
   modalOverlay: {
     flex: 1,
@@ -816,80 +943,89 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalContent: {
-    width: '85%',
-    backgroundColor: colors.background,
-    borderRadius: borderRadius.lg,
+  modalContainer: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
     padding: spacing.lg,
+    width: '85%',
     ...shadows.lg,
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: "600" as const,
-    lineHeight: 28,
+    fontWeight: '700',
     color: colors.text,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
   },
-  modalDescription: {
+  modalSubtitle: {
     fontSize: 14,
-    fontWeight: "normal",
-    lineHeight: 20,
     color: colors.textSecondary,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+    textAlign: 'center',
   },
   timeInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
-  timeInputLabel: {
+  timeLabel: {
     fontSize: 16,
-    fontWeight: "500" as const,
-    lineHeight: 22,
+    fontWeight: '500',
     color: colors.text,
+    marginBottom: spacing.xs,
   },
-  timeInputs: {
+  timeInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   timeInput: {
-    width: 50,
-    height: 40,
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.sm,
+    padding: spacing.sm,
+    fontSize: 16,
+    color: colors.text,
+    width: 60,
+    textAlign: 'center',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: borderRadius.sm,
-    paddingHorizontal: spacing.sm,
-    fontSize: 16,
-    textAlign: 'center',
   },
-  timeInputSeparator: {
+  timeSeparator: {
     fontSize: 20,
-    fontWeight: "bold",
-    marginHorizontal: spacing.xs,
+    color: colors.text,
+    marginHorizontal: spacing.sm,
+    fontWeight: '700',
+  },
+  timeHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
   },
   modalButtons: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: spacing.lg,
+    justifyContent: 'space-between',
   },
   modalButton: {
-    marginLeft: spacing.sm,
-  },
-  moreSettingsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: spacing.lg,
+    flex: 1,
     padding: spacing.md,
-    backgroundColor: `${colors.primary}10`,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.sm,
+    alignItems: 'center',
   },
-  moreSettingsText: {
+  cancelButton: {
+    marginRight: spacing.sm,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cancelButtonText: {
+    color: colors.text,
     fontSize: 16,
     fontWeight: '500',
-    color: colors.primary,
-    marginRight: spacing.xs,
+  },
+  saveButton: {
+    backgroundColor: colors.primary,
+  },
+  saveButtonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
 
