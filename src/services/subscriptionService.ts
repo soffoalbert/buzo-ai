@@ -3,6 +3,7 @@ import { User, SubscriptionTier, SubscriptionInfo, SubscriptionTransaction } fro
 import { loadUserProfile, updateUserProfile } from './userService';
 import { generateUUID } from '../utils/helpers';
 import { Alert } from 'react-native';
+import { hasActiveSubscription, getSubscriptionExpiryDate } from './receiptValidationService';
 
 // Storage keys
 const SUBSCRIPTION_STORAGE_KEY = 'buzo_subscription_info';
@@ -58,6 +59,14 @@ export const getUserSubscription = async (): Promise<SubscriptionInfo | null> =>
  */
 export const hasPremiumAccess = async (): Promise<boolean> => {
   try {
+    // First, check server-side validations for active subscriptions
+    const hasServerValidatedSubscription = await hasActiveSubscription();
+    
+    if (hasServerValidatedSubscription) {
+      return true;
+    }
+    
+    // Fall back to local subscription info if server validation fails
     const subscription = await getUserSubscription();
     
     if (!subscription) {
@@ -113,11 +122,7 @@ export const updateSubscription = async (subscriptionInfo: SubscriptionInfo): Pr
 };
 
 /**
- * Process a subscription payment
- * @param amount The payment amount
- * @param currency The payment currency
- * @param paymentMethod The payment method
- * @param description The payment description
+ * Process a subscription payment - this is now an adapter to the app store payment system
  * @returns The transaction information if successful, null otherwise
  */
 export const processSubscriptionPayment = async (
@@ -126,56 +131,8 @@ export const processSubscriptionPayment = async (
   paymentMethod: string,
   description: string
 ): Promise<SubscriptionTransaction | null> => {
-  try {
-    // In a real app, this would integrate with a payment gateway
-    // For now, we'll simulate a successful payment
-    
-    const transaction: SubscriptionTransaction = {
-      id: generateUUID(),
-      date: new Date().toISOString(),
-      amount,
-      currency,
-      status: 'successful',
-      paymentMethod,
-      description
-    };
-    
-    // Get the current subscription
-    const subscription = await getUserSubscription();
-    
-    if (!subscription) {
-      return null;
-    }
-    
-    // Update the subscription with the new transaction
-    const updatedSubscription: SubscriptionInfo = {
-      ...subscription,
-      tier: SubscriptionTier.PREMIUM,
-      startDate: new Date().toISOString(),
-      // Set end date to 1 month from now
-      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      autoRenew: true,
-      paymentMethod,
-      lastPaymentDate: new Date().toISOString(),
-      nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      transactionHistory: [
-        ...(subscription.transactionHistory || []),
-        transaction
-      ]
-    };
-    
-    // Update the subscription
-    const success = await updateSubscription(updatedSubscription);
-    
-    if (!success) {
-      return null;
-    }
-    
-    return transaction;
-  } catch (error) {
-    console.error('Error processing subscription payment:', error);
-    return null;
-  }
+  console.warn('Direct subscription payments are deprecated. Use App Store or Google Play purchases instead.');
+  return null;
 };
 
 /**
@@ -511,6 +468,33 @@ export const showPremiumUpgradeModal = (
   );
 };
 
+/**
+ * Get the subscription expiration date
+ * @returns The subscription expiration date or null if not found
+ */
+export const getSubscriptionEndDate = async (): Promise<Date | null> => {
+  try {
+    // First, try to get expiration date from server validations
+    const serverExpiryDate = await getSubscriptionExpiryDate();
+    
+    if (serverExpiryDate) {
+      return serverExpiryDate;
+    }
+    
+    // Fall back to local subscription info
+    const subscription = await getUserSubscription();
+    
+    if (subscription && subscription.endDate) {
+      return new Date(subscription.endDate);
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting subscription end date:', error);
+    return null;
+  }
+};
+
 // Export additional functions
 export default {
   getUserSubscription,
@@ -525,4 +509,5 @@ export default {
   showPremiumUpgradeModal,
   PremiumFeature,
   FREE_PLAN_LIMITS,
+  getSubscriptionEndDate,
 }; 

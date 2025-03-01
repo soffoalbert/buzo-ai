@@ -88,57 +88,75 @@ const BankStatementUploader: React.FC<BankStatementUploaderProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Ionicons name="document-text" size={32} color={colors.primary} />
+        <View style={styles.iconWrapper}>
+          <Ionicons name="document-text" size={32} color={colors.primary} />
+        </View>
         <Text style={styles.title}>Bank Statement Upload</Text>
       </View>
 
       <Text style={styles.description}>
-        Upload your bank statement to help us provide personalized financial advice.
-        Our AI-powered system will securely analyze your transactions and provide
-        comprehensive financial insights.
+        Upload your bank statement to unlock personalized AI-powered financial insights. 
+        We'll analyze your transactions securely to help you make smarter money decisions.
       </Text>
 
       <View style={styles.comingSoonContainer}>
-        <View style={styles.iconContainer}>
-          <Ionicons name="time-outline" size={40} color={colors.primary} />
+        <View style={styles.featurePreview}>
+          <View style={styles.featureIcon}>
+            <Ionicons name="analytics-outline" size={24} color={colors.primary} />
+          </View>
+          <Text style={styles.featureText}>Smart Transaction Analysis</Text>
         </View>
-        <Text style={styles.comingSoonText}>Coming Soon!</Text>
-        <Text style={styles.comingSoonDescription}>
-          We're working hard to bring you advanced bank statement analysis with AI-powered insights, 
-          spending categorization, and personalized financial recommendations. Stay tuned for our next update!
-        </Text>
+
+        <View style={styles.featurePreview}>
+          <View style={styles.featureIcon}>
+            <Ionicons name="pie-chart-outline" size={24} color={colors.primary} />
+          </View>
+          <Text style={styles.featureText}>Spending Categories</Text>
+        </View>
+
+        <View style={styles.featurePreview}>
+          <View style={styles.featureIcon}>
+            <Ionicons name="bulb-outline" size={24} color={colors.primary} />
+          </View>
+          <Text style={styles.featureText}>Smart Recommendations</Text>
+        </View>
+
+        <View style={styles.comingSoonBadge}>
+          <Ionicons name="time-outline" size={20} color={colors.background} />
+          <Text style={styles.comingSoonText}>Coming Soon</Text>
+        </View>
       </View>
 
       <TouchableOpacity
         style={[styles.uploadButton, styles.disabledButton]}
         onPress={handleFilePick}
         disabled={true}
-        activeOpacity={0.8}
+        activeOpacity={0.7}
       >
         {isUploading ? (
           <View style={styles.uploadingContainer}>
-            <ActivityIndicator color={colors.background} />
-            <Text style={styles.uploadingText}>Processing...</Text>
+            <ActivityIndicator color={colors.background} size="small" />
+            <Text style={styles.uploadingText}>Processing your statement...</Text>
             <View style={styles.progressBarContainer}>
               <Animated.View 
-                style={[
-                  styles.progressBar,
-                  { width: progressBarWidth }
-                ]} 
+                style={[styles.progressBar, { width: progressBarWidth }]} 
               />
             </View>
           </View>
         ) : (
           <View style={styles.buttonContent}>
             <Ionicons name="cloud-upload-outline" size={24} color={colors.background} />
-            <Text style={styles.uploadButtonText}>Select PDF Bank Statement</Text>
+            <Text style={styles.uploadButtonText}>Select Bank Statement (PDF)</Text>
           </View>
         )}
       </TouchableOpacity>
 
-      <Text style={styles.securityNote}>
-        🔒 Your data is encrypted and securely processed
-      </Text>
+      <View style={styles.securityContainer}>
+        <Ionicons name="shield-checkmark" size={16} color={colors.secondary} />
+        <Text style={styles.securityNote}>
+          Bank-grade encryption & secure processing
+        </Text>
+      </View>
     </View>
   );
 };
@@ -147,41 +165,83 @@ const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
-    padding: spacing.md,
+    padding: spacing.lg,
     backgroundColor: colors.background,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     marginVertical: spacing.md,
-    elevation: 2,
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 6,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  iconWrapper: {
+    backgroundColor: colors.primaryLight,
+    padding: spacing.sm,
+    borderRadius: borderRadius.round,
   },
   title: {
     ...textStyles.h2,
     marginLeft: spacing.sm,
+    color: colors.text,
   },
   description: {
     ...textStyles.body1,
     color: colors.secondary,
+    marginBottom: spacing.lg,
+    lineHeight: 24,
+  },
+  comingSoonContainer: {
+    padding: spacing.lg,
+    backgroundColor: colors.primaryLight,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.lg,
+  },
+  featurePreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: spacing.md,
-    lineHeight: 22,
+  },
+  featureIcon: {
+    backgroundColor: colors.background,
+    padding: spacing.sm,
+    borderRadius: borderRadius.round,
+    marginRight: spacing.sm,
+  },
+  featureText: {
+    ...textStyles.body1,
+    color: colors.primary,
+    fontWeight: '500',
+  },
+  comingSoonBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.round,
+    marginTop: spacing.sm,
+  },
+  comingSoonText: {
+    ...textStyles.button,
+    color: colors.background,
+    marginLeft: spacing.xs,
   },
   uploadButton: {
     backgroundColor: colors.primary,
     padding: spacing.md,
-    borderRadius: borderRadius.sm,
-    marginTop: spacing.sm,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+    borderRadius: borderRadius.md,
+    elevation: 2,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
     minHeight: 56,
   },
   disabledButton: {
@@ -197,30 +257,6 @@ const styles = StyleSheet.create({
     color: colors.background,
     marginLeft: spacing.sm,
   },
-  comingSoonContainer: {
-    alignItems: 'center',
-    padding: spacing.lg,
-    backgroundColor: colors.primaryLight,
-    borderRadius: borderRadius.md,
-    marginBottom: spacing.md,
-  },
-  iconContainer: {
-    backgroundColor: colors.background,
-    padding: spacing.md,
-    borderRadius: borderRadius.round,
-    marginBottom: spacing.sm,
-  },
-  comingSoonText: {
-    ...textStyles.h3,
-    color: colors.primary,
-    marginVertical: spacing.sm,
-  },
-  comingSoonDescription: {
-    ...textStyles.body1,
-    color: colors.primary,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
   uploadingContainer: {
     alignItems: 'center',
   },
@@ -232,8 +268,8 @@ const styles = StyleSheet.create({
   progressBarContainer: {
     width: width - 80,
     height: 4,
-    backgroundColor: colors.background,
-    borderRadius: 2,
+    backgroundColor: `${colors.background}40`,
+    borderRadius: borderRadius.round,
     marginTop: spacing.sm,
     overflow: 'hidden',
   },
@@ -241,11 +277,16 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: colors.accent,
   },
+  securityContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.md,
+  },
   securityNote: {
     ...textStyles.caption,
     color: colors.secondary,
-    textAlign: 'center',
-    marginTop: spacing.sm,
+    marginLeft: spacing.xs,
   },
 });
 

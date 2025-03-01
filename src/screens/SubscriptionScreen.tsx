@@ -20,6 +20,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation';
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import * as Haptics from 'expo-haptics';
@@ -28,14 +29,29 @@ import PremiumBanner from '../components/PremiumBanner';
 import { 
   getUserSubscription, 
   hasPremiumAccess, 
-  processSubscriptionPayment,
   cancelPremiumSubscription,
   getPremiumFeatures,
   FREE_PLAN_LIMITS
 } from '../services/subscriptionService';
+import { 
+  initializeIAP, 
+  getSubscriptionProducts, 
+  requestSubscription, 
+  restorePurchases,
+  openStoreForSubscriptionManagement,
+  SubscriptionProduct
+} from '../services/appStorePaymentService';
 import { SubscriptionInfo, SubscriptionTier } from '../models/User';
+import { getProducts, purchaseSubscription } from '../services/appStorePaymentService';
+import { getUserPurchaseValidations, PurchaseValidation } from '../services/receiptValidationService';
+import { formatDate } from '../utils/dateUtils';
 
 type SubscriptionScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+interface SubscriptionScreenProps {
+  navigation: SubscriptionScreenNavigationProp;
+  route: RouteProp<RootStackParamList, 'Subscription'>;
+}
 
 const { width, height } = Dimensions.get('window');
 
@@ -43,13 +59,15 @@ const MONTHLY_PRICE = 49.99;
 const ANNUAL_PRICE = 499.99;
 const CURRENCY = 'R';
 
-const SubscriptionScreen: React.FC = () => {
-  const navigation = useNavigation<SubscriptionScreenNavigationProp>();
+const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [isPremium, setIsPremium] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('monthly');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [subscriptionProducts, setSubscriptionProducts] = useState<SubscriptionProduct[]>([]);
+  const [expiryDate, setExpiryDate] = useState<Date | null>(null);
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseValidation[]>([]);
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -97,6 +115,17 @@ const SubscriptionScreen: React.FC = () => {
     ]).start();
   }, []);
 
+  // Initialize IAP when component mounts
+  useEffect(() => {
+    const setupIAP = async () => {
+      await initializeIAP();
+      const products = await getSubscriptionProducts();
+      setSubscriptionProducts(products);
+    };
+    
+    setupIAP();
+  }, []);
+
   // Enhanced haptic feedback
   const triggerHaptic = () => {
     if (Platform.OS === 'ios') {
@@ -115,6 +144,16 @@ const SubscriptionScreen: React.FC = () => {
       
       setSubscription(subscriptionData);
       setIsPremium(premiumStatus);
+      
+      // Get subscription end date
+      const endDate = await getSubscriptionEndDate();
+      if (endDate) {
+        setExpiryDate(endDate);
+      }
+      
+      // Get purchase history from server validations
+      const validations = await getUserPurchaseValidations();
+      setPurchaseHistory(validations);
     } catch (error) {
       console.error('Error fetching subscription data:', error);
       Alert.alert('Error', 'Failed to load subscription information. Please try again.');
@@ -134,10 +173,26 @@ const SubscriptionScreen: React.FC = () => {
   const handleSubscribe = async () => {
     triggerHaptic();
     
+    // Get the product ID based on selected plan
+    const productId = selectedPlan === 'monthly' 
+      ? subscriptionProducts.find(p => p.period === 'month')?.productId
+      : subscriptionProducts.find(p => p.period === 'year')?.productId;
+    
+    if (!productId) {
+      Alert.alert('Error', 'Selected subscription plan not available. Please try again.');
+      return;
+    }
+    
     // Show confirmation dialog
+    const selectedProduct = subscriptionProducts.find(p => p.productId === productId);
+    if (!selectedProduct) {
+      Alert.alert('Error', 'Product information not available. Please try again.');
+      return;
+    }
+    
     Alert.alert(
       'Confirm Subscription',
-      `You are about to subscribe to Buzo Premium for ${CURRENCY}${selectedPlan === 'monthly' ? MONTHLY_PRICE : ANNUAL_PRICE}/${selectedPlan === 'monthly' ? 'month' : 'year'}. Continue?`,
+      `You are about to subscribe to Buzo Premium for ${selectedProduct.priceString}/${selectedProduct.period === 'month' ? 'month' : 'year'}. Continue?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { 
@@ -145,43 +200,33 @@ const SubscriptionScreen: React.FC = () => {
           onPress: async () => {
             setIsProcessing(true);
             try {
-              // In a real app, this would open a payment gateway
-              // For now, we'll simulate a successful payment
-              const amount = selectedPlan === 'monthly' ? MONTHLY_PRICE : ANNUAL_PRICE;
-              const description = `Buzo Premium - ${selectedPlan === 'monthly' ? 'Monthly' : 'Annual'} Subscription`;
+              // Request the subscription through the app store
+              const success = await requestSubscription(productId);
               
-              const transaction = await processSubscriptionPayment(
-                amount,
-                'ZAR',
-                'credit_card', // This would come from the payment gateway
-                description
-              );
-              
-              if (transaction) {
-                Alert.alert(
-                  'Subscription Successful',
-                  'Thank you for subscribing to Buzo Premium! You now have access to all premium features.',
-                  [{ text: 'OK' }]
-                );
-                
-                // Refresh subscription data
-                await fetchSubscriptionData();
+              if (success) {
+                // The subscription process is handled by the purchaseUpdatedListener in the appStorePaymentService
+                // We'll refresh the subscription data after a short delay to reflect changes
+                setTimeout(async () => {
+                  await fetchSubscriptionData();
+                  setIsProcessing(false);
+                },
+                2000);
               } else {
+                setIsProcessing(false);
                 Alert.alert(
-                  'Subscription Failed',
-                  'There was an error processing your subscription. Please try again.',
+                  'Subscription Interrupted',
+                  'The subscription process was interrupted. Please try again.',
                   [{ text: 'OK' }]
                 );
               }
             } catch (error) {
-              console.error('Error processing subscription:', error);
+              console.error('Error initiating subscription:', error);
+              setIsProcessing(false);
               Alert.alert(
                 'Subscription Error',
                 'There was an error processing your subscription. Please try again.',
                 [{ text: 'OK' }]
               );
-            } finally {
-              setIsProcessing(false);
             }
           }
         }
@@ -195,47 +240,67 @@ const SubscriptionScreen: React.FC = () => {
     
     Alert.alert(
       'Cancel Subscription',
-      'Are you sure you want to cancel your premium subscription? You will still have access until the end of your current billing period.',
+      'Subscriptions must be canceled through the App Store or Google Play Store.',
       [
-        { text: 'No', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         { 
-          text: 'Yes, Cancel', 
-          style: 'destructive',
-          onPress: async () => {
-            setIsProcessing(true);
-            try {
-              const success = await cancelPremiumSubscription();
-              
-              if (success) {
-                Alert.alert(
-                  'Subscription Cancelled',
-                  'Your subscription has been cancelled. You will still have access to premium features until the end of your current billing period.',
-                  [{ text: 'OK' }]
-                );
-                
-                // Refresh subscription data
-                await fetchSubscriptionData();
-              } else {
-                Alert.alert(
-                  'Cancellation Failed',
-                  'There was an error cancelling your subscription. Please try again.',
-                  [{ text: 'OK' }]
-                );
-              }
-            } catch (error) {
-              console.error('Error cancelling subscription:', error);
-              Alert.alert(
-                'Cancellation Error',
-                'There was an error cancelling your subscription. Please try again.',
-                [{ text: 'OK' }]
-              );
-            } finally {
-              setIsProcessing(false);
-            }
+          text: 'Go to Subscription Settings', 
+          onPress: () => {
+            openStoreForSubscriptionManagement();
           }
         }
       ]
     );
+  };
+
+  // Handle restore purchases
+  const handleRestorePurchases = async () => {
+    triggerHaptic();
+    setIsProcessing(true);
+    
+    try {
+      const restored = await restorePurchases();
+      
+      if (restored) {
+        Alert.alert(
+          'Purchases Restored',
+          'Your premium subscription has been restored.',
+          [{ text: 'OK' }]
+        );
+        
+        // Refresh premium status
+        const premium = await hasPremiumAccess();
+        setIsPremium(premium);
+        
+        // Refresh expiry date
+        const endDate = await getSubscriptionEndDate();
+        if (endDate) {
+          setExpiryDate(endDate);
+        }
+        
+        // Refresh purchase history
+        const validations = await getUserPurchaseValidations();
+        setPurchaseHistory(validations);
+      } else {
+        Alert.alert(
+          'No Purchases Found',
+          'We couldn\'t find any previous purchases to restore.',
+          [{ text: 'OK' }]
+        );
+      }
+      
+      // Refresh subscription data
+      await fetchSubscriptionData();
+    } catch (error) {
+      console.error('Error restoring purchases:', error);
+      Alert.alert(
+        'Restore Failed',
+        'There was an error restoring your purchases. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsProcessing(false);
+    }
   };
   
   // Render premium features
@@ -408,12 +473,15 @@ const SubscriptionScreen: React.FC = () => {
   
   // Render subscription plans
   const renderSubscriptionPlans = () => {
+    // Use actual subscription products from the store if available
+    const monthlyProduct = subscriptionProducts.find(p => p.period === 'month');
+    const annualProduct = subscriptionProducts.find(p => p.period === 'year');
+    
     return (
-      <View style={styles.plansContainer}>
-        <Text style={styles.sectionTitle}>Choose Your Plan</Text>
+      <View style={styles.subscriptionPlansContainer}>
+        <Text style={styles.subscriptionPlansTitle}>Choose Your Plan</Text>
         
-        <View style={styles.planOptions}>
-          {/* Monthly Plan */}
+        <View style={styles.planCardsContainer}>
           <Animated.View style={{
             flex: 1,
             opacity: animatedCardValues[0],
@@ -445,17 +513,16 @@ const SubscriptionScreen: React.FC = () => {
               </View>
               
               <Text style={styles.planPrice}>
-                {CURRENCY}{MONTHLY_PRICE}
+                {monthlyProduct?.priceString || `R${MONTHLY_PRICE}`}
                 <Text style={styles.planPeriod}>/month</Text>
               </Text>
               
               <Text style={styles.planDescription}>
-                Flexible monthly billing with no long-term commitment
+                Access all premium features
               </Text>
             </TouchableOpacity>
           </Animated.View>
           
-          {/* Annual Plan */}
           <Animated.View style={{
             flex: 1,
             opacity: animatedCardValues[1],
@@ -487,7 +554,7 @@ const SubscriptionScreen: React.FC = () => {
               </View>
               
               <Text style={styles.planPrice}>
-                {CURRENCY}{ANNUAL_PRICE}
+                {annualProduct?.priceString || `R${ANNUAL_PRICE}`}
                 <Text style={styles.planPeriod}>/year</Text>
               </Text>
               
@@ -513,6 +580,16 @@ const SubscriptionScreen: React.FC = () => {
         >
           <Text style={styles.subscribeButtonText}>
             {isProcessing ? 'Processing...' : 'Subscribe Now'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.restoreButton}
+          onPress={handleRestorePurchases}
+          disabled={isProcessing}
+        >
+          <Text style={styles.restoreButtonText}>
+            Restore Purchases
           </Text>
         </TouchableOpacity>
       </View>
@@ -673,11 +750,40 @@ const SubscriptionScreen: React.FC = () => {
           </Animated.View>
         )}
 
+        {/* Purchase History */}
+        {purchaseHistory.length > 0 && (
+          <View style={styles.historyContainer}>
+            <Text style={styles.historyTitle}>Purchase History</Text>
+            {purchaseHistory.map((purchase) => (
+              <View key={purchase.id} style={styles.historyItem}>
+                <Text style={styles.historyProduct}>{purchase.product_id}</Text>
+                <Text style={styles.historyDate}>
+                  Purchased: {formatDate(new Date(purchase.purchase_date))}
+                </Text>
+                <Text 
+                  style={[
+                    styles.historyStatus, 
+                    purchase.is_valid ? styles.validStatus : styles.invalidStatus
+                  ]}
+                >
+                  {purchase.is_valid ? 'Valid' : 'Expired'}
+                </Text>
+                {purchase.expiration_date && (
+                  <Text style={styles.historyExpiry}>
+                    Expires: {formatDate(new Date(purchase.expiration_date))}
+                  </Text>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Disclaimer */}
         <Text style={styles.disclaimer}>
           By subscribing, you agree to our Terms of Service and Privacy Policy. 
           Your subscription will automatically renew unless auto-renew is turned off 
-          at least 24 hours before the end of the current period.
+          at least 24 hours before the end of the current period. You can manage your
+          subscriptions in your App Store or Google Play Store account settings.
         </Text>
       </ScrollView>
       
@@ -961,11 +1067,18 @@ const styles = StyleSheet.create({
   notAvailableText: {
     color: colors.textSecondary,
   },
-  plansContainer: {
+  subscriptionPlansContainer: {
     marginHorizontal: spacing.md,
     marginVertical: spacing.md,
   },
-  planOptions: {
+  subscriptionPlansTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  planCardsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: spacing.md,
@@ -1052,6 +1165,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  restoreButton: {
+    backgroundColor: 'transparent',
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.sm,
+  },
+  restoreButtonText: {
+    fontSize: 14,
+    color: colors.primary,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
   disclaimer: {
     fontSize: 12,
     color: colors.textSecondary,
@@ -1085,6 +1212,51 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginTop: spacing.md,
     fontWeight: '500',
+  },
+  historyContainer: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    margin: spacing.md,
+    padding: spacing.md,
+    ...shadows.md,
+  },
+  historyTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  historyItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  historyProduct: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  historyDate: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  historyStatus: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginVertical: spacing.xs,
+  },
+  validStatus: {
+    color: colors.success,
+  },
+  invalidStatus: {
+    color: colors.error,
+  },
+  historyExpiry: {
+    fontSize: 14,
+    color: colors.textSecondary,
   },
 });
 

@@ -1,7 +1,7 @@
 // Import polyfills first
 import './src/utils/polyfills';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView, View, StyleSheet, Platform } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +19,7 @@ import { ThemeProvider } from './src/hooks/useTheme';
 // Import test user initialization
 import initTestUser from './src/scripts/initTestUser';
 // Import database setup function
+import { initializeIAP, endIAPConnection } from './src/services/appStorePaymentService';
 
 const AppContent = () => {
   const insets = useSafeAreaInsets();
@@ -36,16 +37,21 @@ const AppContent = () => {
 };
 
 export default function App() {
+  const [appIsReady, setAppIsReady] = useState(false);
+  
   // Keep references to notification subscriptions for cleanup
   const notificationReceivedListener = useRef<Notifications.Subscription>();
   const notificationResponseListener = useRef<Notifications.Subscription>();
   const syncServiceCleanup = useRef<(() => void) | null>(null);
   const networkListenerCleanup = useRef<(() => void) | null>(null);
 
+  // Initialize app
   useEffect(() => {
-    // Initialize app services
-    const initializeApp = async () => {
+    async function prepare() {
       try {
+        // Initialize IAP
+        await initializeIAP();
+        
         // Initialize test user for development
         await initTestUser();
         
@@ -81,12 +87,23 @@ export default function App() {
             networkListenerCleanup.current();
           }
         };
-      } catch (error) {
-        console.error('Error during app initialization:', error);
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        setAppIsReady(true);
       }
-    };
+    }
+
+    prepare();
     
-    // Initialize notifications
+    // Clean up IAP connection when app is closed
+    return () => {
+      endIAPConnection();
+    };
+  }, []);
+
+  // Initialize notifications
+  useEffect(() => {
     const initializeNotifications = async () => {
       try {
         // Register for push notifications
@@ -109,8 +126,7 @@ export default function App() {
       }
     };
 
-    // Start the initialization process
-    const cleanup = initializeApp();
+    initializeNotifications();
     
     // Return a cleanup function for when the component unmounts
     return () => {
@@ -121,15 +137,6 @@ export default function App() {
       
       if (notificationResponseListener.current) {
         Notifications.removeNotificationSubscription(notificationResponseListener.current);
-      }
-      
-      // Execute the cleanup function returned by initializeApp if it exists
-      if (cleanup && typeof cleanup.then === 'function') {
-        cleanup.then(cleanupFn => {
-          if (cleanupFn && typeof cleanupFn === 'function') {
-            cleanupFn();
-          }
-        });
       }
     };
   }, []);
