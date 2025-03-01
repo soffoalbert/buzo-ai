@@ -22,7 +22,7 @@ import { loadSavingsGoals, getSavingsStatistics, deleteSavingsGoal } from '../se
 import { SavingsGoal, SAVINGS_TIPS } from '../models/SavingsGoal';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
+ 
 const SavingsScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('goals');
@@ -214,7 +214,7 @@ const SavingsScreen: React.FC = () => {
           style={styles.headerButton}
           onPress={handleAddSavingsGoal}
         >
-          <Ionicons name="add-circle" size={24} color={colors.primary} />
+          <Ionicons name="add-circle" size={40} color={colors.primary} />
         </TouchableOpacity>
       </View>
       

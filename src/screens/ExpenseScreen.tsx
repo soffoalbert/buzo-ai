@@ -688,6 +688,7 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: spacing.lg,
+    marginBottom: spacing.xxl,
   },
   modalOverlay: {
     position: 'absolute',

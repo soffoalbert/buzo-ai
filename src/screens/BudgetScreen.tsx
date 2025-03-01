@@ -158,7 +158,7 @@ const BudgetScreen: React.FC = () => {
           style={styles.headerButton}
           onPress={navigateToAddBudget}
         >
-          <Ionicons name="add-circle" size={24} color={colors.primary} />
+          <Ionicons name="add-circle" size={40} color={colors.primary} />
         </TouchableOpacity>
       </View>
       
@@ -247,14 +247,7 @@ const BudgetScreen: React.FC = () => {
           <Text style={styles.emptyStateText}>Transaction history coming soon</Text>
         </View>
       )}
-      
-      {/* Add Budget Button */}
-      <TouchableOpacity 
-        style={styles.floatingButton}
-        onPress={navigateToAddBudget}
-      >
-        <Ionicons name="add" size={24} color={colors.white} />
-      </TouchableOpacity>
+    
     </SafeAreaView>
   );
 };
