@@ -397,6 +397,40 @@ const ExpenseAnalyticsScreen: React.FC = () => {
     );
   };
 
+  // Render empty state for charts
+  const renderEmptyState = (title: string, message: string, iconName: keyof typeof Ionicons.glyphMap) => {
+    return (
+      <View style={styles.emptyStateContainer}>
+        <View style={styles.emptyStateIconContainer}>
+          <Ionicons name={iconName} size={40} color={colors.primary + '80'} />
+        </View>
+        <Text style={styles.emptyStateTitle}>{title}</Text>
+        <Text style={styles.emptyStateMessage}>{message}</Text>
+      </View>
+    );
+  };
+
+  // Check if category data is empty
+  const isCategoryDataEmpty = () => {
+    return !statistics || 
+           !statistics.categoryBreakdown || 
+           Object.keys(statistics.categoryBreakdown).length === 0;
+  };
+
+  // Check if monthly data is empty
+  const isMonthlyDataEmpty = () => {
+    return !statistics || 
+           !statistics.monthlyComparison || 
+           statistics.monthlyComparison.length === 0;
+  };
+
+  // Check if daily data is empty
+  const isDailyDataEmpty = () => {
+    return !statistics || 
+           !statistics.dailyExpenses || 
+           statistics.dailyExpenses.length === 0;
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="dark" />
@@ -522,84 +556,113 @@ const ExpenseAnalyticsScreen: React.FC = () => {
             {/* Category Breakdown */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Spending by Category</Text>
-              <View style={[styles.chartContainer, { backgroundColor: 'transparent' }]}>
-                <Chart
-                  type="pie"
-                  data={prepareCategoryData()}
-                  width={Dimensions.get('window').width - 64}
-                  height={220}
-                  showLegend={true}
-                  backgroundColor="transparent"
-                  containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
-                />
-              </View>
               
-              {/* Top Categories */}
-              <View style={styles.topCategoriesContainer}>
-                <Text style={styles.sectionSubtitle}>Top Categories</Text>
-                {statistics && statistics.categoryBreakdown && Object.entries(statistics.categoryBreakdown)
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 3)
-                  .map(([category, amount], index) => (
-                    <View key={category} style={styles.categoryRow}>
-                      <View style={styles.categoryInfo}>
-                        <View 
-                          style={[
-                            styles.categoryDot, 
-                            { backgroundColor: getCategoryColor(category) }
-                          ]} 
-                        />
-                        <Text style={styles.categoryName}>{getCategoryName(category)}</Text>
-                      </View>
-                      <Text style={styles.categoryAmount}>
-                        {formatCurrency(amount, 'en-ZA', 'ZAR')}
-                      </Text>
-                    </View>
-                  ))
-                }
-              </View>
+              {isCategoryDataEmpty() ? (
+                renderEmptyState(
+                  "No Category Data Yet",
+                  "Start adding expenses to see your spending breakdown by category. This will help you track where your money goes.",
+                  "pie-chart-outline"
+                )
+              ) : (
+                <>
+                  <View style={[styles.chartContainer, { backgroundColor: 'transparent' }]}>
+                    <Chart
+                      type="pie"
+                      data={prepareCategoryData()}
+                      width={Dimensions.get('window').width - 64}
+                      height={220}
+                      showLegend={true}
+                      backgroundColor="transparent"
+                      containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
+                    />
+                  </View>
+                  
+                  {/* Top Categories */}
+                  <View style={styles.topCategoriesContainer}>
+                    <Text style={styles.sectionSubtitle}>Top Categories</Text>
+                    {statistics && statistics.categoryBreakdown && Object.entries(statistics.categoryBreakdown)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 3)
+                      .map(([category, amount], index) => (
+                        <View key={category} style={styles.categoryRow}>
+                          <View style={styles.categoryInfo}>
+                            <View 
+                              style={[
+                                styles.categoryDot, 
+                                { backgroundColor: getCategoryColor(category) }
+                              ]} 
+                            />
+                            <Text style={styles.categoryName}>{getCategoryName(category)}</Text>
+                          </View>
+                          <Text style={styles.categoryAmount}>
+                            {formatCurrency(amount, 'en-ZA', 'ZAR')}
+                          </Text>
+                        </View>
+                      ))
+                    }
+                  </View>
+                </>
+              )}
             </View>
             
             {/* Monthly Spending Trends */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Monthly Spending Trends</Text>
-              <View style={styles.chartContainer}>
-                <Chart
-                  type="bar"
-                  data={prepareMonthlyData()}
-                  width={Dimensions.get('window').width - 64}
-                  height={220}
-                  yAxisSuffix="R"
-                  showGrid={true}
-                  showValues={false}
-                  containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
-                  backgroundColor="#ffffff"
-                  backgroundGradientFrom="#ffffff"
-                  backgroundGradientTo="#ffffff"
-                  decimalPlaces={0}
-                />
-              </View>
+              
+              {isMonthlyDataEmpty() ? (
+                renderEmptyState(
+                  "No Monthly Data Available",
+                  "Add expenses over multiple months to see your spending trends over time. This helps identify patterns in your financial habits.",
+                  "bar-chart-outline"
+                )
+              ) : (
+                <View style={styles.chartContainer}>
+                  <Chart
+                    type="bar"
+                    data={prepareMonthlyData()}
+                    width={Dimensions.get('window').width - 64}
+                    height={220}
+                    yAxisSuffix="R"
+                    showGrid={true}
+                    showValues={false}
+                    containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
+                    backgroundColor="#ffffff"
+                    backgroundGradientFrom="#ffffff"
+                    backgroundGradientTo="#ffffff"
+                    decimalPlaces={0}
+                  />
+                </View>
+              )}
             </View>
             
             {/* Daily Spending (Last 7 Days) */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Daily Spending (Last 7 Days)</Text>
-              <View style={styles.chartContainer}>
-                <Chart
-                  type="line"
-                  data={prepareDailyData()}
-                  width={Dimensions.get('window').width - 64}
-                  height={220}
-                  yAxisSuffix="R"
-                  showGrid={true}
-                  showValues={true}
-                  containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
-                  backgroundColor="#ffffff"
-                  backgroundGradientFrom="#ffffff"
-                  backgroundGradientTo="#ffffff"
-                  decimalPlaces={0}
-                />
-              </View>
+              
+              {isDailyDataEmpty() ? (
+                renderEmptyState(
+                  "No Daily Data Yet",
+                  "Track your daily expenses to visualize your spending patterns throughout the week. This helps you understand your day-to-day habits.",
+                  "calendar-outline"
+                )
+              ) : (
+                <View style={styles.chartContainer}>
+                  <Chart
+                    type="line"
+                    data={prepareDailyData()}
+                    width={Dimensions.get('window').width - 64}
+                    height={220}
+                    yAxisSuffix="R"
+                    showGrid={true}
+                    showValues={true}
+                    containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
+                    backgroundColor="#ffffff"
+                    backgroundGradientFrom="#ffffff"
+                    backgroundGradientTo="#ffffff"
+                    decimalPlaces={0}
+                  />
+                </View>
+              )}
             </View>
             
             {/* Spending Anomalies - Only for Premium */}
@@ -1150,6 +1213,48 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     marginBottom: spacing.md,
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+    minHeight: 220,
+    backgroundColor: colors.background + '30',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border + '40',
+    borderStyle: 'dashed',
+    margin: spacing.xs,
+  },
+  emptyStateIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.primary + '20',
+  },
+  emptyStateTitle: {
+    fontSize: textStyles.subtitle1.fontSize,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  emptyStateMessage: {
+    fontSize: textStyles.body2.fontSize,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: spacing.md,
   },
 });
 
