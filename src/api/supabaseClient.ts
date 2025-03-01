@@ -331,60 +331,6 @@ export const ensureDatabaseTables = async (): Promise<{ success: boolean; error?
       console.log('The app will use local storage for bank statements.');
     }
     
-    // Check Vault availability
-    const vaultAvailable = await checkVaultAvailability();
-    if (!vaultAvailable) {
-      console.warn('Supabase Vault is not available or properly configured.');
-      console.log('The app will use database and local storage for sensitive information.');
-      
-      // Add guidance for setting up Vault
-      console.log('');
-      console.log('=== VAULT SETUP GUIDANCE ===');
-      console.log('To use Supabase Vault for secure storage of sensitive information like API keys,');
-      console.log('an administrator should enable the Vault extension and set up the necessary policies:');
-      console.log('');
-      console.log('-- Enable the Vault extension');
-      console.log('CREATE EXTENSION IF NOT EXISTS vault;');
-      console.log('');
-      console.log('-- Create policies for Vault access');
-      console.log('CREATE POLICY "Users can access their own secrets" ON vault.secrets');
-      console.log('  USING (auth.uid() = user_id);');
-      console.log('');
-      console.log('-- Create RPC functions for Vault operations');
-      console.log('CREATE OR REPLACE FUNCTION set_secret(name text, value text)');
-      console.log('RETURNS void AS $$');
-      console.log('BEGIN');
-      console.log('  INSERT INTO vault.secrets (name, secret, user_id)');
-      console.log('  VALUES (name, value, auth.uid())');
-      console.log('  ON CONFLICT (name, user_id) DO UPDATE SET secret = value;');
-      console.log('END;');
-      console.log('$$ LANGUAGE plpgsql SECURITY DEFINER;');
-      console.log('');
-      console.log('CREATE OR REPLACE FUNCTION get_secret(name text)');
-      console.log('RETURNS text AS $$');
-      console.log('DECLARE');
-      console.log('  secret text;');
-      console.log('BEGIN');
-      console.log('  SELECT s.secret INTO secret');
-      console.log('  FROM vault.secrets s');
-      console.log('  WHERE s.name = name AND s.user_id = auth.uid();');
-      console.log('  RETURN secret;');
-      console.log('END;');
-      console.log('$$ LANGUAGE plpgsql SECURITY DEFINER;');
-      console.log('');
-      console.log('CREATE OR REPLACE FUNCTION delete_secret(name text)');
-      console.log('RETURNS void AS $$');
-      console.log('BEGIN');
-      console.log('  DELETE FROM vault.secrets');
-      console.log('  WHERE name = name AND user_id = auth.uid();');
-      console.log('END;');
-      console.log('$$ LANGUAGE plpgsql SECURITY DEFINER;');
-      console.log('=== END VAULT SETUP GUIDANCE ===');
-      console.log('');
-    } else {
-      console.log('Supabase Vault is available and properly configured.');
-    }
-    
     // Ensure feedback tables
     const feedbackResult = await ensureFeedbackTables();
     if (!feedbackResult.success) {
@@ -720,37 +666,3 @@ export const deleteVaultSecret = async (name: string): Promise<{ success: boolea
   }
 };
 
-/**
- * Check if the Vault is available and properly configured
- * @returns Whether the Vault is available
- */
-export const checkVaultAvailability = async (): Promise<boolean> => {
-  try {
-    // Try to set and get a test secret
-    const testSecretName = 'vault_test_secret';
-    const testSecretValue = 'test_value_' + Date.now();
-    
-    // Try to set the test secret
-    const { success: setSuccess } = await setVaultSecret(testSecretName, testSecretValue);
-    if (!setSuccess) {
-      console.warn('Vault is not available: Failed to set test secret');
-      return false;
-    }
-    
-    // Try to get the test secret
-    const { value } = await getVaultSecret(testSecretName);
-    if (value !== testSecretValue) {
-      console.warn('Vault is not available: Test secret value mismatch');
-      return false;
-    }
-    
-    // Clean up the test secret
-    await deleteVaultSecret(testSecretName);
-    
-    console.log('Supabase Vault is available and working correctly');
-    return true;
-  } catch (error) {
-    console.error('Error checking Vault availability:', error);
-    return false;
-  }
-};

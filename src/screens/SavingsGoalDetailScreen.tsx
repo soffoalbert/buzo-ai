@@ -13,7 +13,9 @@ import {
   KeyboardAvoidingView,
   Modal,
   Dimensions,
-  FlatList
+  FlatList,
+  Image,
+  ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -157,7 +159,7 @@ const SavingsGoalDetailScreen = () => {
   // Handle scroll for header opacity
   const handleScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { y: headerOpacity } } }],
-    { useNativeDriver: false }
+    { useNativeDriver: Platform.OS === 'android' }
   );
 
   // Handle add milestone

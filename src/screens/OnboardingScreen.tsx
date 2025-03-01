@@ -175,6 +175,12 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
                 onUploadComplete={handleBankStatementUpload}
                 onUploadError={handleBankStatementUploadError}
               />
+              
+              {/* Coming Soon Indicator */}
+              <View style={styles.comingSoonBanner}>
+                <Ionicons name="time-outline" size={24} color={colors.background} />
+                <Text style={styles.comingSoonText}>Coming Soon!</Text>
+              </View>
             </View>
             
             {/* Add extra space at the bottom to ensure content is not hidden */}
@@ -364,6 +370,23 @@ const styles = StyleSheet.create({
     color: colors.background,
     fontSize: 16,
     fontWeight: '600',
+  },
+  comingSoonBanner: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.pill,
+    paddingHorizontal: spacing.medium,
+    paddingVertical: spacing.small,
+    zIndex: 10,
+  },
+  comingSoonText: {
+    ...textStyles.button,
+    color: colors.background,
+    marginLeft: spacing.xsmall,
   },
 });
 

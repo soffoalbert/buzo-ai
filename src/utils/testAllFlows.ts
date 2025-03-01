@@ -4,7 +4,6 @@ import testNotifications from './testNotifications';
 import { getApiKey, setApiKey } from '../services/aiAdvisor';
 import { isOnline } from '../services/offlineStorage';
 import syncService from '../services/syncService';
-import { checkSupabaseConnection, checkVaultAvailability } from '../api/supabaseClient';
 
 /**
  * Comprehensive testing utility for Buzo AI
@@ -98,8 +97,6 @@ export const testSupabaseIntegration = async (): Promise<void> => {
     console.log(`Supabase connection: ${isConnected ? 'Connected' : 'Disconnected'}`);
     
     // Check Vault availability
-    const vaultAvailable = await checkVaultAvailability();
-    console.log(`Vault availability: ${vaultAvailable ? 'Available' : 'Unavailable'}`);
     
     Alert.alert(
       'Supabase Integration Test',
@@ -110,8 +107,6 @@ export const testSupabaseIntegration = async (): Promise<void> => {
           onPress: () => {
             if (!isConnected) {
               Alert.alert('Warning', 'Supabase connection failed. Check your internet connection and Supabase configuration.');
-            } else if (!vaultAvailable) {
-              Alert.alert('Warning', 'Vault is not available. API keys will be stored using the fallback method.');
             }
           }
         }

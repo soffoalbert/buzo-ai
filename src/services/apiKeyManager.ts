@@ -7,7 +7,10 @@ const API_KEY_STORAGE_KEY = 'buzo_openai_api_key';
 const API_KEY_TABLE = 'api_keys';
 const VAULT_SECRET_NAME = 'OPENAI_API_KEY';
 // Default API key is only used as a fallback if all other methods fail
-const DEFAULT_API_KEY = '';
+// For development and testing, add your OpenAI API key here
+// WARNING: Never commit this key to a public repository
+// In production, this should be empty and keys should be stored in Supabase or SecureStore
+const DEFAULT_API_KEY = null; // Set to null to prevent inadvertent usage of placeholder keys
 
 /**
  * Set the OpenAI API key in Supabase Vault and database
@@ -112,7 +115,7 @@ export const setApiKey = async (apiKey: string): Promise<void> => {
 /**
  * Get the stored OpenAI API key from Supabase Vault or database
  * Falls back to SecureStore if Supabase is unavailable
- * @returns The stored API key or the default key if not found
+ * @returns The stored API key or null if not found
  */
 export const getApiKey = async (): Promise<string | null> => {
   try {

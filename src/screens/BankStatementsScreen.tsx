@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-  RefreshControl,
   SafeAreaView,
+  ScrollView,
+  Dimensions,
+  Animated,
+  TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -16,319 +16,194 @@ import { MainStackParamList } from '../navigation';
 import { colors, spacing, textStyles, borderRadius } from '../utils/theme';
 import { Ionicons } from '@expo/vector-icons';
 import BankStatementUploader from '../components/BankStatementUploader';
-import { 
-  BankStatement, 
-  getUserBankStatements, 
-  uploadBankStatement, 
-  deleteBankStatement 
-} from '../services/bankStatementService';
 
-// Define props type
 type BankStatementsScreenProps = {
   navigation: NativeStackNavigationProp<MainStackParamList, 'BankStatements'>;
   route: RouteProp<MainStackParamList, 'BankStatements'>;
 };
 
 const BankStatementsScreen: React.FC<BankStatementsScreenProps> = ({ navigation }) => {
-  const [statements, setStatements] = useState<BankStatement[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const scrollY = new Animated.Value(0);
 
-  // Fetch bank statements on component mount
-  useEffect(() => {
-    fetchBankStatements();
-  }, []);
+  const headerOpacity = scrollY.interpolate({
+    inputRange: [0, 100],
+    outputRange: [1, 0.9],
+    extrapolate: 'clamp',
+  });
 
-  // Fetch bank statements from the server
-  const fetchBankStatements = async () => {
-    try {
-      const data = await getUserBankStatements();
-      setStatements(data);
-    } catch (error) {
-      console.error('Error fetching bank statements:', error);
-      Alert.alert(
-        'Error',
-        'Failed to load bank statements. Please try again later.'
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  // Handle refresh
-  const handleRefresh = () => {
-    setRefreshing(true);
-    fetchBankStatements();
-  };
-
-  // Handle bank statement upload
   const handleBankStatementUpload = async (fileUri: string, fileName: string) => {
-    setUploading(true);
-    
-    try {
-      // Upload the bank statement to Supabase
-      await uploadBankStatement(fileUri, fileName);
-      Alert.alert(
-        'Upload Successful',
-        'Your bank statement has been uploaded successfully. We\'ll analyze it to provide personalized financial advice.'
-      );
-      // Refresh the list
-      fetchBankStatements();
-    } catch (error) {
-      console.error('Error uploading bank statement:', error);
-      Alert.alert(
-        'Upload Failed',
-        'There was an error uploading your bank statement. Please try again later.'
-      );
-    } finally {
-      setUploading(false);
-    }
+    // Coming soon
   };
 
-  // Handle bank statement upload error
   const handleBankStatementUploadError = (error: string) => {
-    Alert.alert('Upload Error', error);
-  };
-
-  // Handle bank statement deletion
-  const handleDeleteStatement = (statement: BankStatement) => {
-    Alert.alert(
-      'Delete Statement',
-      'Are you sure you want to delete this bank statement? This action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteBankStatement(statement.id);
-              // Remove from local state
-              setStatements(statements.filter(s => s.id !== statement.id));
-              Alert.alert('Success', 'Bank statement deleted successfully.');
-            } catch (error) {
-              console.error('Error deleting bank statement:', error);
-              Alert.alert('Error', 'Failed to delete bank statement. Please try again later.');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  // Render a bank statement item
-  const renderStatementItem = ({ item }: { item: BankStatement }) => {
-    const date = new Date(item.upload_date).toLocaleDateString();
-    
-    return (
-      <View style={styles.statementItem}>
-        <View style={styles.statementInfo}>
-          <Ionicons
-            name={item.file_name.endsWith('.pdf') ? 'document-text' : 'image'}
-            size={24}
-            color={colors.primary}
-          />
-          <View style={styles.statementDetails}>
-            <Text style={styles.statementName} numberOfLines={1} ellipsizeMode="middle">
-              {item.file_name}
-            </Text>
-            <Text style={styles.statementDate}>{date}</Text>
-            <View style={styles.statusContainer}>
-              <View
-                style={[
-                  styles.statusDot,
-                  {
-                    backgroundColor:
-                      item.status === 'processed'
-                        ? colors.success
-                        : item.status === 'error'
-                        ? colors.error
-                        : colors.warning,
-                  },
-                ]}
-              />
-              <Text style={styles.statusText}>
-                {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-              </Text>
-            </View>
-          </View>
-        </View>
-        <TouchableOpacity onPress={() => handleDeleteStatement(item)}>
-          <Ionicons name="trash-outline" size={24} color={colors.error} />
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  // Render empty state
-  const renderEmptyState = () => {
-    if (loading) {
-      return (
-        <View style={styles.emptyContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.emptyText}>Loading bank statements...</Text>
-        </View>
-      );
-    }
-
-    return (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="document-text-outline" size={64} color={colors.textSecondary} />
-        <Text style={styles.emptyTitle}>No Bank Statements</Text>
-        <Text style={styles.emptyText}>
-          Upload your bank statements to get personalized financial insights and advice.
-        </Text>
-      </View>
-    );
+    // Coming soon
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
+      <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Ionicons name="chevron-back" size={24} color={colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Bank Statements</Text>
-        <View style={styles.placeholder} />
-      </View>
-
-      <BankStatementUploader
-        onUploadComplete={handleBankStatementUpload}
-        onUploadError={handleBankStatementUploadError}
-      />
-
-      {uploading && (
-        <View style={styles.uploadingContainer}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.uploadingText}>Uploading bank statement...</Text>
+        <View>
+          <Text style={styles.headerTitle}>Bank Statement Analysis</Text>
+          <Text style={styles.headerSubtitle}>Upload and analyze your statements</Text>
         </View>
-      )}
+      </Animated.View>
 
-      <FlatList
-        data={statements}
-        renderItem={renderStatementItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={renderEmptyState}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-      />
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: Platform.OS === 'android' }
+        )}
+        scrollEventThrottle={16}
+      >
+        <View style={styles.content}>
+
+          
+          <View style={styles.comingSoonContainer}>
+            <View style={styles.iconWrapper}>
+              <Ionicons name="rocket-outline" size={32} color={colors.primary} />
+            </View>
+            <View style={styles.comingSoonContent}>
+              <Text style={styles.comingSoonTitle}>Coming Soon!</Text>
+              <Text style={styles.comingSoonText}>
+                We're building powerful AI-driven analysis tools for your bank statements. Get ready for smarter financial insights.
+              </Text>
+            </View>
+          </View>
+          
+          <View style={styles.featuresList}>
+            <Text style={styles.featuresTitle}>What's Coming</Text>
+            
+            <View style={styles.featureGrid}>
+              {[
+                {icon: 'analytics', text: 'Smart Statement Analysis'},
+                {icon: 'layers', text: 'Auto-Categorization'},
+                {icon: 'trending-up', text: 'Spending Insights'},
+                {icon: 'bulb', text: 'Smart Recommendations'},
+                {icon: 'pie-chart', text: 'Visual Reports'},
+                {icon: 'shield-checkmark', text: 'Security Features'}
+              ].map((feature, index) => (
+                <View key={index} style={styles.featureCard}>
+                  <View style={styles.featureIconContainer}>
+                    <Ionicons name={feature.icon as any} size={24} color={colors.primary} />
+                  </View>
+                  <Text style={styles.featureCardText}>{feature.text}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
+
+const { width } = Dimensions.get('window');
+const cardWidth = (width - (spacing.md * 3) - 32) / 2;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
+  scrollView: {
+    flex: 1,
+  },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.background,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-  },
-  backButton: {
-    padding: spacing.sm,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  placeholder: {
-    width: 40,
-  },
-  listContainer: {
-    flexGrow: 1,
-    padding: spacing.md,
-  },
-  statementItem: {
+    paddingTop: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.white,
+  },
+  backButton: {
+    marginRight: spacing.sm,
+    padding: spacing.xs,
+  },
+  headerTitle: {
+    ...textStyles.h2,
+    color: colors.primary,
+  },
+  headerSubtitle: {
+    ...textStyles.body2,
+    color: colors.secondary,
+    marginTop: spacing.xs,
+  },
+  content: {
     padding: spacing.md,
-    borderRadius: borderRadius.md,
+  },
+  comingSoonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    backgroundColor: colors.primaryLight,
+    borderRadius: borderRadius.lg,
+    marginVertical: spacing.md,
+  },
+  iconWrapper: {
+    backgroundColor: colors.background,
+    padding: spacing.sm,
+    borderRadius: borderRadius.round,
+  },
+  comingSoonContent: {
+    flex: 1,
+    marginLeft: spacing.md,
+  },
+  comingSoonTitle: {
+    ...textStyles.h3,
+    color: colors.primary,
+    marginBottom: spacing.xs,
+  },
+  comingSoonText: {
+    ...textStyles.body1,
+    color: colors.primary,
+  },
+  featuresList: {
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginVertical: spacing.md,
+  },
+  featuresTitle: {
+    ...textStyles.h3,
     marginBottom: spacing.md,
+    color: colors.text,
+  },
+  featureGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  featureCard: {
+    width: cardWidth,
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
   },
-  statementInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  statementDetails: {
-    marginLeft: spacing.md,
-    flex: 1,
-  },
-  statementName: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  statementDate: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.xs,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.xs,
-  },
-  statusText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-    marginTop: spacing.md,
+  featureIconContainer: {
+    backgroundColor: colors.primaryLight,
+    padding: spacing.sm,
+    borderRadius: borderRadius.round,
     marginBottom: spacing.sm,
   },
-  emptyText: {
-    fontSize: 14,
-    color: colors.textSecondary,
+  featureCardText: {
+    ...textStyles.body2,
     textAlign: 'center',
-  },
-  uploadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.sm,
-    backgroundColor: `${colors.primary}10`,
-    borderRadius: borderRadius.md,
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
-  },
-  uploadingText: {
-    fontSize: 14,
-    color: colors.primary,
-    marginLeft: spacing.sm,
+    color: colors.text,
   },
 });
 
-export default BankStatementsScreen; 
+export default BankStatementsScreen;

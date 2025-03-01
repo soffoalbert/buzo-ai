@@ -9,6 +9,7 @@ import {
   Image,
   ScrollView,
   SafeAreaView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -153,7 +154,7 @@ const EducationOnboarding: React.FC<EducationOnboardingProps> = ({ onComplete, o
           scrollEventThrottle={16}
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-            { useNativeDriver: false }
+            { useNativeDriver: Platform.OS === 'android' }
           )}
           onMomentumScrollEnd={(event) => {
             const newIndex = Math.round(event.nativeEvent.contentOffset.x / width);
