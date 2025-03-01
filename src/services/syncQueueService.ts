@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import offlineStorage, { PendingSyncItem } from './offlineStorage';
 import * as budgetApi from '../api/budgetApi';
 import * as expenseApi from '../api/expenseApi';
+import * as savingsApi from '../api/savingsApi';
 import { supabase } from '../api/supabaseClient';
 
 // Storage keys
@@ -15,6 +16,9 @@ export type SyncQueueItemType =
   | 'CREATE_BUDGET' 
   | 'UPDATE_BUDGET' 
   | 'DELETE_BUDGET'
+  | 'CREATE_SAVINGS_GOAL'
+  | 'UPDATE_SAVINGS_GOAL'
+  | 'DELETE_SAVINGS_GOAL'
   | 'create'
   | 'update'
   | 'delete';
@@ -371,6 +375,62 @@ const processSyncItem = async (item: SyncQueueItem): Promise<boolean> => {
           return true;
         } catch (error) {
           console.error('Error syncing DELETE_BUDGET:', error);
+          return false;
+        }
+      
+      // Add handlers for savings goal operations
+      case 'CREATE_SAVINGS_GOAL':
+        try {
+          // For savings goal creation, we need to create it in Supabase
+          // The data should contain the complete savings goal object
+          const savingsGoal = item.data;
+          
+          // Remove local ID and use Supabase to generate a new one
+          const { id, createdAt, updatedAt, ...savingsGoalData } = savingsGoal;
+          
+          await savingsApi.createSavingsGoal(savingsGoalData);
+          return true;
+        } catch (error) {
+          console.error('Error syncing CREATE_SAVINGS_GOAL:', error);
+          return false;
+        }
+        
+      case 'UPDATE_SAVINGS_GOAL':
+        try {
+          // For savings goal updates, we need to update it in Supabase
+          // The data should contain the savings goal ID and the fields to update
+          const { id, ...updateData } = item.data;
+          
+          if (!id) {
+            console.error('Missing savings goal ID for UPDATE_SAVINGS_GOAL');
+            return false;
+          }
+          
+          // Remove user_id from update data if present
+          const { user_id, ...cleanUpdateData } = updateData;
+          
+          await savingsApi.updateSavingsGoal(id, cleanUpdateData);
+          return true;
+        } catch (error) {
+          console.error('Error syncing UPDATE_SAVINGS_GOAL:', error);
+          return false;
+        }
+        
+      case 'DELETE_SAVINGS_GOAL':
+        try {
+          // For savings goal deletion, we need to delete it from Supabase
+          // The data should contain the savings goal ID
+          const { id } = item.data;
+          
+          if (!id) {
+            console.error('Missing savings goal ID for DELETE_SAVINGS_GOAL');
+            return false;
+          }
+          
+          await savingsApi.deleteSavingsGoal(id);
+          return true;
+        } catch (error) {
+          console.error('Error syncing DELETE_SAVINGS_GOAL:', error);
           return false;
         }
       

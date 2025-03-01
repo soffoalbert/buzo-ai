@@ -29,6 +29,7 @@ import ExpenseAnalyticsScreen from '../screens/ExpenseAnalyticsScreen';
 import SubscriptionScreen from '../screens/SubscriptionScreen';
 import TestingScreen from '../screens/TestingScreen';
 import AddBudgetScreen from '../screens/AddBudgetScreen';
+import AddSavingsGoalScreen from '../screens/AddSavingsGoalScreen';
 
 // Import theme
 import { colors } from '../utils/theme';
@@ -72,6 +73,7 @@ export type RootStackParamList = {
   SubscriptionScreen: undefined;
   Testing: undefined;
   AddBudget: undefined;
+  AddSavingsGoal: undefined;
 };
 
 // Create navigation stacks
@@ -211,6 +213,7 @@ export const RootNavigator: React.FC = () => {
       <RootStack.Screen name="SubscriptionScreen" component={SubscriptionScreen} />
       <RootStack.Screen name="Testing" component={TestingScreen} />
       <RootStack.Screen name="AddBudget" component={AddBudgetScreen} />
+      <RootStack.Screen name="AddSavingsGoal" component={AddSavingsGoalScreen} />
     </RootStack.Navigator>
   );
 };
