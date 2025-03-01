@@ -106,6 +106,45 @@ const ProfileScreen: React.FC = () => {
     }
     
     try {
+      // First try to get the user from Supabase session
+      const { supabase } = await import('../api/supabaseClient');
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionData?.session?.user) {
+        const user = sessionData.session.user;
+        console.log('Found authenticated user in Supabase session:', user.id);
+        
+        // Format the user data from the session
+        const joinDateStr = user.created_at 
+          ? new Date(user.created_at).toLocaleDateString('en-US', {
+              month: 'long',
+              year: 'numeric',
+            })
+          : 'March 2025'; // Fallback date
+        
+        // Get the user's name from metadata
+        const name = user.user_metadata?.full_name || 'New User';
+        const email = user.email || 'user@example.com';
+        
+        setUserData({
+          name: name,
+          email: email,
+          joinDate: joinDateStr,
+          avatarUrl: null, // Supabase doesn't store avatar URLs in the session
+        });
+        
+        // Clear any previous errors
+        setError(null);
+        
+        if (showLoading) {
+          setIsLoading(false);
+        }
+        
+        return Promise.resolve();
+      }
+      
+      // If no session user, fall back to local storage
+      console.log('No authenticated user in Supabase session, falling back to local storage');
       let profile = await loadUserProfile();
       
       // If no profile exists, create a default one
@@ -368,16 +407,20 @@ const ProfileScreen: React.FC = () => {
   
   const handleRateApp = () => {
     triggerHaptic();
-    // Open App Store or Play Store based on platform
+    // Open app store link
     const storeUrl = Platform.OS === 'ios' 
       ? 'https://apps.apple.com/app/buzo-ai/id123456789'
-      : 'https://play.google.com/store/apps/details?id=com.buzo.app';
+      : 'https://play.google.com/store/apps/details?id=com.buzo.ai';
     
     Linking.openURL(storeUrl).catch(err => {
       console.error('Error opening store:', err);
-      const errorMessage = typeof err === 'object' ? 'Could not open app store.' : String(err);
-      Alert.alert('Error', errorMessage);
+      Alert.alert('Error', 'Could not open app store.');
     });
+  };
+  
+  const handleFeedback = () => {
+    triggerHaptic();
+    navigation.navigate('FeedbackScreen');
   };
   
   const handleEditProfile = () => {
@@ -640,6 +683,14 @@ const ProfileScreen: React.FC = () => {
               undefined, 
               handleContactSupport,
               'Get help from our support team'
+            )}
+            {renderSettingItem(
+              'chatbubble-outline', 
+              'Send Feedback', 
+              undefined, 
+              undefined, 
+              handleFeedback,
+              'Share your thoughts and suggestions'
             )}
             {renderSettingItem(
               'star-outline', 

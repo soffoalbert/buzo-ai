@@ -1,7 +1,7 @@
 -- Create feedback table
 CREATE TABLE IF NOT EXISTS public.feedback (
     id UUID PRIMARY KEY,
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NULL,
     type TEXT NOT NULL,
     context TEXT NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -57,6 +57,14 @@ CREATE POLICY feedback_select_policy ON public.feedback
 
 CREATE POLICY feedback_insert_policy ON public.feedback
     FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Add a new policy to allow insertion of feedback with null user_id
+CREATE POLICY feedback_insert_null_policy ON public.feedback
+    FOR INSERT WITH CHECK (user_id IS NULL);
+
+-- Add a policy to allow authenticated users to insert anonymous feedback
+CREATE POLICY feedback_insert_anonymous_policy ON public.feedback
+    FOR INSERT WITH CHECK (user_id = 'anonymous' AND auth.uid() IS NOT NULL);
 
 -- Everyone can read active surveys
 CREATE POLICY surveys_select_policy ON public.surveys
@@ -134,4 +142,47 @@ VALUES
     TRUE,
     NOW()
 )
-ON CONFLICT (id) DO NOTHING; 
+ON CONFLICT (id) DO NOTHING;
+
+-- Create a function to submit feedback that bypasses RLS
+CREATE OR REPLACE FUNCTION public.submit_feedback(feedback_data JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER -- This makes the function run with the privileges of the creator
+AS $$
+DECLARE
+    result JSONB;
+BEGIN
+    -- Insert the feedback and return the inserted row
+    INSERT INTO public.feedback (
+        id, 
+        user_id, 
+        type, 
+        context, 
+        timestamp, 
+        ratings, 
+        message, 
+        survey_responses, 
+        metadata, 
+        status
+    )
+    VALUES (
+        COALESCE(feedback_data->>'id', uuid_generate_v4()::text)::uuid,
+        CASE 
+            WHEN feedback_data->>'user_id' = 'anonymous' THEN NULL
+            ELSE (feedback_data->>'user_id')::uuid
+        END,
+        feedback_data->>'type',
+        feedback_data->>'context',
+        COALESCE((feedback_data->>'timestamp')::timestamptz, NOW()),
+        feedback_data->'ratings',
+        feedback_data->>'message',
+        feedback_data->'survey_responses',
+        feedback_data->'metadata',
+        COALESCE(feedback_data->>'status', 'pending')
+    )
+    RETURNING to_jsonb(feedback.*) INTO result;
+    
+    RETURN result;
+END;
+$$; 

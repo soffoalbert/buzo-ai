@@ -34,19 +34,30 @@ export interface SurveyResponse {
 
 export interface Feedback {
   id: string;
-  userId: string;
+  user_id: string;
   type: FeedbackType;
   context: FeedbackContext;
   timestamp: string;
   ratings?: FeedbackRating[];
   message?: string;
-  surveyResponses?: SurveyResponse[];
+  survey_responses?: SurveyResponse[];
   metadata?: {
     appVersion?: string;
-    deviceInfo?: string;
+    deviceInfo?: any; // Changed from string to any to support object structure
     screenName?: string;
     featureId?: string;
     recommendationId?: string;
+    isAnonymous?: boolean;
+    originalUserId?: string;
+    userEmail?: string;
+    userName?: string;
+    authStatus?: string;
+    authDiagnostics?: Record<string, any>;
+    userCreationAttempted?: boolean;
+    reason?: string;
+    originallyAnonymous?: boolean;
+    errorMessage?: string;
+    authSource?: string;
   };
   status?: 'pending' | 'reviewed' | 'addressed';
 }

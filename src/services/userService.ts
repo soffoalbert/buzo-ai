@@ -186,4 +186,12 @@ export const getUserPreferences = async (): Promise<UserPreferences> => {
     console.error('Error loading user preferences:', error);
     return DEFAULT_USER_PREFERENCES;
   }
+};
+
+/**
+ * Get current user profile
+ * @returns Promise resolving to the current user or null if not found
+ */
+export const getCurrentUser = async (): Promise<User | null> => {
+  return loadUserProfile();
 }; 

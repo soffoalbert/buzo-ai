@@ -22,7 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
-import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as LocalAuthentication from 'expo-local-authentication';
 
@@ -62,6 +62,9 @@ type UserPreferences = {
     biometricAuth: boolean;
     twoFactorAuth: boolean;
   };
+  developerSettings: {
+    disableEmailVerification: boolean;
+  };
 };
 
 // Default preferences
@@ -85,6 +88,9 @@ const DEFAULT_PREFERENCES: UserPreferences = {
     biometricAuth: false,
     twoFactorAuth: false,
   },
+  developerSettings: {
+    disableEmailVerification: false
+  }
 };
 
 const SettingsScreen: React.FC = () => {
@@ -424,7 +430,16 @@ const SettingsScreen: React.FC = () => {
   // Handle contact support
   const handleContactSupport = () => {
     triggerHaptic();
-    Linking.openURL('mailto:support@buzo.ai');
+    Linking.openURL('mailto:support@buzo.app?subject=Support%20Request').catch(err => {
+      console.error('Error opening mail client:', err);
+      Alert.alert('Error', 'Could not open email client.');
+    });
+  };
+  
+  // Handle feedback
+  const handleFeedback = () => {
+    triggerHaptic();
+    navigation.navigate('FeedbackScreen');
   };
   
   // Handle privacy policy
@@ -758,6 +773,12 @@ const SettingsScreen: React.FC = () => {
                 handleContactSupport,
                 'Get help from our support team'
               )}
+              {renderButtonItem(
+                'chatbubble-outline',
+                'Send Feedback',
+                handleFeedback,
+                'Share your thoughts and suggestions'
+              )}
             </View>
             
             {/* Developer Section */}
@@ -772,12 +793,54 @@ const SettingsScreen: React.FC = () => {
               
               {/* Only show the end-to-end testing option if developer mode is enabled */}
               {showDeveloperOptions && (
-                renderButtonItem(
-                  'code-working',
-                  'End-to-End Testing',
-                  handleOpenTestingScreen,
-                  'Run comprehensive tests for all app features'
-                )
+                <>
+                  {renderButtonItem(
+                    'code-working',
+                    'End-to-End Testing',
+                    handleOpenTestingScreen,
+                    'Run comprehensive tests for all app features'
+                  )}
+                  
+                  {/* Email verification toggle */}
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingTextContainer}>
+                      <View style={styles.settingTitleRow}>
+                        <Ionicons name="mail-outline" size={22} color={colors.primary} style={styles.settingIcon} />
+                        <Text style={styles.settingTitle}>Disable Email Verification</Text>
+                      </View>
+                      <Text style={styles.settingDescription}>
+                        Toggle email verification requirement for local development
+                      </Text>
+                    </View>
+                    <Switch
+                      value={preferences.developerSettings.disableEmailVerification}
+                      onValueChange={async (value) => {
+                        // Update local state
+                        setPreferences({
+                          ...preferences,
+                          developerSettings: {
+                            ...preferences.developerSettings,
+                            disableEmailVerification: value
+                          }
+                        });
+                        
+                        // Save to AsyncStorage
+                        try {
+                          await AsyncStorage.setItem('DISABLE_EMAIL_VERIFICATION', value ? 'true' : 'false');
+                          Alert.alert(
+                            'Setting Updated',
+                            `Email verification is now ${value ? 'disabled' : 'enabled'}. Restart the app for changes to take effect.`
+                          );
+                        } catch (error) {
+                          console.error('Failed to save email verification setting:', error);
+                          Alert.alert('Error', 'Failed to save setting');
+                        }
+                      }}
+                      trackColor={{ false: colors.lightGray, true: colors.primaryLight }}
+                      thumbColor={colors.primary}
+                    />
+                  </View>
+                </>
               )}
             </View>
             
@@ -1044,6 +1107,17 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: colors.textSecondary,
     marginTop: spacing.xs,
+  },
+  settingTextContainer: {
+    flexDirection: 'column',
+    marginRight: spacing.md,
+  },
+  settingTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingIcon: {
+    marginRight: spacing.md,
   },
 });
 

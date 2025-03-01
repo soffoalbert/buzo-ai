@@ -1,6 +1,46 @@
 import { supabase, supabaseAdmin } from '../api/supabaseClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
+
+// Development configuration
+// Default to true, but will be overridden by AsyncStorage value if available
+let DISABLE_EMAIL_VERIFICATION = true;
+const IS_DEVELOPMENT = Constants.expoConfig?.extra?.env === 'development' || 
+                      Constants.expoConfig?.extra?.env === 'local' || 
+                      __DEV__;
+
+// Initialize email verification setting from AsyncStorage
+(async () => {
+  try {
+    const storedValue = await AsyncStorage.getItem('DISABLE_EMAIL_VERIFICATION');
+    if (storedValue !== null) {
+      DISABLE_EMAIL_VERIFICATION = storedValue === 'true';
+    }
+    
+    // Log development mode status
+    if (IS_DEVELOPMENT && DISABLE_EMAIL_VERIFICATION) {
+      console.log('🔧 Development mode: Email verification is DISABLED');
+    } else {
+      console.log('📧 Email verification is ENABLED');
+    }
+  } catch (error) {
+    console.error('Error reading email verification setting:', error);
+  }
+})();
+
+// Helper function to check if email verification is disabled
+const isEmailVerificationDisabled = async (): Promise<boolean> => {
+  if (!IS_DEVELOPMENT) return false;
+  
+  try {
+    const storedValue = await AsyncStorage.getItem('DISABLE_EMAIL_VERIFICATION');
+    return storedValue === 'true';
+  } catch (error) {
+    console.error('Error reading email verification setting:', error);
+    return DISABLE_EMAIL_VERIFICATION; // Fall back to default
+  }
+};
 
 /**
  * Store a value securely, handling values larger than SecureStore's 2048 byte limit
@@ -115,6 +155,9 @@ export const registerUser = async (
       };
     }
     
+    // Check if email verification is disabled
+    const disableEmailVerification = await isEmailVerificationDisabled();
+    
     // Register the user with Supabase
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
@@ -122,7 +165,9 @@ export const registerUser = async (
       options: {
         data: {
           full_name: fullName
-        }
+        },
+        // Disable email confirmation in development mode
+        emailRedirectTo: IS_DEVELOPMENT && disableEmailVerification ? undefined : 'buzoai://verify-email'
       }
     });
 
@@ -147,8 +192,33 @@ export const registerUser = async (
     }
 
     // Check if email confirmation is required
-    const needsEmailConfirmation = !authData.session;
+    // In development mode with verification disabled, we'll always return false
+    const needsEmailConfirmation = IS_DEVELOPMENT && disableEmailVerification 
+      ? false 
+      : !authData.session;
     
+    // If we're in development mode and email verification is disabled,
+    // we'll automatically sign in the user after registration
+    if (IS_DEVELOPMENT && disableEmailVerification && !authData.session) {
+      console.log('🔧 Development mode: Auto-signing in user after registration');
+      
+      try {
+        // Sign in the user
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+        
+        if (signInError) {
+          console.warn('Auto sign-in failed:', signInError);
+        } else {
+          console.log('Auto sign-in successful');
+        }
+      } catch (signInError) {
+        console.warn('Error during auto sign-in:', signInError);
+      }
+    }
+
     // Log successful user creation
     console.log('User created successfully with ID:', authData.user.id);
     console.log('Email confirmation required:', needsEmailConfirmation);
@@ -305,6 +375,38 @@ export const loginUser = async (email: string, password: string): Promise<{
 
     if (error) {
       console.error('Supabase auth error:', error);
+      
+      // Check if email verification is disabled
+      const disableEmailVerification = await isEmailVerificationDisabled();
+      
+      // In development mode with email verification disabled, 
+      // we'll ignore the "Email not confirmed" error
+      if (IS_DEVELOPMENT && disableEmailVerification && 
+          error.message.includes('Email not confirmed')) {
+        console.log('🔧 Development mode: Ignoring email verification requirement');
+        
+        // Try to sign in again with a workaround for development
+        try {
+          // Use signUp as a workaround to get a session without email verification
+          // This is ONLY for development purposes
+          const { data: devData, error: devError } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              data: { email_confirmed: true }
+            }
+          });
+          
+          if (!devError && devData.session) {
+            console.log('🔧 Development login successful');
+            return { data: devData, error: null };
+          } else {
+            console.warn('Development login workaround failed:', devError);
+          }
+        } catch (devError) {
+          console.warn('Error in development login workaround:', devError);
+        }
+      }
       
       // Provide more user-friendly error messages
       let message = 'Login failed';

@@ -51,6 +51,42 @@ const EditProfileScreen: React.FC = () => {
     const fetchUserData = async () => {
       try {
         setIsLoading(true);
+        
+        // First try to get the user from Supabase session
+        const { supabase } = await import('../api/supabaseClient');
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionData?.session?.user) {
+          const user = sessionData.session.user;
+          console.log('Found authenticated user in Supabase session:', user.id);
+          
+          // Create a profile from the session data
+          const profile: User = {
+            id: user.id,
+            name: user.user_metadata?.full_name || 'New User',
+            email: user.email || 'user@example.com',
+            joinDate: user.created_at || new Date().toISOString(),
+            lastActive: new Date().toISOString(),
+            preferences: DEFAULT_USER_PREFERENCES,
+            // Add other fields from user metadata if available
+            phoneNumber: user.phone || '',
+            profilePicture: user.user_metadata?.avatar_url || null,
+          };
+          
+          // Set user data from profile
+          setUserData(profile);
+          setName(profile.name || '');
+          setEmail(profile.email || '');
+          setPhoneNumber(profile.phoneNumber || '');
+          setDateOfBirth(profile.dateOfBirth || '');
+          setProfilePicture(profile.profilePicture || null);
+          
+          setIsLoading(false);
+          return;
+        }
+        
+        // If no session user, fall back to local storage
+        console.log('No authenticated user in Supabase session, falling back to local storage');
         let profile = await loadUserProfile();
         
         // If no profile exists, create a default one
@@ -104,9 +140,6 @@ const EditProfileScreen: React.FC = () => {
         setUserData(fallbackProfile);
         setName(fallbackProfile.name);
         setEmail(fallbackProfile.email);
-        setPhoneNumber('');
-        setDateOfBirth('');
-        setProfilePicture(null);
       } finally {
         setIsLoading(false);
       }
@@ -199,7 +232,34 @@ const EditProfileScreen: React.FC = () => {
     try {
       setIsSaving(true);
       
-      // Update user profile
+      // First update the Supabase user metadata
+      try {
+        const { supabase } = await import('../api/supabaseClient');
+        
+        // Update user metadata in Supabase
+        const { data, error } = await supabase.auth.updateUser({
+          email: email, // Note: This will trigger email verification if email is changed
+          data: {
+            full_name: name,
+            // Add other metadata fields as needed
+            phone: phoneNumber || undefined,
+            date_of_birth: dateOfBirth || undefined,
+            avatar_url: profilePicture || undefined,
+          }
+        });
+        
+        if (error) {
+          console.error('Error updating Supabase user:', error);
+          // Continue with local update even if Supabase update fails
+        } else {
+          console.log('Supabase user updated successfully:', data.user.id);
+        }
+      } catch (supabaseError) {
+        console.error('Error updating Supabase user:', supabaseError);
+        // Continue with local update even if Supabase update fails
+      }
+      
+      // Update local user profile
       const updatedUser = await updateUserProfile({
         ...userData,
         name,
@@ -216,9 +276,9 @@ const EditProfileScreen: React.FC = () => {
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (error) {
-      console.error('Error updating profile:', error);
       setIsSaving(false);
-      Alert.alert('Error', 'Could not update profile. Please try again.');
+      console.error('Error updating profile:', error);
+      Alert.alert('Error', 'Failed to update profile. Please try again.');
     }
   };
 

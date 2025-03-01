@@ -10,13 +10,17 @@ import {
   Platform,
   Switch,
   TextStyle,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
+import { LinearGradient } from 'expo-linear-gradient';
+import LottieView from 'lottie-react-native';
 
 import offlineStorage from '../services/offlineStorage';
 import syncService from '../services/syncService';
@@ -26,10 +30,10 @@ import OfflineStatusBar from '../components/OfflineStatusBar';
 import Button from '../components/Button';
 import { colors, spacing, textStyles } from '../utils/theme';
 
-// Define the type for font weights
 type FontWeight = TextStyle['fontWeight'];
-
 type OfflineTestScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const { width } = Dimensions.get('window');
 
 const OfflineTestScreen: React.FC = () => {
   const navigation = useNavigation<OfflineTestScreenNavigationProp>();
@@ -42,206 +46,188 @@ const OfflineTestScreen: React.FC = () => {
   const [savingsGoals, setSavingsGoals] = useState<any[]>([]);
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const syncProgressAnimation = new Animated.Value(0);
+  const fadeAnim = new Animated.Value(1);
 
   // Load data
   const loadData = async () => {
     try {
       setIsLoading(true);
+      fadeOut();
       
-      // Check online status
       const online = await offlineStorage.isOnline();
       setIsOnline(online);
       
-      // Get pending sync items
       const pendingItems = await offlineStorage.getPendingSync();
       setPendingCount(pendingItems.length);
       
-      // Get last sync time
       const lastSyncTime = await offlineStorage.getLastSync();
       setLastSync(lastSyncTime);
       
-      // Get sync status
       const status = await syncQueueService.getSyncStatus();
       setSyncStatus(status);
       
-      // Load cached data
-      const cachedBudgets = await offlineStorage.loadBudgets();
-      const cachedExpenses = await offlineStorage.loadExpenses();
-      const cachedSavingsGoals = await offlineStorage.loadSavingsGoals();
+      const [cachedBudgets, cachedExpenses, cachedSavingsGoals] = await Promise.all([
+        offlineStorage.loadBudgets(),
+        offlineStorage.loadExpenses(),
+        offlineStorage.loadSavingsGoals()
+      ]);
       
       setBudgets(cachedBudgets);
-      setExpenses(cachedExpenses);
+      setExpenses(cachedExpenses); 
       setSavingsGoals(cachedSavingsGoals);
+
+      fadeIn();
     } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load data');
+      showErrorAlert('Failed to load data');
     } finally {
       setIsLoading(false);
+      setRefreshing(false);
     }
   };
 
-  // Add mock data
-  const handleAddMockData = async () => {
-    try {
-      setIsLoading(true);
-      await testOfflineMode.addMultipleMockItems(1);
-      await loadData();
-      Alert.alert('Success', 'Mock data added successfully');
-    } catch (error) {
-      console.error('Error adding mock data:', error);
-      Alert.alert('Error', 'Failed to add mock data');
-    } finally {
-      setIsLoading(false);
-    }
+  const fadeIn = () => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true
+    }).start();
   };
 
-  // Add multiple mock data items
-  const handleAddMultipleMockData = async () => {
-    try {
-      setIsLoading(true);
-      await testOfflineMode.addMultipleMockItems(5);
-      await loadData();
-      Alert.alert('Success', '5 mock data items added successfully');
-    } catch (error) {
-      console.error('Error adding mock data:', error);
-      Alert.alert('Error', 'Failed to add mock data');
-    } finally {
-      setIsLoading(false);
-    }
+  const fadeOut = () => {
+    Animated.timing(fadeAnim, {
+      toValue: 0.3,
+      duration: 300,
+      useNativeDriver: true
+    }).start();
   };
 
-  // Clear all data
-  const handleClearData = async () => {
-    try {
-      setIsLoading(true);
-      await testOfflineMode.clearAllOfflineData();
-      await loadData();
-      Alert.alert('Success', 'All data cleared successfully');
-    } catch (error) {
-      console.error('Error clearing data:', error);
-      Alert.alert('Error', 'Failed to clear data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Sync data
-  const handleSync = async () => {
-    try {
-      setIsLoading(true);
-      await syncService.performFullSync();
-      await loadData();
-      Alert.alert('Success', 'Data synced successfully');
-    } catch (error) {
-      console.error('Error syncing data:', error);
-      Alert.alert('Error', 'Failed to sync data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Toggle network status (for testing)
-  const toggleNetworkStatus = async () => {
-    // This is just a mock function to simulate network status changes
-    // In a real app, you would use NetInfo to check actual network status
-    setIsOnline(!isOnline);
-    
-    // Update the UI immediately
+  const showErrorAlert = (message: string) => {
     Alert.alert(
-      'Network Status',
-      `Network status simulated as ${!isOnline ? 'online' : 'offline'}. This is just for UI testing.`,
+      'Error',
+      message,
+      [{ text: 'OK', style: 'default' }],
+      { cancelable: true }
+    );
+  };
+
+  const showSuccessAlert = (message: string) => {
+    Alert.alert(
+      'Success',
+      message,
+      [{ text: 'Great!', style: 'default' }],
+      { cancelable: true }
+    );
+  };
+
+  const handleAddMockData = async (count: number = 1) => {
+    try {
+      setIsLoading(true);
+      await testOfflineMode.addMultipleMockItems(count);
+      await loadData();
+      showSuccessAlert(`${count} mock data item${count > 1 ? 's' : ''} added successfully`);
+    } catch (error) {
+      console.error('Error adding mock data:', error);
+      showErrorAlert('Failed to add mock data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleClearData = async () => {
+    Alert.alert(
+      'Clear All Data',
+      'Are you sure you want to clear all offline data? This action cannot be undone.',
       [
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'OK',
+          text: 'Clear',
+          style: 'destructive',
           onPress: async () => {
-            // If toggling to online, offer to sync
-            if (!isOnline) {
-              Alert.alert(
-                'Sync Data',
-                'Would you like to sync data now that you are back online?',
-                [
-                  {
-                    text: 'Yes',
-                    onPress: handleSync,
-                  },
-                  {
-                    text: 'No',
-                    style: 'cancel',
-                  },
-                ]
-              );
+            try {
+              setIsLoading(true);
+              await testOfflineMode.clearAllOfflineData();
+              await loadData();
+              showSuccessAlert('All data cleared successfully');
+            } catch (error) {
+              console.error('Error clearing data:', error);
+              showErrorAlert('Failed to clear data');
+            } finally {
+              setIsLoading(false);
             }
-          },
-        },
+          }
+        }
       ]
     );
   };
 
-  // Simulate sync failure
-  const simulateSyncFailure = async () => {
+  const handleSync = async () => {
     try {
       setIsLoading(true);
       
-      // Get current sync status
-      const status = await syncQueueService.getSyncStatus() || {
-        lastSyncAttempt: Date.now(),
-        lastSuccessfulSync: null,
-        isSyncing: false,
-        pendingCount: pendingCount,
-        failedCount: 0,
-        syncProgress: 0,
-      };
-      
-      // Update sync status to simulate failure
-      await syncQueueService.updateSyncStatus({
-        ...status,
-        error: 'Simulated sync failure',
-        failedCount: pendingCount,
-      });
-      
+      // Animate sync progress
+      syncProgressAnimation.setValue(0);
+      Animated.timing(syncProgressAnimation, {
+        toValue: 1,
+        duration: 2000,
+        useNativeDriver: true
+      }).start();
+
+      await syncService.performFullSync();
       await loadData();
-      Alert.alert('Simulated', 'Sync failure has been simulated');
+      showSuccessAlert('Data synced successfully');
     } catch (error) {
-      console.error('Error simulating sync failure:', error);
-      Alert.alert('Error', 'Failed to simulate sync failure');
+      console.error('Error syncing data:', error);
+      showErrorAlert('Failed to sync data');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Reset failed sync items
-  const resetFailedSyncItems = async () => {
-    try {
-      setIsLoading(true);
-      await syncQueueService.resetFailedSyncItems();
-      await loadData();
-      Alert.alert('Success', 'Failed sync items have been reset');
-    } catch (error) {
-      console.error('Error resetting failed sync items:', error);
-      Alert.alert('Error', 'Failed to reset sync items');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Toggle auto-sync
-  const toggleAutoSync = (value: boolean) => {
-    setAutoSyncEnabled(value);
-    // In a real implementation, this would update a configuration setting
+  const toggleNetworkStatus = async () => {
+    const newStatus = !isOnline;
+    setIsOnline(newStatus);
+    
     Alert.alert(
-      'Auto-Sync',
-      `Auto-sync has been ${value ? 'enabled' : 'disabled'}. This is just for UI testing.`
+      'Network Status',
+      `Network status simulated as ${newStatus ? 'online' : 'offline'}`,
+      [
+        {
+          text: 'OK',
+          onPress: () => {
+            if (newStatus && pendingCount > 0) {
+              Alert.alert(
+                'Pending Changes',
+                `You have ${pendingCount} pending changes. Would you like to sync now?`,
+                [
+                  { text: 'Later', style: 'cancel' },
+                  { text: 'Sync Now', onPress: handleSync }
+                ]
+              );
+            }
+          }
+        }
+      ]
     );
   };
 
-  // Load data on mount
+  const toggleAutoSync = (value: boolean) => {
+    setAutoSyncEnabled(value);
+    Alert.alert(
+      'Auto-Sync',
+      `Auto-sync has been ${value ? 'enabled' : 'disabled'}`,
+      [{ text: 'OK' }]
+    );
+  };
+
   useEffect(() => {
     loadData();
     
-    // Set up sync status listener
     const unsubscribeSyncStatus = syncService.addSyncStatusListener((status) => {
       setSyncStatus(status);
-      // Refresh data when sync completes
       if (!status.isSyncing && status.lastSuccessfulSync) {
         loadData();
       }
@@ -251,6 +237,43 @@ const OfflineTestScreen: React.FC = () => {
       unsubscribeSyncStatus();
     };
   }, []);
+
+  const renderDataItem = (item: any, type: 'budget' | 'expense' | 'goal') => (
+    <Animated.View 
+      key={item.id}
+      style={[styles.dataItem, { opacity: fadeAnim }]}
+    >
+      <LinearGradient
+        colors={[colors.white, colors.backgroundLight]}
+        style={styles.dataItemGradient}
+      >
+        <View style={styles.dataItemHeader}>
+          <Text style={styles.dataItemTitle}>{
+            type === 'expense' ? item.description : item.name
+          }</Text>
+          <MaterialCommunityIcons
+            name={
+              type === 'budget' ? 'wallet' :
+              type === 'expense' ? 'cash' : 'piggy-bank'
+            }
+            size={20}
+            color={colors.primary}
+          />
+        </View>
+        <Text style={styles.dataItemSubtitle}>
+          {type === 'budget' && `${item.amount} • ${item.category} • ${item.period}`}
+          {type === 'expense' && `${item.amount} • ${item.category} • ${new Date(item.date).toLocaleDateString()}`}
+          {type === 'goal' && `${item.currentAmount}/${item.targetAmount} • ${item.category}`}
+        </Text>
+        <View style={styles.progressBar}>
+          <View style={[styles.progressFill, { 
+            width: `${type === 'goal' ? (item.currentAmount / item.targetAmount * 100) : 100}%`,
+            backgroundColor: type === 'goal' ? colors.success : colors.primary
+          }]} />
+        </View>
+      </LinearGradient>
+    </Animated.View>
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -270,11 +293,20 @@ const OfflineTestScreen: React.FC = () => {
       
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <LottieView
+            source={require('../assets/animations/loading.json')}
+            autoPlay
+            loop
+            style={styles.loadingAnimation}
+          />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       ) : (
-        <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+        <ScrollView 
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.statusCard}>
             <Text style={styles.sectionTitle}>Network Status</Text>
             <View style={styles.statusRow}>
@@ -290,12 +322,16 @@ const OfflineTestScreen: React.FC = () => {
             
             <View style={styles.statusRow}>
               <Text style={styles.statusLabel}>Pending Changes:</Text>
-              <Text style={styles.statusValue}>{pendingCount}</Text>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{pendingCount}</Text>
+              </View>
             </View>
             
             <View style={styles.statusRow}>
               <Text style={styles.statusLabel}>Failed Syncs:</Text>
-              <Text style={styles.statusValue}>{syncStatus?.failedCount || 0}</Text>
+              <View style={[styles.badge, styles.errorBadge]}>
+                <Text style={styles.badgeText}>{syncStatus?.failedCount || 0}</Text>
+              </View>
             </View>
             
             <View style={styles.statusRow}>
@@ -312,201 +348,111 @@ const OfflineTestScreen: React.FC = () => {
                 onValueChange={toggleAutoSync}
                 trackColor={{ false: colors.border, true: colors.primary }}
                 thumbColor={colors.white}
+                ios_backgroundColor={colors.border}
               />
             </View>
             
             <Button
-              title="Toggle Network Status (Simulation)"
+              title="Toggle Network Status"
               onPress={toggleNetworkStatus}
               variant="outline"
               size="small"
               style={styles.actionButton}
+              icon="wifi"
             />
           </View>
           
           <View style={styles.actionsCard}>
             <Text style={styles.sectionTitle}>Test Actions</Text>
             
-            <Button
-              title="Add Single Mock Item"
-              onPress={handleAddMockData}
-              variant="outline"
-              size="small"
-              style={styles.actionButton}
-            />
-            
-            <Button
-              title="Add 5 Mock Items"
-              onPress={handleAddMultipleMockData}
-              variant="outline"
-              size="small"
-              style={styles.actionButton}
-            />
-            
-            <Button
-              title="Edit Item Offline"
-              onPress={async () => {
-                try {
-                  setIsLoading(true);
-                  await testOfflineMode.simulateOfflineEdit();
-                  await loadData();
-                  Alert.alert('Success', 'Item edited offline');
-                } catch (error) {
-                  console.error('Error editing item offline:', error);
-                  Alert.alert('Error', 'Failed to edit item offline');
-                } finally {
-                  setIsLoading(false);
-                }
-              }}
-              variant="outline"
-              size="small"
-              style={styles.actionButton}
-            />
-            
-            <Button
-              title="Delete Item Offline"
-              onPress={async () => {
-                try {
-                  setIsLoading(true);
-                  await testOfflineMode.simulateOfflineDelete();
-                  await loadData();
-                  Alert.alert('Success', 'Item deleted offline');
-                } catch (error) {
-                  console.error('Error deleting item offline:', error);
-                  Alert.alert('Error', 'Failed to delete item offline');
-                } finally {
-                  setIsLoading(false);
-                }
-              }}
-              variant="outline"
-              size="small"
-              style={styles.actionButton}
-            />
-            
-            <Button
-              title="Generate Large Dataset (20 items)"
-              onPress={async () => {
-                try {
-                  setIsLoading(true);
-                  await testOfflineMode.generateLargeOfflineDataset(20);
-                  await loadData();
-                  Alert.alert('Success', 'Large dataset generated');
-                } catch (error) {
-                  console.error('Error generating large dataset:', error);
-                  Alert.alert('Error', 'Failed to generate large dataset');
-                } finally {
-                  setIsLoading(false);
-                }
-              }}
-              variant="outline"
-              size="small"
-              style={styles.actionButton}
-            />
-            
-            <Button
-              title="Sync Data Now"
-              onPress={handleSync}
-              variant="primary"
-              size="small"
-              style={styles.actionButton}
-              disabled={!isOnline}
-            />
-            
-            <Button
-              title="Simulate Sync Failure"
-              onPress={async () => {
-                try {
-                  setIsLoading(true);
-                  await testOfflineMode.simulateSyncFailure();
-                  await loadData();
-                  Alert.alert('Success', 'Sync failure simulated');
-                } catch (error) {
-                  console.error('Error simulating sync failure:', error);
-                  Alert.alert('Error', 'Failed to simulate sync failure');
-                } finally {
-                  setIsLoading(false);
-                }
-              }}
-              variant="outline"
-              size="small"
-              style={styles.actionButton}
-            />
-            
-            <Button
-              title="Reset Failed Sync Items"
-              onPress={resetFailedSyncItems}
-              variant="outline"
-              size="small"
-              style={styles.actionButton}
-              disabled={!syncStatus?.failedCount}
-            />
-            
-            <Button
-              title="Clear All Data"
-              onPress={handleClearData}
-              variant="danger"
-              size="small"
-              style={styles.actionButton}
-            />
+            <View style={styles.actionButtonsGrid}>
+              <Button
+                title="Add Mock Item"
+                onPress={() => handleAddMockData(1)}
+                variant="outline"
+                size="small"
+                style={styles.gridButton}
+                icon="add-circle"
+              />
+              
+              <Button
+                title="Add 5 Items"
+                onPress={() => handleAddMockData(5)}
+                variant="outline"
+                size="small"
+                style={styles.gridButton}
+                icon="layers"
+              />
+              
+              <Button
+                title="Sync Now"
+                onPress={handleSync}
+                variant="primary"
+                size="small"
+                style={styles.gridButton}
+                icon="sync"
+                disabled={!isOnline}
+              />
+              
+              <Button
+                title="Clear All"
+                onPress={handleClearData}
+                variant="danger"
+                size="small"
+                style={styles.gridButton}
+                icon="trash"
+              />
+            </View>
           </View>
           
           <View style={styles.dataCard}>
             <Text style={styles.sectionTitle}>Cached Data</Text>
             
             <View style={styles.dataSection}>
-              <Text style={styles.dataTitle}>Budgets ({budgets.length})</Text>
+              <Text style={styles.dataTitle}>
+                Budgets ({budgets.length})
+              </Text>
               {budgets.length > 0 ? (
-                budgets.slice(0, 3).map((budget, index) => (
-                  <View key={budget.id || index} style={styles.dataItem}>
-                    <Text style={styles.dataItemTitle}>{budget.name}</Text>
-                    <Text style={styles.dataItemSubtitle}>
-                      {budget.amount} • {budget.category} • {budget.period}
-                    </Text>
-                  </View>
-                ))
+                budgets.slice(0, 3).map(budget => renderDataItem(budget, 'budget'))
               ) : (
                 <Text style={styles.emptyText}>No budgets found</Text>
               )}
               {budgets.length > 3 && (
-                <Text style={styles.emptyText}>...and {budgets.length - 3} more</Text>
+                <TouchableOpacity style={styles.viewMoreButton}>
+                  <Text style={styles.viewMoreText}>View {budgets.length - 3} more</Text>
+                </TouchableOpacity>
               )}
             </View>
             
             <View style={styles.dataSection}>
-              <Text style={styles.dataTitle}>Expenses ({expenses.length})</Text>
+              <Text style={styles.dataTitle}>
+                Expenses ({expenses.length})
+              </Text>
               {expenses.length > 0 ? (
-                expenses.slice(0, 3).map((expense, index) => (
-                  <View key={expense.id || index} style={styles.dataItem}>
-                    <Text style={styles.dataItemTitle}>{expense.description}</Text>
-                    <Text style={styles.dataItemSubtitle}>
-                      {expense.amount} • {expense.category} • {new Date(expense.date).toLocaleDateString()}
-                    </Text>
-                  </View>
-                ))
+                expenses.slice(0, 3).map(expense => renderDataItem(expense, 'expense'))
               ) : (
                 <Text style={styles.emptyText}>No expenses found</Text>
               )}
               {expenses.length > 3 && (
-                <Text style={styles.emptyText}>...and {expenses.length - 3} more</Text>
+                <TouchableOpacity style={styles.viewMoreButton}>
+                  <Text style={styles.viewMoreText}>View {expenses.length - 3} more</Text>
+                </TouchableOpacity>
               )}
             </View>
             
             <View style={styles.dataSection}>
-              <Text style={styles.dataTitle}>Savings Goals ({savingsGoals.length})</Text>
+              <Text style={styles.dataTitle}>
+                Savings Goals ({savingsGoals.length})
+              </Text>
               {savingsGoals.length > 0 ? (
-                savingsGoals.slice(0, 3).map((goal, index) => (
-                  <View key={goal.id || index} style={styles.dataItem}>
-                    <Text style={styles.dataItemTitle}>{goal.name}</Text>
-                    <Text style={styles.dataItemSubtitle}>
-                      {goal.currentAmount}/{goal.targetAmount} • {goal.category}
-                    </Text>
-                  </View>
-                ))
+                savingsGoals.slice(0, 3).map(goal => renderDataItem(goal, 'goal'))
               ) : (
                 <Text style={styles.emptyText}>No savings goals found</Text>
               )}
               {savingsGoals.length > 3 && (
-                <Text style={styles.emptyText}>...and {savingsGoals.length - 3} more</Text>
+                <TouchableOpacity style={styles.viewMoreButton}>
+                  <Text style={styles.viewMoreText}>View {savingsGoals.length - 3} more</Text>
+                </TouchableOpacity>
               )}
             </View>
           </View>
@@ -524,144 +470,227 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.medium,
+    paddingHorizontal: spacing.large,
     paddingVertical: spacing.medium,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    backgroundColor: colors.white,
+    height: 64,
   },
   backButton: {
-    marginRight: spacing.small,
+    padding: spacing.small,
+    marginRight: spacing.medium,
+    borderRadius: 12,
+    backgroundColor: colors.backgroundLight,
   },
   headerTitle: {
     ...textStyles.h2,
     color: colors.text,
+    fontSize: 20,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingBottom: 40,
+  },
+  loadingAnimation: {
+    width: 240,
+    height: 240,
   },
   loadingText: {
     ...textStyles.body1,
-    marginTop: spacing.small,
+    marginTop: spacing.medium,
     color: colors.text,
   },
   content: {
     flex: 1,
   },
   contentContainer: {
-    padding: spacing.medium,
+    padding: spacing.large,
+    paddingBottom: spacing.extraLarge,
   },
   statusCard: {
     backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.medium,
-    marginBottom: spacing.medium,
+    borderRadius: 20,
+    padding: spacing.large,
+    marginBottom: spacing.large,
     ...Platform.select({
       ios: {
         shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
       },
       android: {
-        elevation: 4,
+        elevation: 8,
       },
     }),
   },
   actionsCard: {
     backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.medium,
-    marginBottom: spacing.medium,
+    borderRadius: 20,
+    padding: spacing.large,
+    marginBottom: spacing.large,
     ...Platform.select({
       ios: {
         shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
       },
       android: {
-        elevation: 4,
+        elevation: 8,
       },
     }),
   },
   dataCard: {
     backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.medium,
-    marginBottom: spacing.medium,
+    borderRadius: 20,
+    padding: spacing.large,
+    marginBottom: spacing.large,
     ...Platform.select({
       ios: {
         shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
       },
       android: {
-        elevation: 4,
+        elevation: 8,
       },
     }),
   },
   sectionTitle: {
     ...textStyles.h3,
-    marginBottom: spacing.small,
+    marginBottom: spacing.large,
     color: colors.text,
+    fontSize: 22,
+    fontWeight: '700' as FontWeight,
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.small,
+    marginBottom: spacing.medium,
+    paddingHorizontal: spacing.medium,
+    height: 44,
   },
   statusText: {
     ...textStyles.body1,
-    marginLeft: spacing.small,
+    marginLeft: spacing.medium,
     fontWeight: '600' as FontWeight,
+    fontSize: 16,
   },
   statusLabel: {
     ...textStyles.body2,
     color: colors.textSecondary,
-    width: 120,
+    width: 140,
+    fontSize: 15,
   },
   statusValue: {
     ...textStyles.body2,
     color: colors.text,
     flex: 1,
+    fontSize: 15,
   },
-  actionButton: {
-    marginVertical: spacing.small / 2,
+  badge: {
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    paddingHorizontal: spacing.medium,
+    paddingVertical: 4,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  errorBadge: {
+    backgroundColor: colors.error,
+  },
+  badgeText: {
+    ...textStyles.caption,
+    color: colors.white,
+    fontWeight: '600' as FontWeight,
+    fontSize: 13,
+  },
+  actionButtonsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -spacing.small,
+    marginTop: spacing.small,
+  },
+  gridButton: {
+    width: (width - spacing.large * 2 - spacing.medium * 2) / 2,
+    marginHorizontal: spacing.small,
+    marginBottom: spacing.medium,
+    height: 48,
   },
   dataSection: {
-    marginBottom: spacing.medium,
+    marginBottom: spacing.extraLarge,
   },
   dataTitle: {
     ...textStyles.subtitle1,
     color: colors.text,
-    marginBottom: spacing.small,
+    marginBottom: spacing.large,
+    fontSize: 18,
+    fontWeight: '600' as FontWeight,
   },
   dataItem: {
-    backgroundColor: colors.backgroundLight,
-    borderRadius: 8,
-    padding: spacing.small,
+    marginBottom: spacing.medium,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  dataItemGradient: {
+    padding: spacing.large,
+  },
+  dataItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.small,
   },
   dataItemTitle: {
     ...textStyles.body1,
     color: colors.text,
-    fontWeight: '500' as FontWeight,
+    fontWeight: '600' as FontWeight,
+    flex: 1,
+    fontSize: 16,
   },
   dataItemSubtitle: {
     ...textStyles.body2,
     color: colors.textSecondary,
-    marginTop: 2,
+    marginBottom: spacing.medium,
+    fontSize: 14,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: colors.border,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
   },
   emptyText: {
     ...textStyles.body2,
     color: colors.textSecondary,
     fontStyle: 'italic',
     textAlign: 'center',
-    padding: spacing.small,
+    padding: spacing.large,
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 12,
+    fontSize: 15,
+  },
+  viewMoreButton: {
+    alignItems: 'center',
+    padding: spacing.medium,
+    marginTop: spacing.medium,
+  },
+  viewMoreText: {
+    ...textStyles.button,
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '600' as FontWeight,
   },
 });
 
-export default OfflineTestScreen; 
+export default OfflineTestScreen;
+// End of Selection

@@ -14,6 +14,10 @@ import { initNetworkListeners } from './src/services/budgetService';
 import OfflineStatusBar from './src/components/OfflineStatusBar';
 // Import the API key migration function
 import { migrateApiKeyToSupabase } from './src/services/apiKeyManager';
+// Import ThemeProvider
+import { ThemeProvider } from './src/hooks/useTheme';
+// Import test user initialization
+import initTestUser from './src/scripts/initTestUser';
 
 const AppContent = () => {
   const insets = useSafeAreaInsets();
@@ -41,6 +45,9 @@ export default function App() {
     // Initialize app services
     const initializeApp = async () => {
       try {
+        // Initialize test user for development
+        await initTestUser();
+        
         // Migrate API keys from SecureStore to Supabase
         await migrateApiKeyToSupabase();
         console.log('API key migration check completed');
@@ -128,8 +135,10 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="auto" />
-      <AppContent />
+      <ThemeProvider>
+        <StatusBar style="auto" />
+        <AppContent />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
