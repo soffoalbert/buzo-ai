@@ -284,6 +284,10 @@ const AIAdvisorScreen: React.FC = () => {
     navigation.navigate('Settings');
   };
 
+  const handleBack = () => {
+    navigation.goBack();
+  };
+
   // Format timestamp
   const formatMessageTime = (timestamp: Date) => {
     return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -414,9 +418,9 @@ const AIAdvisorScreen: React.FC = () => {
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={handleBack}
         >
-          <Ionicons name="arrow-back" size={24} color={colors.white} />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>Ask Buzo</Text>

@@ -66,12 +66,12 @@ export interface Feedback {
 export interface Survey {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   context: FeedbackContext;
   questions: SurveyQuestion[];
-  isActive: boolean;
-  createdAt: string;
-  expiresAt?: string;
+  is_active: boolean;
+  created_at: string;
+  expires_at?: string;
 }
 
 // Default surveys
@@ -102,8 +102,8 @@ export const DEFAULT_AI_RECOMMENDATION_SURVEY: Survey = {
       type: 'text'
     }
   ],
-  isActive: true,
-  createdAt: new Date().toISOString()
+  is_active: true,
+  created_at: new Date().toISOString()
 };
 
 export const DEFAULT_APP_EXPERIENCE_SURVEY: Survey = {
@@ -134,6 +134,6 @@ export const DEFAULT_APP_EXPERIENCE_SURVEY: Survey = {
       type: 'rating'
     }
   ],
-  isActive: true,
-  createdAt: new Date().toISOString()
+  is_active: true,
+  created_at: new Date().toISOString()
 }; 

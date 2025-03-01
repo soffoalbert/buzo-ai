@@ -7,12 +7,16 @@ import {
   TextInput, 
   ScrollView,
   Modal,
-  ActivityIndicator
+  ActivityIndicator,
+  FlatList,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Survey, SurveyQuestion, SurveyResponse } from '../models/Feedback';
 import { submitSurveyResponses } from '../services/feedbackService';
 import { useTheme } from '../hooks/useTheme';
+
+const { width } = Dimensions.get('window');
 
 interface QuickSurveyProps {
   survey: Survey;
@@ -37,10 +41,14 @@ const QuickSurvey: React.FC<QuickSurveyProps> = ({
     if (isVisible) {
       setCurrentQuestionIndex(0);
       setResponses([]);
+      
+      // Debug log to check survey structure
+      console.log('Survey in QuickSurvey:', JSON.stringify(survey, null, 2));
     }
   }, [survey, isVisible]);
 
   const handleResponse = (question: SurveyQuestion, answer: string | number) => {
+    console.log(`Setting response for question ${question.id}: ${answer}`);
     // Update responses
     setResponses(prev => {
       // Check if we already have a response for this question
@@ -64,7 +72,7 @@ const QuickSurvey: React.FC<QuickSurveyProps> = ({
   };
 
   const goToNextQuestion = () => {
-    if (currentQuestionIndex < survey.questions.length - 1) {
+    if (currentQuestionIndex < (survey.questions?.length || 0) - 1) {
       setCurrentQuestionIndex(prev => prev + 1);
     } else {
       handleSubmit();
@@ -94,99 +102,131 @@ const QuickSurvey: React.FC<QuickSurveyProps> = ({
     }
   };
 
-  const renderQuestion = (question: SurveyQuestion) => {
+  const renderRatingQuestion = (question: SurveyQuestion) => {
     const currentResponse = getCurrentResponse(question.id);
+    
+    return (
+      <View style={styles.ratingContainer}>
+        <View style={styles.ratingButtonsContainer}>
+          {[1, 2, 3, 4, 5].map((rating) => (
+            <TouchableOpacity
+              key={rating}
+              style={[
+                styles.ratingButton,
+                { borderColor: colors.border },
+                currentResponse === rating && { 
+                  backgroundColor: colors.primary,
+                  borderColor: colors.primary 
+                }
+              ]}
+              onPress={() => handleResponse(question, rating)}
+            >
+              <Text 
+                style={[
+                  styles.ratingText, 
+                  { color: colors.text },
+                  currentResponse === rating && { color: '#fff' }
+                ]}
+              >
+                {rating}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.ratingLabels}>
+          <Text style={[styles.ratingLabelText, { color: colors.text }]}>Poor</Text>
+          <Text style={[styles.ratingLabelText, { color: colors.text }]}>Excellent</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderMultipleChoiceQuestion = (question: SurveyQuestion) => {
+    const currentResponse = getCurrentResponse(question.id);
+    
+    return (
+      <View style={styles.choicesContainer}>
+        {question.options?.map((option, index) => (
+          <TouchableOpacity
+            key={index}
+            style={[
+              styles.choiceButton,
+              { borderColor: colors.border },
+              currentResponse === option && { 
+                backgroundColor: colors.primary,
+                borderColor: colors.primary 
+              }
+            ]}
+            onPress={() => handleResponse(question, option)}
+          >
+            <Text 
+              style={[
+                styles.choiceText, 
+                { color: colors.text },
+                currentResponse === option && { color: '#fff' }
+              ]}
+            >
+              {option}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
+  const renderTextQuestion = (question: SurveyQuestion) => {
+    const currentResponse = getCurrentResponse(question.id) as string;
+    
+    return (
+      <TextInput
+        style={[
+          styles.textInput,
+          { 
+            color: colors.text,
+            borderColor: colors.border,
+            backgroundColor: colors.card
+          }
+        ]}
+        placeholder="Type your answer here..."
+        placeholderTextColor={colors.text + '80'}
+        multiline
+        value={currentResponse || ''}
+        onChangeText={(text) => handleResponse(question, text)}
+      />
+    );
+  };
+
+  const renderQuestion = (question: SurveyQuestion) => {
+    if (!question) {
+      console.warn('Question is undefined');
+      return null;
+    }
+    
+    console.log(`Rendering question: ${question.id}, type: ${question.type}`);
     
     switch (question.type) {
       case 'rating':
-        return (
-          <View style={styles.ratingContainer}>
-            {[1, 2, 3, 4, 5].map((rating) => (
-              <TouchableOpacity
-                key={rating}
-                style={[
-                  styles.ratingButton,
-                  currentResponse === rating && { 
-                    backgroundColor: colors.primary,
-                    borderColor: colors.primary 
-                  }
-                ]}
-                onPress={() => handleResponse(question, rating)}
-              >
-                <Text 
-                  style={[
-                    styles.ratingText, 
-                    currentResponse === rating && { color: '#fff' }
-                  ]}
-                >
-                  {rating}
-                </Text>
-              </TouchableOpacity>
-            ))}
-            <View style={styles.ratingLabels}>
-              <Text style={[styles.ratingLabelText, { color: colors.text }]}>Poor</Text>
-              <Text style={[styles.ratingLabelText, { color: colors.text }]}>Excellent</Text>
-            </View>
-          </View>
-        );
-        
+        return renderRatingQuestion(question);
       case 'multiple_choice':
-        return (
-          <View style={styles.choicesContainer}>
-            {question.options?.map((option, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.choiceButton,
-                  { borderColor: colors.border },
-                  currentResponse === option && { 
-                    backgroundColor: colors.primary,
-                    borderColor: colors.primary 
-                  }
-                ]}
-                onPress={() => handleResponse(question, option)}
-              >
-                <Text 
-                  style={[
-                    styles.choiceText, 
-                    { color: colors.text },
-                    currentResponse === option && { color: '#fff' }
-                  ]}
-                >
-                  {option}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        );
-        
+        return renderMultipleChoiceQuestion(question);
       case 'text':
-        return (
-          <TextInput
-            style={[
-              styles.textInput,
-              { 
-                color: colors.text,
-                borderColor: colors.border,
-                backgroundColor: colors.card
-              }
-            ]}
-            placeholder="Type your answer here..."
-            placeholderTextColor={colors.text + '80'}
-            multiline
-            value={currentResponse as string || ''}
-            onChangeText={(text) => handleResponse(question, text)}
-          />
-        );
-        
+        return renderTextQuestion(question);
       default:
         return null;
     }
   };
 
-  const currentQuestion = survey.questions[currentQuestionIndex];
-  const isLastQuestion = currentQuestionIndex === survey.questions.length - 1;
-  const hasResponse = currentQuestion && getCurrentResponse(currentQuestion.id) !== undefined;
+  // Check if survey has questions
+  if (!survey.questions || !Array.isArray(survey.questions) || survey.questions.length === 0) {
+    console.warn('Survey has no questions or questions is not an array:', survey);
+  }
+
+  const questions = Array.isArray(survey.questions) ? survey.questions : [];
+  const currentQuestion = questions[currentQuestionIndex];
+  const isLastQuestion = currentQuestionIndex === (questions.length - 1);
+  const hasResponse = currentQuestion && getCurrentResponse(currentQuestion?.id) !== undefined;
+
+  console.log(`Current question index: ${currentQuestionIndex}, Current question: ${currentQuestion?.id}`);
 
   return (
     <Modal
@@ -197,6 +237,7 @@ const QuickSurvey: React.FC<QuickSurveyProps> = ({
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+          {/* Header */}
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.text }]}>{survey.title}</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -204,10 +245,12 @@ const QuickSurvey: React.FC<QuickSurveyProps> = ({
             </TouchableOpacity>
           </View>
           
+          {/* Description */}
           <Text style={[styles.description, { color: colors.text }]}>
             {survey.description}
           </Text>
           
+          {/* Progress Bar */}
           <View style={styles.progressContainer}>
             <View 
               style={[
@@ -220,35 +263,45 @@ const QuickSurvey: React.FC<QuickSurveyProps> = ({
                   styles.progressFill, 
                   { 
                     backgroundColor: colors.primary,
-                    width: `${((currentQuestionIndex + 1) / survey.questions.length) * 100}%` 
+                    width: `${((currentQuestionIndex + 1) / (questions.length || 1)) * 100}%` 
                   }
                 ]} 
               />
             </View>
             <Text style={[styles.progressText, { color: colors.text }]}>
-              {currentQuestionIndex + 1} of {survey.questions.length}
+              {currentQuestionIndex + 1} of {questions.length}
             </Text>
           </View>
           
-          <ScrollView style={styles.contentContainer}>
-            {currentQuestion && (
+          {/* Question Content */}
+          <View style={styles.contentContainer}>
+            {currentQuestion ? (
               <View style={styles.questionContainer}>
                 <Text style={[styles.questionText, { color: colors.text }]}>
                   {currentQuestion.text}
                 </Text>
                 {renderQuestion(currentQuestion)}
               </View>
+            ) : (
+              <View style={styles.questionContainer}>
+                <Text style={[styles.questionText, { color: colors.text }]}>
+                  No questions available
+                </Text>
+              </View>
             )}
-          </ScrollView>
+          </View>
           
+          {/* Navigation Buttons */}
           <View style={styles.buttonsContainer}>
-            {currentQuestionIndex > 0 && (
+            {currentQuestionIndex > 0 ? (
               <TouchableOpacity 
                 style={[styles.navButton, { borderColor: colors.border }]} 
                 onPress={goToPreviousQuestion}
               >
                 <Text style={{ color: colors.text }}>Back</Text>
               </TouchableOpacity>
+            ) : (
+              <View style={styles.emptyButtonSpace} />
             )}
             
             <TouchableOpacity 
@@ -259,7 +312,7 @@ const QuickSurvey: React.FC<QuickSurveyProps> = ({
                 (!hasResponse && !isLastQuestion) && { opacity: 0.5 }
               ]} 
               onPress={goToNextQuestion}
-              disabled={!hasResponse && !isLastQuestion}
+              disabled={!hasResponse && !isLastQuestion && questions.length > 0}
             >
               {isSubmitting && isLastQuestion ? (
                 <ActivityIndicator color="#fff" size="small" />
@@ -284,10 +337,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContent: {
-    width: '90%',
-    maxHeight: '80%',
+    width: '92%',
+    maxHeight: '85%',
     borderRadius: 16,
     padding: 20,
+    paddingBottom: 500,
+    display: 'flex',
+    flexDirection: 'column',
   },
   header: {
     flexDirection: 'row',
@@ -308,7 +364,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   progressContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   progressBar: {
     height: 6,
@@ -325,40 +381,54 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
+    minHeight: 400,
+    justifyContent: 'center',
+  },
+  contentContainerStyle: {
+    paddingVertical: 10,
   },
   questionContainer: {
-    marginBottom: 20,
+    width: '100%',
+    alignItems: 'center',
   },
   questionText: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 16,
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 24,
+    textAlign: 'center',
   },
   ratingContainer: {
+    width: '100%',
     alignItems: 'center',
+    marginBottom: 16,
+  },
+  ratingButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 8,
   },
   ratingButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: '#ccc',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    margin: 8,
+    margin: 2,
   },
   ratingText: {
-    fontSize: 18,
-    fontWeight: '500',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   ratingLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    marginTop: 8,
   },
   ratingLabelText: {
-    fontSize: 12,
+    fontSize: 14,
+    fontWeight: '500',
   },
   choicesContainer: {
     width: '100%',
@@ -378,11 +448,12 @@ const styles = StyleSheet.create({
     padding: 12,
     minHeight: 100,
     textAlignVertical: 'top',
+    width: '100%',
   },
   buttonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 20,
+    marginTop: 16,
   },
   navButton: {
     paddingVertical: 12,
@@ -395,6 +466,9 @@ const styles = StyleSheet.create({
   },
   nextButton: {
     borderWidth: 0,
+  },
+  emptyButtonSpace: {
+    minWidth: '45%',
   },
 });
 

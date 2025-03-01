@@ -718,6 +718,7 @@ export const getAvailableSurveys = async (): Promise<Survey[]> => {
           .eq('is_active', true);
         
         if (!error && data && data.length > 0) {
+          console.log('Fetched surveys from Supabase admin:', JSON.stringify(data, null, 2));
           // Save surveys locally
           await saveData(SURVEYS_STORAGE_KEY, data);
           return data;
@@ -735,6 +736,7 @@ export const getAvailableSurveys = async (): Promise<Survey[]> => {
         .eq('is_active', true);
       
       if (!error && data && data.length > 0) {
+        console.log('Fetched surveys from Supabase:', JSON.stringify(data, null, 2));
         // Save surveys locally
         await saveData(SURVEYS_STORAGE_KEY, data);
         return data;
@@ -747,10 +749,12 @@ export const getAvailableSurveys = async (): Promise<Survey[]> => {
     const localSurveys = await loadData<Survey[]>(SURVEYS_STORAGE_KEY);
     
     if (localSurveys && localSurveys.length > 0) {
+      console.log('Using locally stored surveys:', JSON.stringify(localSurveys, null, 2));
       return localSurveys;
     }
     
     // Fall back to default surveys
+    console.log('Using default surveys');
     return [DEFAULT_AI_RECOMMENDATION_SURVEY, DEFAULT_APP_EXPERIENCE_SURVEY];
   } catch (error) {
     console.error('Error getting available surveys:', error);

@@ -35,6 +35,7 @@ const FeedbackScreen: React.FC = () => {
     try {
       const availableSurveys = await getAvailableSurveys();
       setSurveys(availableSurveys);
+      console.log('Loaded surveys:', JSON.stringify(availableSurveys, null, 2));
     } catch (error) {
       console.error('Error loading surveys:', error);
     } finally {
