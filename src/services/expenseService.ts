@@ -699,8 +699,8 @@ export const getExpenseById = async (id: string): Promise<Expense | null> => {
 export const filterExpenses = async (
   filters: ExpenseFilters
 ): Promise<Expense[]> => {
-  const expenses = await loadExpenses();
-  
+  const expenses = await fetchExpensesFromSupabase();
+  console.log('expenses', expenses);
   return expenses.filter(expense => {
     // Filter by date range
     if (filters.startDate && new Date(expense.date) < new Date(filters.startDate)) {

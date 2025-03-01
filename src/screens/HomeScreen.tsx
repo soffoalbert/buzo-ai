@@ -24,9 +24,10 @@ import { loadBudgets, getBudgetStatistics } from '../services/budgetService';
 import { loadSavingsGoals, getSavingsStatistics } from '../services/savingsService';
 import { getExpenseStatistics, filterExpenses } from '../services/expenseService';
 import { startOfWeek, endOfWeek, format, eachDayOfInterval } from 'date-fns';
-import { setMockDataEnabled, isMockDataEnabled } from '../services/mockDataService';
+import { generateAndSaveMockExpenses, setMockDataEnabled, isMockDataEnabled } from '../services/mockDataService';
 import { supabase } from '../api/supabaseClient';
 import { getUserProfile } from '../services/authService';
+import { loadExpenses } from '../services/expenseService';
 
 const { width } = Dimensions.get('window');
 
@@ -106,13 +107,10 @@ const HomeScreen: React.FC = () => {
     
     // Explicitly disable mock data on component mount
     const disableMockData = async () => {
-      const isMockEnabled = await isMockDataEnabled();
-      setUsingMockData(isMockEnabled);
-      
-      if (isMockEnabled) {
-        await setMockDataEnabled(false);
-        console.log('Mock data disabled, real data will be used');
-      }
+      // Always disable mock data, regardless of current setting
+      await setMockDataEnabled(false);
+      setUsingMockData(false);
+      console.log('Mock data disabled, only real data will be used');
     };
     
     // Get user directly from Supabase session
@@ -166,7 +164,8 @@ const HomeScreen: React.FC = () => {
         } else if (event === 'SIGNED_OUT') {
           // Handle sign out if needed
           setUserName('User');
-          setUsingMockData(true);
+          // Even on sign out, don't use mock data
+          setUsingMockData(false);
         }
       }
     );
@@ -208,10 +207,6 @@ const HomeScreen: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      
-      // Check if mock data is still enabled despite our attempt to disable it
-      const mockDataStatus = await isMockDataEnabled();
-      setUsingMockData(mockDataStatus);
       
       // Load user profile from authService
       const { data: profile, error: profileError } = await getUserProfile();
@@ -273,12 +268,18 @@ const HomeScreen: React.FC = () => {
       const start = startOfWeek(now, { weekStartsOn: 1 }); // Week starts on Monday
       const end = endOfWeek(now, { weekStartsOn: 1 });
       
-      // Get all expenses in the week
+      // Ensure mock data is disabled
+      await setMockDataEnabled(false);
+      
+      // Get all expenses in the week - only real data from Supabase
       const weeklyExpenses = await filterExpenses({
         startDate: format(start, 'yyyy-MM-dd'),
         endDate: format(end, 'yyyy-MM-dd'),
       });
+
+      console.log('weeklyExpenses', expenseStats);
       
+      // Only set hasWeeklySpendingData to true if there are real expenses
       if (weeklyExpenses.length > 0) {
         setHasWeeklySpendingData(true);
         
@@ -309,6 +310,9 @@ const HomeScreen: React.FC = () => {
             },
           ],
         });
+      } else {
+        // Make sure to set hasWeeklySpendingData to false when there are no expenses
+        setHasWeeklySpendingData(false);
       }
       
     } catch (error) {
@@ -321,7 +325,7 @@ const HomeScreen: React.FC = () => {
 
   const onRefresh = () => {
     setRefreshing(true);
-    // Force disable mock data again on refresh
+    // Always ensure mock data is disabled on refresh
     setMockDataEnabled(false).then(() => loadData());
   };
 
