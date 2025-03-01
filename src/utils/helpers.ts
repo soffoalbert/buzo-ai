@@ -121,4 +121,22 @@ export const isEmpty = (value: any): boolean => {
   if (Array.isArray(value)) return value.length === 0;
   if (typeof value === 'object') return Object.keys(value).length === 0;
   return false;
+};
+
+/**
+ * Calculate the number of days left until a target date
+ * @param targetDate Target date string in ISO format
+ * @returns Number of days left (0 if date is in the past)
+ */
+export const calculateDaysLeft = (targetDate: string): number => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Reset time to start of day
+  
+  const target = new Date(targetDate);
+  target.setHours(0, 0, 0, 0); // Reset time to start of day
+  
+  const diffTime = target.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  return Math.max(0, diffDays);
 }; 

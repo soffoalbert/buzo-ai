@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useNavigationState } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
@@ -25,6 +25,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const BudgetScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
+  const navigationState = useNavigationState(state => state);
   const [activeTab, setActiveTab] = useState('categories');
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,6 +36,12 @@ const BudgetScreen: React.FC = () => {
     remainingBudget: 0,
     spendingPercentage: 0,
   });
+
+  const handleBack = () => {
+    if (navigationState.routes.length > 1) {
+      navigation.goBack();
+    }
+  };
 
   const fetchBudgets = async () => {
     try {
@@ -153,6 +160,12 @@ const BudgetScreen: React.FC = () => {
       
       {/* Header */}
       <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={handleBack}
+        >
+          <Ionicons name="chevron-back" size={28} color={colors.text} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Budget</Text>
         <TouchableOpacity 
           style={styles.headerButton}
@@ -274,6 +287,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+  },
+  backButton: {
+    padding: spacing.xs,
   },
   headerTitle: {
     fontSize: textStyles.h2.fontSize,

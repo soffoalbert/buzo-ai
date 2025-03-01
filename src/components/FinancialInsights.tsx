@@ -258,36 +258,119 @@ const FinancialInsights: React.FC<FinancialInsightsProps> = ({
       
       {/* Monthly Overview */}
       {monthlyIncome !== undefined && monthlyExpenses !== undefined && (
-        <Card
-          title="Monthly Overview"
-          style={styles.card}
-        >
-          <View style={styles.overviewContainer}>
-            <View style={styles.overviewItem}>
-              <Text style={styles.overviewLabel}>Income</Text>
-              <Text style={styles.overviewIncome}>
-                {formatCurrency(monthlyIncome, locale, currency)}
-              </Text>
-            </View>
-            <View style={styles.overviewDivider} />
-            <View style={styles.overviewItem}>
-              <Text style={styles.overviewLabel}>Expenses</Text>
-              <Text style={styles.overviewExpense}>
-                {formatCurrency(monthlyExpenses, locale, currency)}
-              </Text>
-            </View>
-            <View style={styles.overviewDivider} />
-            <View style={styles.overviewItem}>
-              <Text style={styles.overviewLabel}>Balance</Text>
-              <Text style={[
-                styles.overviewBalance,
-                { color: monthlyIncome - monthlyExpenses >= 0 ? '#43A047' : '#E53935' }
-              ]}>
-                {formatCurrency(monthlyIncome - monthlyExpenses, locale, currency)}
-              </Text>
-            </View>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Monthly Overview</Text>
           </View>
-        </Card>
+          
+          <Card
+            style={styles.card}
+            variant="default"
+            elevated={true}
+          >
+            {/* Income vs Expenses Visual */}
+            <View style={styles.overviewVisual}>
+              <View style={styles.overviewBarContainer}>
+                <View style={styles.overviewBarLabel}>
+                  <Text style={styles.overviewBarLabelText}>Income</Text>
+                </View>
+                <View style={styles.overviewBar}>
+                  <View 
+                    style={[
+                      styles.overviewBarFill, 
+                      { width: '100%', backgroundColor: '#43A047' }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.overviewBarAmount}>
+                  {formatCurrency(monthlyIncome, locale, currency)}
+                </Text>
+              </View>
+              
+              <View style={styles.overviewBarContainer}>
+                <View style={styles.overviewBarLabel}>
+                  <Text style={styles.overviewBarLabelText}>Expenses</Text>
+                </View>
+                <View style={styles.overviewBar}>
+                  <View 
+                    style={[
+                      styles.overviewBarFill, 
+                      { 
+                        width: `${Math.min((monthlyExpenses / monthlyIncome) * 100, 100)}%`, 
+                        backgroundColor: '#E53935' 
+                      }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.overviewBarAmount}>
+                  {formatCurrency(monthlyExpenses, locale, currency)}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.overviewDivider} />
+            
+            {/* Financial Metrics */}
+            <View style={styles.overviewContainer}>
+              <View style={styles.overviewItem}>
+                <Text style={styles.overviewLabel}>Balance</Text>
+                <Text style={[
+                  styles.overviewBalance,
+                  { color: monthlyIncome - monthlyExpenses >= 0 ? '#43A047' : '#E53935' }
+                ]}>
+                  {formatCurrency(monthlyIncome - monthlyExpenses, locale, currency)}
+                </Text>
+              </View>
+              
+              <View style={styles.overviewDivider} />
+              
+              <View style={styles.overviewItem}>
+                <Text style={styles.overviewLabel}>Savings Rate</Text>
+                <Text style={[
+                  styles.overviewSavingsRate,
+                  { 
+                    color: savingsRate >= 20 ? '#43A047' : 
+                           savingsRate >= 10 ? '#F59E0B' : '#E53935' 
+                  }
+                ]}>
+                  {savingsRate.toFixed(0)}%
+                </Text>
+              </View>
+              
+              <View style={styles.overviewDivider} />
+              
+              <View style={styles.overviewItem}>
+                <Text style={styles.overviewLabel}>Budget Used</Text>
+                <Text style={[
+                  styles.overviewBudgetUsed,
+                  { 
+                    color: (monthlyExpenses / monthlyIncome) <= 0.8 ? '#43A047' : 
+                           (monthlyExpenses / monthlyIncome) <= 1 ? '#F59E0B' : '#E53935' 
+                  }
+                ]}>
+                  {Math.min(Math.round((monthlyExpenses / monthlyIncome) * 100), 100)}%
+                </Text>
+              </View>
+            </View>
+            
+            {/* Savings Tip */}
+            {monthlyIncome > monthlyExpenses ? (
+              <View style={styles.overviewTip}>
+                <Ionicons name="checkmark-circle" size={16} color="#43A047" />
+                <Text style={styles.overviewTipText}>
+                  Great job! You're spending less than you earn.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.overviewTip}>
+                <Ionicons name="alert-circle" size={16} color="#E53935" />
+                <Text style={styles.overviewTipText}>
+                  Warning: You're spending more than you earn this month.
+                </Text>
+              </View>
+            )}
+          </Card>
+        </View>
       )}
       
       {/* Spending Categories */}
@@ -601,6 +684,61 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
+  },
+  overviewVisual: {
+    marginBottom: 16,
+  },
+  overviewBarContainer: {
+    marginBottom: 12,
+  },
+  overviewBarLabel: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  overviewBarLabelText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  overviewBar: {
+    height: 12,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  overviewBarFill: {
+    height: '100%',
+    borderRadius: 6,
+  },
+  overviewBarAmount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+    textAlign: 'right',
+  },
+  overviewSavingsRate: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  overviewBudgetUsed: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  overviewTip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  overviewTipText: {
+    fontSize: 14,
+    color: '#4B5563',
+    marginLeft: 8,
+    flex: 1,
   },
 });
 

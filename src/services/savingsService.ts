@@ -5,6 +5,7 @@ import * as savingsApi from '../api/savingsApi';
 import { checkSupabaseConnection } from '../api/supabaseClient';
 import syncQueueService from './syncQueueService';
 import { supabase } from '../api/supabaseClient';
+import { v4 as uuidv4 } from 'uuid';
 
 // Storage keys
 const SAVINGS_GOALS_STORAGE_KEY = 'buzo_savings_goals';
@@ -134,74 +135,33 @@ export const createSavingsGoal = async (
 };
 
 /**
- * Update an existing savings goal
- * @param id Savings goal ID to update
+ * Update a savings goal with partial data
+ * @param id The ID of the savings goal to update
  * @param goalData Partial savings goal data to update
  * @returns Promise resolving to the updated savings goal
  */
 export const updateSavingsGoal = async (
   id: string,
-  goalData: Partial<Omit<SavingsGoal, 'id' | 'createdAt' | 'updatedAt'>>
+  goalData: Partial<Omit<SavingsGoal, 'id'>>
 ): Promise<SavingsGoal> => {
   try {
-    // Check if we're online and can connect to Supabase
+    // Check if we're online
     const isOnline = await checkSupabaseConnection();
-    
-    if (isOnline) {
-      // If online, update in Supabase
-      const updatedGoal = await savingsApi.updateSavingsGoal(id, goalData);
-      
-      // Update local storage
-      const currentGoals = await loadSavingsGoalsLocally();
-      const updatedGoals = currentGoals.map(goal => 
-        goal.id === id ? updatedGoal : goal
-      );
-      await saveSavingsGoals(updatedGoals);
-      
-      return updatedGoal;
-    } else {
-      // If offline, update locally and queue for sync
-      console.log('Offline mode: Updating savings goal locally');
-      
-      const currentGoals = await loadSavingsGoalsLocally();
-      const goalIndex = currentGoals.findIndex(goal => goal.id === id);
-      
-      if (goalIndex === -1) {
-        throw new Error(`Savings goal with ID ${id} not found`);
-      }
-      
-      // Check if goal is completed
-      let isCompleted = currentGoals[goalIndex].isCompleted;
-      if (goalData.currentAmount !== undefined && 
-          goalData.targetAmount !== undefined && 
-          goalData.currentAmount >= goalData.targetAmount) {
-        isCompleted = true;
-      } else if (goalData.currentAmount !== undefined && 
-                currentGoals[goalIndex].targetAmount && 
-                goalData.currentAmount >= currentGoals[goalIndex].targetAmount) {
-        isCompleted = true;
-      }
-      
-      const updatedGoal: SavingsGoal = {
-        ...currentGoals[goalIndex],
-        ...goalData,
-        isCompleted,
-        updatedAt: new Date().toISOString(),
-      };
-      
-      currentGoals[goalIndex] = updatedGoal;
-      await saveSavingsGoals(currentGoals);
-      
-      // Queue for sync when back online
-      await syncQueueService.addToSyncQueue({
-        id: updatedGoal.id,
-        type: 'UPDATE_SAVINGS_GOAL',
-        data: updatedGoal,
-        timestamp: Date.now(),
-      }, 5); // Higher priority for savings goals
-      
-      return updatedGoal;
+
+    // Get the current goal to update
+    const currentGoal = await getSavingsGoal(id);
+    if (!currentGoal) {
+      throw new Error(`Savings goal with id ${id} not found`);
     }
+
+    // Merge the current goal with the updates
+    const updatedGoal: SavingsGoal = {
+      ...currentGoal,
+      ...goalData,
+    };
+
+    // Update the goal with the entire object
+    return updateEntireSavingsGoal(updatedGoal);
   } catch (error) {
     console.error('Error updating savings goal:', error);
     throw error;
@@ -259,13 +219,256 @@ export const deleteSavingsGoal = async (id: string): Promise<boolean> => {
 
 /**
  * Get a savings goal by ID
- * @param id Savings goal ID to retrieve
+ * @param goalId ID of the savings goal to retrieve
  * @returns Promise resolving to the savings goal or null if not found
  */
-export const getSavingsGoalById = async (id: string): Promise<SavingsGoal | null> => {
-  const goals = await loadSavingsGoals();
-  const goal = goals.find(goal => goal.id === id);
-  return goal || null;
+export const getSavingsGoalById = async (goalId: string): Promise<SavingsGoal | null> => {
+  try {
+    // Check if we're online and can connect to Supabase
+    const isOnline = await checkSupabaseConnection();
+    
+    if (isOnline) {
+      // If online, fetch from Supabase
+      const goal = await savingsApi.fetchSavingsGoalById(goalId);
+      return goal;
+    } else {
+      // If offline, fetch from local storage
+      console.log('Offline mode: Loading savings goal from local storage');
+      const goals = await loadSavingsGoalsLocally();
+      return goals.find(goal => goal.id === goalId) || null;
+    }
+  } catch (error) {
+    console.error('Error loading savings goal by ID:', error);
+    
+    // Fallback to local storage
+    console.log('Falling back to local storage for savings goal');
+    const goals = await loadSavingsGoalsLocally();
+    return goals.find(goal => goal.id === goalId) || null;
+  }
+};
+
+/**
+ * Get a savings goal by ID (alias for getSavingsGoalById for consistency)
+ * @param goalId ID of the savings goal to retrieve
+ * @returns Promise resolving to the savings goal or null if not found
+ */
+export const getSavingsGoal = async (goalId: string): Promise<SavingsGoal | null> => {
+  return getSavingsGoalById(goalId);
+};
+
+/**
+ * Update a savings goal's current amount
+ * @param goalId ID of the savings goal to update
+ * @param newAmount New current amount
+ * @returns Promise resolving to the updated savings goal
+ */
+export const updateSavingsGoalAmount = async (goalId: string, newAmount: number): Promise<SavingsGoal> => {
+  try {
+    // Check if we're online
+    const isOnline = await checkSupabaseConnection();
+    
+    // Get the current goals
+    const currentGoals = await loadSavingsGoalsLocally();
+    const goalIndex = currentGoals.findIndex(goal => goal.id === goalId);
+    
+    if (goalIndex === -1) {
+      throw new Error('Savings goal not found');
+    }
+    
+    // Update the goal
+    const updatedGoal = {
+      ...currentGoals[goalIndex],
+      currentAmount: newAmount,
+      isCompleted: newAmount >= currentGoals[goalIndex].targetAmount,
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Replace the goal in the array
+    const updatedGoals = [...currentGoals];
+    updatedGoals[goalIndex] = updatedGoal;
+    
+    // Save to local storage
+    await saveSavingsGoals(updatedGoals);
+    
+    if (isOnline) {
+      // If online, update in Supabase
+      await savingsApi.updateSavingsGoal(updatedGoal);
+    } else {
+      // If offline, queue for sync
+      await syncQueueService.addToQueue('update_savings_goal', updatedGoal);
+    }
+    
+    return updatedGoal;
+  } catch (error) {
+    console.error('Error updating savings goal amount:', error);
+    throw new Error('Failed to update savings goal amount');
+  }
+};
+
+/**
+ * Update a savings goal with the entire goal object
+ * @param goal The complete savings goal object
+ * @returns Promise resolving to the updated savings goal
+ */
+export const updateEntireSavingsGoal = async (goal: SavingsGoal): Promise<SavingsGoal> => {
+  try {
+    // Check if we're online
+    const isOnline = await checkSupabaseConnection();
+    
+    // Get the current goals
+    const currentGoals = await loadSavingsGoalsLocally();
+    const goalIndex = currentGoals.findIndex(g => g.id === goal.id);
+    
+    if (goalIndex === -1) {
+      throw new Error('Savings goal not found');
+    }
+    
+    // Update the goal with the updated timestamp
+    const updatedGoal = {
+      ...goal,
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Replace the goal in the array
+    const updatedGoals = [...currentGoals];
+    updatedGoals[goalIndex] = updatedGoal;
+    
+    // Save to local storage
+    await saveSavingsGoals(updatedGoals);
+    
+    if (isOnline) {
+      // If online, update in Supabase
+      await savingsApi.updateSavingsGoal(updatedGoal);
+    } else {
+      // If offline, queue for sync
+      await syncQueueService.addToQueue('update_savings_goal', updatedGoal);
+    }
+    
+    return updatedGoal;
+  } catch (error) {
+    console.error('Error updating savings goal:', error);
+    throw new Error('Failed to update savings goal');
+  }
+};
+
+/**
+ * Add a milestone to a savings goal
+ * @param goalId ID of the savings goal
+ * @param milestone Milestone to add
+ * @returns Promise resolving to the updated savings goal
+ */
+export const addMilestoneToGoal = async (
+  goalId: string,
+  milestone: SavingsMilestone
+): Promise<SavingsGoal> => {
+  try {
+    // Get the current goal
+    const goal = await getSavingsGoal(goalId);
+    if (!goal) {
+      throw new Error(`Savings goal with id ${goalId} not found`);
+    }
+
+    // Create a new milestone with a unique ID
+    const newMilestone: SavingsMilestone = {
+      ...milestone,
+      id: uuidv4(),
+      isCompleted: milestone.currentAmount >= milestone.targetAmount,
+    };
+
+    // Add the milestone to the goal
+    const milestones = [...(goal.milestones || []), newMilestone];
+
+    // Update the goal with the new milestones
+    return updateSavingsGoal(goalId, { milestones });
+  } catch (error) {
+    console.error('Error adding milestone to goal:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update a milestone in a savings goal
+ * @param goalId ID of the savings goal
+ * @param milestone Updated milestone data
+ * @returns Promise resolving to the updated savings goal
+ */
+export const updateMilestone = async (goalId: string, milestone: SavingsMilestone): Promise<SavingsGoal> => {
+  try {
+    // Get the savings goal
+    const goal = await getSavingsGoalById(goalId);
+    
+    if (!goal) {
+      throw new Error('Savings goal not found');
+    }
+    
+    // Check if goal has milestones
+    if (!goal.milestones || goal.milestones.length === 0) {
+      throw new Error('Savings goal has no milestones');
+    }
+    
+    // Find the milestone index
+    const milestoneIndex = goal.milestones.findIndex(m => m.id === milestone.id);
+    
+    if (milestoneIndex === -1) {
+      throw new Error('Milestone not found');
+    }
+    
+    // Update the milestone
+    const updatedMilestones = [...goal.milestones];
+    updatedMilestones[milestoneIndex] = milestone;
+    
+    // Sort milestones by target amount
+    updatedMilestones.sort((a, b) => a.targetAmount - b.targetAmount);
+    
+    // Update the goal
+    const updatedGoal = {
+      ...goal,
+      milestones: updatedMilestones,
+      updatedAt: new Date().toISOString()
+    };
+    
+    return updateEntireSavingsGoal(updatedGoal);
+  } catch (error) {
+    console.error('Error updating milestone:', error);
+    throw new Error('Failed to update milestone');
+  }
+};
+
+/**
+ * Delete a milestone from a savings goal
+ * @param goalId ID of the savings goal
+ * @param milestoneId ID of the milestone to delete
+ * @returns Promise resolving to the updated savings goal
+ */
+export const deleteMilestone = async (goalId: string, milestoneId: string): Promise<SavingsGoal> => {
+  try {
+    // Get the savings goal
+    const goal = await getSavingsGoalById(goalId);
+    
+    if (!goal) {
+      throw new Error('Savings goal not found');
+    }
+    
+    // Check if goal has milestones
+    if (!goal.milestones || goal.milestones.length === 0) {
+      throw new Error('Savings goal has no milestones');
+    }
+    
+    // Remove the milestone
+    const updatedMilestones = goal.milestones.filter(m => m.id !== milestoneId);
+    
+    // Update the goal
+    const updatedGoal = {
+      ...goal,
+      milestones: updatedMilestones,
+      updatedAt: new Date().toISOString()
+    };
+    
+    return updateEntireSavingsGoal(updatedGoal);
+  } catch (error) {
+    console.error('Error deleting milestone:', error);
+    throw new Error('Failed to delete milestone');
+  }
 };
 
 /**
@@ -450,5 +653,118 @@ export const loadSavingsCategories = async () => {
   } catch (error) {
     console.error('Error loading savings categories:', error);
     return SAVINGS_CATEGORIES;
+  }
+};
+
+export const updateSavingsMilestone = async (
+  goalId: string,
+  milestoneId: string,
+  milestoneData: Partial<SavingsMilestone>
+): Promise<SavingsGoal> => {
+  try {
+    // Get the current goal
+    const goal = await getSavingsGoal(goalId);
+    if (!goal) {
+      throw new Error(`Savings goal with id ${goalId} not found`);
+    }
+
+    // Find and update the milestone
+    const milestones = goal.milestones?.map(milestone => {
+      if (milestone.id === milestoneId) {
+        // Check if milestone is completed
+        const isCompleted = 
+          milestoneData.currentAmount !== undefined && 
+          (milestoneData.targetAmount || milestone.targetAmount) && 
+          milestoneData.currentAmount >= (milestoneData.targetAmount || milestone.targetAmount);
+        
+        return {
+          ...milestone,
+          ...milestoneData,
+          isCompleted: isCompleted !== undefined ? isCompleted : milestone.isCompleted
+        };
+      }
+      return milestone;
+    });
+    
+    return updateSavingsGoal(goalId, { milestones });
+  } catch (error) {
+    console.error('Error updating milestone:', error);
+    throw error;
+  }
+};
+
+export const deleteSavingsMilestone = async (
+  goalId: string,
+  milestoneId: string
+): Promise<SavingsGoal> => {
+  try {
+    // Get the current goal
+    const goal = await getSavingsGoal(goalId);
+    if (!goal) {
+      throw new Error(`Savings goal with id ${goalId} not found`);
+    }
+
+    // Filter out the milestone to delete
+    const milestones = goal.milestones?.filter(
+      milestone => milestone.id !== milestoneId
+    );
+    
+    return updateSavingsGoal(goalId, { milestones });
+  } catch (error) {
+    console.error('Error deleting milestone:', error);
+    throw error;
+  }
+};
+
+export const contributeSavingsGoal = async (
+  id: string,
+  amount: number
+): Promise<SavingsGoal> => {
+  try {
+    const goal = await getSavingsGoal(id);
+    if (!goal) {
+      throw new Error(`Savings goal with id ${id} not found`);
+    }
+
+    const newAmount = (goal.currentAmount || 0) + amount;
+    const isCompleted = newAmount >= goal.targetAmount;
+    
+    return updateSavingsGoal(id, {
+      currentAmount: newAmount,
+      isCompleted,
+      lastContributionDate: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error contributing to savings goal:', error);
+    throw error;
+  }
+};
+
+export const withdrawFromSavingsGoal = async (
+  id: string,
+  amount: number
+): Promise<SavingsGoal> => {
+  try {
+    const goal = await getSavingsGoal(id);
+    if (!goal) {
+      throw new Error(`Savings goal with id ${id} not found`);
+    }
+
+    const currentAmount = goal.currentAmount || 0;
+    if (amount > currentAmount) {
+      throw new Error('Withdrawal amount exceeds available funds');
+    }
+
+    const newAmount = currentAmount - amount;
+    const isCompleted = newAmount >= goal.targetAmount;
+    
+    return updateSavingsGoal(id, {
+      currentAmount: newAmount,
+      isCompleted,
+      lastWithdrawalDate: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error withdrawing from savings goal:', error);
+    throw error;
   }
 }; 

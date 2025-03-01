@@ -466,24 +466,38 @@ const InsightsScreen: React.FC = () => {
         >
           {/* Timeframe Selector */}
           <View style={styles.timeframeContainer}>
-            <Text style={styles.timeframeLabel}>Timeframe:</Text>
             <View style={styles.timeframeButtonsContainer}>
-              {['week', 'month', 'year'].map((tf) => (
+              {[
+                { id: 'week', label: 'Week', icon: 'calendar-outline' },
+                { id: 'month', label: 'Month', icon: 'calendar-clear-outline' },
+                { id: 'year', label: 'Year', icon: 'calendar' }
+              ].map(({ id, label, icon }) => (
                 <TouchableOpacity
-                  key={tf}
+                  key={id}
                   style={[
                     styles.timeframeButton,
-                    timeframe === tf && styles.timeframeButtonActive,
+                    timeframe === id && styles.timeframeButtonActive,
+                    { flexDirection: 'row', alignItems: 'center', gap: 6 }
                   ]}
-                  onPress={() => setTimeframe(tf as 'week' | 'month' | 'year')}
+                  onPress={() => setTimeframe(id as 'week' | 'month' | 'year')}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${label.toLowerCase()} insights`}
+                  accessibilityState={{ selected: timeframe === id }}
                 >
+                  <Ionicons
+                    name={icon}
+                    size={16}
+                    color={timeframe === id ? colors.white : colors.text}
+                  />
                   <Text
                     style={[
                       styles.timeframeButtonText,
-                      timeframe === tf && styles.timeframeButtonTextActive,
+                      timeframe === id && styles.timeframeButtonTextActive,
+                      { fontWeight: '600' }
                     ]}
                   >
-                    {tf.charAt(0).toUpperCase() + tf.slice(1)}
+                    {label}
                   </Text>
                 </TouchableOpacity>
               ))}

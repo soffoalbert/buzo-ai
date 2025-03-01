@@ -10,13 +10,16 @@ import {
   StatusBar,
   ActivityIndicator,
   Dimensions,
-  Share
+  Share,
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
 import { colors, spacing, textStyles, borderRadius } from '../utils/theme';
+import { getArticleById, getQuizForArticle, markArticleAsCompleted, Quiz, getUserId } from '../services/educationService';
+import QuizComponent from '../components/QuizComponent';
 
 // Define the article interface (should match the one in EducationScreen)
 interface EducationArticle {
@@ -46,26 +49,49 @@ const ArticleDetailScreen: React.FC = () => {
   const [fullArticle, setFullArticle] = useState<EducationArticle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [showQuiz, setShowQuiz] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [articleCompleted, setArticleCompleted] = useState(false);
 
   useEffect(() => {
     loadArticleContent();
+    fetchUserId();
   }, []);
+
+  const fetchUserId = async () => {
+    const id = await getUserId();
+    setUserId(id || 'guest-user');
+  };
 
   const loadArticleContent = async () => {
     try {
       setIsLoading(true);
       setError(null);
       
-      // In a real app, this would fetch the full article content from an API
-      // For this demo, we'll simulate an API call with a timeout
-      setTimeout(() => {
-        const articleWithContent = {
-          ...article,
-          content: generateMockContentForCategory(article.category)
-        };
-        setFullArticle(articleWithContent);
-        setIsLoading(false);
-      }, 1500);
+      // Get the full article with real educationService
+      const articleData = await getArticleById(article.id);
+      
+      if (articleData) {
+        setFullArticle(articleData);
+        
+        // If the article has a quiz, fetch it
+        if (articleData.hasQuiz) {
+          const quizData = await getQuizForArticle(article.id);
+          setQuiz(quizData);
+        }
+      } else {
+        // Fallback to mock content generation if real data not available
+        setTimeout(() => {
+          const articleWithContent = {
+            ...article,
+            content: generateMockContentForCategory(article.category)
+          };
+          setFullArticle(articleWithContent);
+        }, 1000);
+      }
+      
+      setIsLoading(false);
     } catch (error) {
       console.error('Error loading article content:', error);
       setError('Failed to load article content. Please try again.');
@@ -298,8 +324,45 @@ Remember that financial education is a lifelong journey. Start where you are, us
   };
 
   const handleStartQuiz = () => {
-    // In a real app, this would navigate to a quiz screen
-    alert('Quiz feature coming soon!');
+    if (!userId) {
+      Alert.alert('Not Logged In', 'Please log in to take quizzes.');
+      return;
+    }
+    
+    if (!quiz) {
+      Alert.alert('Quiz Not Available', 'This quiz is not available right now. Please try again later.');
+      return;
+    }
+    
+    setShowQuiz(true);
+  };
+
+  const handleQuizComplete = async (score: number, totalQuestions: number) => {
+    try {
+      // Mark the article as completed
+      if (userId && fullArticle) {
+        await markArticleAsCompleted(userId, fullArticle.id);
+        setArticleCompleted(true);
+      }
+      
+      // Hide the quiz
+      setShowQuiz(false);
+      
+      // Show completion message
+      const percentage = Math.round((score / totalQuestions) * 100);
+      Alert.alert(
+        'Quiz Completed!',
+        `You scored ${score}/${totalQuestions} (${percentage}%).\n\nThis article has been marked as completed.`,
+        [{ text: 'Continue Reading', style: 'default' }]
+      );
+    } catch (error) {
+      console.error('Error completing quiz:', error);
+      Alert.alert('Error', 'There was a problem saving your progress.');
+    }
+  };
+  
+  const handleQuizCancel = () => {
+    setShowQuiz(false);
   };
 
   const handleScroll = (event: any) => {
@@ -337,6 +400,28 @@ Remember that financial education is a lifelong journey. Start where you are, us
         <StatusBar barStyle="dark-content" />
         <ActivityIndicator size="large" color="#4F46E5" />
         <Text style={styles.loadingText}>Loading article...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Render quiz or article content
+  if (showQuiz && quiz && userId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={handleQuizCancel}>
+            <Ionicons name="close" size={24} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.quizHeaderTitle}>Quiz</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        
+        <QuizComponent
+          quiz={quiz}
+          userId={userId}
+          onComplete={handleQuizComplete}
+          onCancel={handleQuizCancel}
+        />
       </SafeAreaView>
     );
   }
@@ -514,12 +599,22 @@ Remember that financial education is a lifelong journey. Start where you are, us
       )}
       
       {/* Quiz Button */}
-      {fullArticle?.hasQuiz && !isLoading && !error && (
+      {fullArticle?.hasQuiz && !isLoading && !error && !articleCompleted && (
         <View style={styles.quizContainer}>
           <TouchableOpacity style={styles.quizButton} onPress={handleStartQuiz}>
-            <Ionicons name="school-outline" size={20} color={colors.white} />
             <Text style={styles.quizButtonText}>Take Quiz</Text>
+            <Ionicons name="school-outline" size={20} color={colors.white} />
           </TouchableOpacity>
+        </View>
+      )}
+      
+      {/* Completed Badge */}
+      {articleCompleted && (
+        <View style={styles.completedBadgeContainer}>
+          <View style={styles.completedBadge}>
+            <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+            <Text style={styles.completedText}>Completed</Text>
+          </View>
         </View>
       )}
     </SafeAreaView>
@@ -844,6 +939,35 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#1F2937',
+  },
+  quizHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  completedBadgeContainer: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    backgroundColor: `${colors.success}15`,
+    borderRadius: 16,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  completedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  completedText: {
+    color: colors.success,
+    fontWeight: '600',
+    marginLeft: 4,
   },
 });
 

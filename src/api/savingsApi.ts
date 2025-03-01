@@ -264,4 +264,209 @@ export const deleteSavingsGoal = async (id: string): Promise<boolean> => {
     console.error('Error in deleteSavingsGoal:', error);
     throw error;
   }
+};
+
+/**
+ * Fetch a specific savings goal by ID from Supabase
+ * @param goalId ID of the savings goal to retrieve
+ * @returns Promise resolving to the savings goal or null if not found
+ */
+export const fetchSavingsGoalById = async (goalId: string): Promise<SavingsGoal | null> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+    
+    const { data, error } = await supabase
+      .from('savings_goals')
+      .select(`
+        *,
+        milestones:savings_milestones(*)
+      `)
+      .eq('id', goalId)
+      .eq('user_id', user.id)
+      .single();
+    
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // PGRST116 is the error code for "no rows returned"
+        return null;
+      }
+      console.error('Error fetching savings goal by ID:', error);
+      throw error;
+    }
+    
+    if (!data) {
+      return null;
+    }
+    
+    // Transform the data to match our model
+    const milestones = data.milestones?.map((milestone: any) => ({
+      id: milestone.id,
+      title: milestone.title,
+      targetAmount: parseFloat(milestone.amount),
+      isCompleted: milestone.is_reached,
+      completedDate: milestone.completed_date,
+    })) || [];
+    
+    return {
+      id: data.id,
+      title: data.title,
+      description: data.description,
+      targetAmount: parseFloat(data.target_amount),
+      currentAmount: parseFloat(data.current_amount),
+      startDate: data.start_date,
+      targetDate: data.target_date,
+      category: data.category,
+      icon: data.icon,
+      color: data.color,
+      isCompleted: data.is_completed,
+      isShared: data.is_shared,
+      sharedWith: data.shared_with,
+      milestones,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  } catch (error) {
+    console.error('Error in fetchSavingsGoalById:', error);
+    throw error;
+  }
+};
+
+/**
+ * Add a milestone to a savings goal in Supabase
+ * @param goalId ID of the savings goal
+ * @param milestone Milestone to add
+ * @returns Promise resolving to the created milestone
+ */
+export const addMilestone = async (goalId: string, milestone: SavingsMilestone): Promise<SavingsMilestone> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Prepare the data for Supabase
+    const supabaseMilestoneData = {
+      id: milestone.id || generateUUID(),
+      goal_id: goalId,
+      title: milestone.title,
+      amount: milestone.targetAmount,
+      is_reached: milestone.isCompleted || false,
+      completed_date: milestone.completedDate || null,
+      user_id: user.id,
+    };
+    
+    // Insert the milestone
+    const { data, error } = await supabase
+      .from('savings_milestones')
+      .insert(supabaseMilestoneData)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error adding milestone:', error);
+      throw error;
+    }
+    
+    // Transform the data to match our model
+    return {
+      id: data.id,
+      title: data.title,
+      targetAmount: parseFloat(data.amount),
+      isCompleted: data.is_reached,
+      completedDate: data.completed_date,
+    };
+  } catch (error) {
+    console.error('Error in addMilestone:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update a milestone in Supabase
+ * @param goalId ID of the savings goal
+ * @param milestone Updated milestone data
+ * @returns Promise resolving to the updated milestone
+ */
+export const updateMilestone = async (goalId: string, milestone: SavingsMilestone): Promise<SavingsMilestone> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Prepare the data for Supabase
+    const supabaseMilestoneData = {
+      title: milestone.title,
+      amount: milestone.targetAmount,
+      is_reached: milestone.isCompleted,
+      completed_date: milestone.completedDate || null,
+    };
+    
+    // Update the milestone
+    const { data, error } = await supabase
+      .from('savings_milestones')
+      .update(supabaseMilestoneData)
+      .eq('id', milestone.id)
+      .eq('goal_id', goalId)
+      .eq('user_id', user.id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error updating milestone:', error);
+      throw error;
+    }
+    
+    // Transform the data to match our model
+    return {
+      id: data.id,
+      title: data.title,
+      targetAmount: parseFloat(data.amount),
+      isCompleted: data.is_reached,
+      completedDate: data.completed_date,
+    };
+  } catch (error) {
+    console.error('Error in updateMilestone:', error);
+    throw error;
+  }
+};
+
+/**
+ * Delete a milestone from Supabase
+ * @param goalId ID of the savings goal
+ * @param milestoneId ID of the milestone to delete
+ * @returns Promise resolving to a boolean indicating success
+ */
+export const deleteMilestone = async (goalId: string, milestoneId: string): Promise<boolean> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Delete the milestone
+    const { error } = await supabase
+      .from('savings_milestones')
+      .delete()
+      .eq('id', milestoneId)
+      .eq('goal_id', goalId)
+      .eq('user_id', user.id);
+    
+    if (error) {
+      console.error('Error deleting milestone:', error);
+      throw error;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error in deleteMilestone:', error);
+    throw error;
+  }
 }; 

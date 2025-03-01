@@ -30,6 +30,7 @@ import SubscriptionScreen from '../screens/SubscriptionScreen';
 import TestingScreen from '../screens/TestingScreen';
 import AddBudgetScreen from '../screens/AddBudgetScreen';
 import AddSavingsGoalScreen from '../screens/AddSavingsGoalScreen';
+import SavingsGoalDetailScreen from '../screens/SavingsGoalDetailScreen';
 import FeedbackScreen from '../screens/FeedbackScreen';
 
 // Import theme
@@ -75,6 +76,7 @@ export type RootStackParamList = {
   Testing: undefined;
   AddBudget: undefined;
   AddSavingsGoal: undefined;
+  SavingsGoalDetail: { goalId: string };
   FeedbackScreen: undefined;
 };
 
@@ -216,6 +218,7 @@ export const RootNavigator: React.FC = () => {
       <RootStack.Screen name="Testing" component={TestingScreen} />
       <RootStack.Screen name="AddBudget" component={AddBudgetScreen} />
       <RootStack.Screen name="AddSavingsGoal" component={AddSavingsGoalScreen} />
+      <RootStack.Screen name="SavingsGoalDetail" component={SavingsGoalDetailScreen} />
       <RootStack.Screen name="FeedbackScreen" component={FeedbackScreen} />
     </RootStack.Navigator>
   );

@@ -201,14 +201,14 @@ export const createExpense = async (
           id: newExpense.id,
           title: newExpense.title,
           amount: newExpense.amount,
-          date: new Date(newExpense.date),
+          date: new Date(newExpense.date).toISOString(),
           category: newExpense.category,
           description: newExpense.description || null,
           payment_method: newExpense.paymentMethod || null,
           receipt_image_path: newExpense.receiptImage || null,
           tags: newExpense.tags || null,
-          created_at: new Date(newExpense.createdAt),
-          updated_at: new Date(newExpense.updatedAt),
+          created_at: new Date(newExpense.createdAt).toISOString(),
+          updated_at: new Date(newExpense.updatedAt).toISOString(),
           user_id: userId // Add user_id to satisfy RLS policy
         };
         
@@ -283,14 +283,14 @@ export const createExpense = async (
         id: newExpense.id,
         title: newExpense.title,
         amount: newExpense.amount,
-        date: new Date(newExpense.date),
+        date: new Date(newExpense.date).toISOString(),
         category: newExpense.category,
         description: newExpense.description || null,
         payment_method: newExpense.paymentMethod || null,
         receipt_image_path: newExpense.receiptImage || null,
         tags: newExpense.tags || null,
-        created_at: new Date(newExpense.createdAt),
-        updated_at: new Date(newExpense.updatedAt),
+        created_at: new Date(newExpense.createdAt).toISOString(),
+        updated_at: new Date(newExpense.updatedAt).toISOString(),
         user_id: userId // Add user_id to satisfy RLS policy
       };
       
@@ -436,13 +436,13 @@ export const updateExpense = async (
         id: updatedExpense.id,
         title: updatedExpense.title,
         amount: updatedExpense.amount,
-        date: new Date(updatedExpense.date),
+        date: new Date(updatedExpense.date).toISOString(),
         category: updatedExpense.category,
         description: updatedExpense.description || null,
         payment_method: updatedExpense.paymentMethod || null,
         receipt_image_path: updatedExpense.receiptImage || null,
         tags: updatedExpense.tags || null,
-        updated_at: new Date(updatedExpense.updatedAt),
+        updated_at: new Date(updatedExpense.updatedAt).toISOString(),
         user_id: userId // Add user_id to satisfy RLS policy
       };
       
@@ -532,13 +532,13 @@ export const updateExpense = async (
         id: updatedExpense.id,
         title: updatedExpense.title,
         amount: updatedExpense.amount,
-        date: new Date(updatedExpense.date),
+        date: new Date(updatedExpense.date).toISOString(),
         category: updatedExpense.category,
         description: updatedExpense.description || null,
         payment_method: updatedExpense.paymentMethod || null,
         receipt_image_path: updatedExpense.receiptImage || null,
         tags: updatedExpense.tags || null,
-        updated_at: new Date(updatedExpense.updatedAt),
+        updated_at: new Date(updatedExpense.updatedAt).toISOString(),
         user_id: userId // Add user_id to satisfy RLS policy
       };
       
@@ -812,14 +812,34 @@ export const getExpenseStatistics = async (
     // Filter by date range if provided
     if (startDate || endDate) {
       expenses = expenses.filter(expense => {
-        const expenseDate = new Date(expense.date);
-        if (startDate && expenseDate < new Date(startDate)) {
+        // Ensure we're working with a valid date object
+        let expenseDate;
+        try {
+          // Handle both timestamp and ISO string formats
+          if (typeof expense.date === 'number') {
+            expenseDate = new Date(expense.date);
+          } else {
+            expenseDate = new Date(expense.date);
+          }
+          
+          // Check if the date is valid
+          if (isNaN(expenseDate.getTime())) {
+            console.warn(`Invalid date format for expense: ${expense.id}, date: ${expense.date}`);
+            return false;
+          }
+          
+          // Apply date filters
+          if (startDate && expenseDate < new Date(startDate)) {
+            return false;
+          }
+          if (endDate && expenseDate > new Date(endDate)) {
+            return false;
+          }
+          return true;
+        } catch (error) {
+          console.error(`Error parsing date for expense: ${expense.id}`, error);
           return false;
         }
-        if (endDate && expenseDate > new Date(endDate)) {
-          return false;
-        }
-        return true;
       });
     }
     

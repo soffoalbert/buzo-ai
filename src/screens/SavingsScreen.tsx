@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useNavigationState } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
@@ -25,6 +25,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
  
 const SavingsScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
+  const navigationState = useNavigationState(state => state);
   const [activeTab, setActiveTab] = useState('goals');
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
   const [statistics, setStatistics] = useState({
@@ -38,6 +39,12 @@ const SavingsScreen: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleBack = () => {
+    if (navigationState.routes.length > 1) {
+      navigation.goBack();
+    }
+  };
   
   // Load savings goals and statistics
   const loadData = useCallback(async () => {
@@ -131,8 +138,8 @@ const SavingsScreen: React.FC = () => {
       <TouchableOpacity 
         style={styles.goalCard}
         onPress={() => {
-          // TODO: Navigate to goal details screen
-          // navigation.navigate('SavingsGoalDetail', { goalId: item.id });
+          // Navigate to goal details screen
+          navigation.navigate('SavingsGoalDetail', { goalId: item.id });
         }}
       >
         <View style={styles.goalHeader}>
@@ -209,6 +216,14 @@ const SavingsScreen: React.FC = () => {
       
       {/* Header */}
       <View style={styles.header}>
+        {navigationState.routes.length > 1 && (
+          <TouchableOpacity
+            onPress={handleBack}
+            style={styles.backButton}
+          >
+            <Ionicons name="chevron-back" size={28} color={colors.text} />
+          </TouchableOpacity>
+        )}
         <Text style={styles.headerTitle}>Savings</Text>
         <TouchableOpacity 
           style={styles.headerButton}
@@ -309,6 +324,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
   },
+  backButton: {
+    padding: spacing.xs,
+  },
   headerTitle: {
     fontSize: textStyles.h2.fontSize,
     fontWeight: textStyles.h2.fontWeight as any,
@@ -365,7 +383,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     marginBottom: spacing.md,
     borderRadius: borderRadius.md,
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.background,
     padding: spacing.xs,
     ...shadows.sm,
   },
@@ -391,11 +409,11 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl * 2, // Extra padding for floating button
   },
   goalCard: {
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.background,
     borderRadius: borderRadius.lg,
     padding: spacing.md,
     marginBottom: spacing.md,
-    ...shadows.sm,
+    ...shadows.md,
   },
   goalHeader: {
     flexDirection: 'row',
@@ -462,7 +480,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   tipCard: {
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.background,
     borderRadius: borderRadius.lg,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -533,6 +551,13 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: textStyles.button.fontSize,
     fontWeight: textStyles.button.fontWeight as any,
+  },
+  statisticsCard: {
+    marginBottom: spacing.md,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.background,
+    padding: spacing.xs,
+    ...shadows.sm,
   },
 });
 

@@ -17,31 +17,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation';
 import Card from '../components/Card';
-import { generateUUID } from '../utils/helpers';
 import InsightsScreen from './InsightsScreen';
-
-// Define interfaces for education content
-interface EducationArticle {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  imageUrl: string;
-  readTime: string;
-  isNew?: boolean;
-  isFeatured?: boolean;
-  content?: string;
-  videoUrl?: string;
-  hasQuiz?: boolean;
-}
-
-interface EducationCategory {
-  id: string;
-  name: string;
-  icon: string;
-  color: string;
-  description: string;
-}
+import { 
+  getEducationCategories, 
+  getEducationArticles, 
+  getUserProgress, 
+  getPersonalizedRecommendations,
+  getEducationStats,
+  EducationArticle,
+  EducationCategory
+} from '../services/educationService';
+import { colors, spacing, textStyles } from '../utils/theme';
+import CourseCard from '../components/CourseCard';
+import LearningPathTracker, { LearningPathStep } from '../components/LearningPathTracker';
 
 const LearnScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
@@ -52,385 +40,381 @@ const LearnScreen: React.FC = () => {
   const [categories, setCategories] = useState<EducationCategory[]>([]);
   const [featuredArticle, setFeaturedArticle] = useState<EducationArticle | null>(null);
   const [activeTab, setActiveTab] = useState<'education' | 'insights'>('education');
+  const [userId, setUserId] = useState<string>('guest-user');
+  const [userProgress, setUserProgress] = useState<any>(null);
+  const [recommendedArticles, setRecommendedArticles] = useState<EducationArticle[]>([]);
+  const [educationStats, setEducationStats] = useState<any>(null);
+  const [learningPath, setLearningPath] = useState<LearningPathStep[]>([]);
 
   // Load education content
   useEffect(() => {
     if (activeTab === 'education') {
       loadEducationContent();
     }
-  }, [activeTab]);
+  }, [activeTab, selectedCategory]);
 
   const loadEducationContent = async () => {
     try {
       setIsLoading(true);
       
-      // In a real app, this would fetch from an API
-      // For now, we'll use mock data
-      const mockCategories: EducationCategory[] = [
-        {
-          id: generateUUID(),
-          name: 'Budgeting',
-          icon: 'calculator-outline',
-          color: '#4F46E5',
-          description: 'Learn how to create and stick to a budget'
-        },
-        {
-          id: generateUUID(),
-          name: 'Saving',
-          icon: 'wallet-outline',
-          color: '#10B981',
-          description: 'Strategies to build your savings'
-        },
-        {
-          id: generateUUID(),
-          name: 'Debt',
-          icon: 'trending-down-outline',
-          color: '#EF4444',
-          description: 'Managing and reducing debt effectively'
-        },
-        {
-          id: generateUUID(),
-          name: 'Investing',
-          icon: 'trending-up-outline',
-          color: '#F59E0B',
-          description: 'Introduction to investments'
-        },
-        {
-          id: generateUUID(),
-          name: 'Banking',
-          icon: 'card-outline',
-          color: '#6366F1',
-          description: 'Understanding banking services'
-        }
-      ];
+      // Fetch real data from the educationService
+      const categoriesData = await getEducationCategories();
+      let articlesData;
       
-      const mockArticles: EducationArticle[] = [
-        {
-          id: generateUUID(),
-          title: 'Creating Your First Budget',
-          description: 'Learn the basics of budgeting and how to create a plan that works for you.',
-          category: 'Budgeting',
-          imageUrl: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f',
-          readTime: '5 min',
-          isFeatured: true,
-          hasQuiz: true
-        },
-        {
-          id: generateUUID(),
-          title: 'The 50/30/20 Rule',
-          description: 'A simple budgeting method to help you manage your money effectively.',
-          category: 'Budgeting',
-          imageUrl: 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e',
-          readTime: '3 min'
-        },
-        {
-          id: generateUUID(),
-          title: 'Emergency Fund Basics',
-          description: 'Why you need an emergency fund and how to build one.',
-          category: 'Saving',
-          imageUrl: 'https://images.unsplash.com/photo-1579621970795-87facc2f976d',
-          readTime: '4 min',
-          isNew: true
-        },
-        {
-          id: generateUUID(),
-          title: 'Saving for Big Goals',
-          description: 'Strategies for saving for major life expenses like education or a home.',
-          category: 'Saving',
-          imageUrl: 'https://images.unsplash.com/photo-1565514020179-026b92b2ed33',
-          readTime: '6 min'
-        },
-        {
-          id: generateUUID(),
-          title: 'Understanding Credit Scores',
-          description: 'What credit scores mean and how they affect your financial life.',
-          category: 'Debt',
-          imageUrl: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3',
-          readTime: '7 min',
-          hasQuiz: true
-        },
-        {
-          id: generateUUID(),
-          title: 'Debt Repayment Strategies',
-          description: 'Effective methods to pay down debt faster.',
-          category: 'Debt',
-          imageUrl: 'https://images.unsplash.com/photo-1559526324-593bc073d938',
-          readTime: '5 min'
-        },
-        {
-          id: generateUUID(),
-          title: 'Investing for Beginners',
-          description: 'The basics of investing and how to get started with small amounts.',
-          category: 'Investing',
-          imageUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3',
-          readTime: '8 min',
-          isNew: true
-        },
-        {
-          id: generateUUID(),
-          title: 'Understanding Banking Fees',
-          description: 'How to identify and minimize banking fees to save money.',
-          category: 'Banking',
-          imageUrl: 'https://images.unsplash.com/photo-1601597111158-2fceff292cdc',
-          readTime: '4 min'
-        },
-        {
-          id: generateUUID(),
-          title: 'Mobile Banking Safety',
-          description: 'Tips to keep your mobile banking secure and protect your money.',
-          category: 'Banking',
-          imageUrl: 'https://images.unsplash.com/photo-1573164713988-8665fc963095',
-          readTime: '5 min',
-          hasQuiz: true
-        }
-      ];
+      if (selectedCategory) {
+        articlesData = await getEducationArticles(selectedCategory);
+      } else {
+        articlesData = await getEducationArticles();
+      }
+      
+      // Get user progress
+      const progress = await getUserProgress(userId);
+      setUserProgress(progress);
+      
+      // Get personalized recommendations
+      const recommendations = await getPersonalizedRecommendations(userId);
+      setRecommendedArticles(recommendations);
+      
+      // Get education stats
+      const stats = await getEducationStats(userId);
+      setEducationStats(stats);
       
       // Set featured article
-      const featured = mockArticles.find(article => article.isFeatured) || mockArticles[0];
+      const featured = articlesData.find(article => article.isFeatured) || articlesData[0];
       
-      setCategories(mockCategories);
-      setArticles(mockArticles);
+      setCategories(categoriesData);
+      setArticles(articlesData);
       setFeaturedArticle(featured);
       
-      // Simulate API delay
-      setTimeout(() => {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }, 1000);
+      // Create a learning path based on recommendations and progress
+      createLearningPath(recommendations, progress);
       
+      setIsLoading(false);
+      setIsRefreshing(false);
     } catch (error) {
       console.error('Error loading education content:', error);
       setIsLoading(false);
       setIsRefreshing(false);
     }
   };
-
-  const onRefresh = () => {
-    setIsRefreshing(true);
-    if (activeTab === 'education') {
-      loadEducationContent();
-    }
+  
+  const createLearningPath = (recommendations: EducationArticle[], progress: any) => {
+    if (!recommendations || !progress) return;
+    
+    // Create a learning path with 5 steps based on recommendations
+    const steps: LearningPathStep[] = recommendations.slice(0, 5).map((article, index) => {
+      const isCompleted = progress.completedArticles.includes(article.id);
+      const isActive = !isCompleted && (index === 0 || 
+        (recommendations[index-1] && progress.completedArticles.includes(recommendations[index-1].id)));
+      
+      return {
+        id: article.id,
+        title: article.title,
+        description: article.description,
+        isCompleted,
+        isActive: isActive || (index === 0 && !isCompleted),
+        icon: article.category === 'Budgeting' ? 'calculator-outline' : 
+              article.category === 'Saving' ? 'wallet-outline' :
+              article.category === 'Debt' ? 'trending-down-outline' :
+              article.category === 'Investing' ? 'trending-up-outline' : 'card-outline',
+        type: article.hasQuiz ? 'quiz' : 'article'
+      };
+    });
+    
+    setLearningPath(steps);
   };
 
-  const handleCategoryPress = (categoryId: string) => {
-    if (selectedCategory === categoryId) {
-      setSelectedCategory(null); // Deselect if already selected
-    } else {
-      setSelectedCategory(categoryId);
-    }
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    loadEducationContent();
+  };
+
+  const handleCategoryPress = (categoryId: string | null) => {
+    setSelectedCategory(categoryId);
   };
 
   const handleArticlePress = (article: EducationArticle) => {
-    // Navigate to article detail screen
     navigation.navigate('ArticleDetail', { article });
   };
+  
+  const handleLearningPathStepPress = (stepId: string) => {
+    const article = articles.find(a => a.id === stepId);
+    if (article) {
+      handleArticlePress(article);
+    }
+  };
 
-  const filteredArticles = selectedCategory 
-    ? articles.filter(article => {
-        const category = categories.find(c => c.id === selectedCategory);
-        return category && article.category === category.name;
-      })
-    : articles;
+  const renderEducationContent = () => {
+    if (isLoading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading education content...</Text>
+        </View>
+      );
+    }
 
-  if (isLoading && !isRefreshing && activeTab === 'education') {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#F9FAFB" />
-        <ActivityIndicator size="large" color="#4F46E5" />
-        <Text style={styles.loadingText}>Loading educational content...</Text>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F9FAFB" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Learn & Grow</Text>
-        <TouchableOpacity style={styles.searchButton}>
-          <Ionicons name="search-outline" size={22} color="#1F2937" />
-        </TouchableOpacity>
-      </View>
-      
-      {/* Tab Selector */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity 
-          style={[
-            styles.tabButton, 
-            activeTab === 'education' && styles.activeTabButton
-          ]}
-          onPress={() => setActiveTab('education')}
-        >
-          <Ionicons 
-            name="book-outline" 
-            size={20} 
-            color={activeTab === 'education' ? "#4F46E5" : "#6B7280"} 
-          />
-          <Text 
-            style={[
-              styles.tabText, 
-              activeTab === 'education' && styles.activeTabText
-            ]}
-          >
-            Education
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[
-            styles.tabButton, 
-            activeTab === 'insights' && styles.activeTabButton
-          ]}
-          onPress={() => setActiveTab('insights')}
-        >
-          <Ionicons 
-            name="analytics-outline" 
-            size={20} 
-            color={activeTab === 'insights' ? "#4F46E5" : "#6B7280"} 
-          />
-          <Text 
-            style={[
-              styles.tabText, 
-              activeTab === 'insights' && styles.activeTabText
-            ]}
-          >
-            Insights
-          </Text>
-        </TouchableOpacity>
-      </View>
-      
-      {activeTab === 'education' ? (
-        <ScrollView
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={onRefresh}
-              colors={["#4F46E5"]}
-              tintColor="#4F46E5"
-            />
-          }
-          contentContainerStyle={styles.scrollViewContent}
-        >
-          {/* Categories */}
-          <View style={styles.categoriesContainer}>
-            <Text style={styles.sectionTitle}>Categories</Text>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoriesScrollContent}
+      <ScrollView
+        contentContainerStyle={styles.scrollViewContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Featured Article */}
+        {featuredArticle && (
+          <View style={styles.featuredArticleContainer}>
+            <Text style={styles.sectionTitle}>Featured Article</Text>
+            <TouchableOpacity
+              style={styles.featuredArticleCard}
+              onPress={() => handleArticlePress(featuredArticle)}
             >
-              {categories.map((category) => (
-                <TouchableOpacity
-                  key={category.id}
-                  style={[
-                    styles.categoryButton,
-                    selectedCategory === category.id && { backgroundColor: category.color + '20' }
-                  ]}
-                  onPress={() => handleCategoryPress(category.id)}
-                >
-                  <View style={[styles.categoryIcon, { backgroundColor: category.color + '20' }]}>
-                    <Ionicons name={category.icon as any} size={22} color={category.color} />
+              <Image
+                source={{ uri: featuredArticle.imageUrl }}
+                style={styles.featuredArticleImage}
+                resizeMode="cover"
+              />
+              <View style={styles.featuredArticleOverlay}>
+                <View style={styles.featuredArticleBadge}>
+                  <Text style={styles.featuredArticleBadgeText}>Featured</Text>
+                </View>
+                <Text style={styles.featuredArticleTitle}>{featuredArticle.title}</Text>
+                <Text style={styles.featuredArticleDescription} numberOfLines={2}>
+                  {featuredArticle.description}
+                </Text>
+                <View style={styles.featuredArticleMeta}>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="time-outline" size={12} color="#FFFFFF" />
+                    <Text style={styles.metaText}>{featuredArticle.readTime}</Text>
                   </View>
-                  <Text style={styles.categoryName}>{category.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+                  {featuredArticle.hasQuiz && (
+                    <View style={styles.metaItem}>
+                      <Ionicons name="school-outline" size={12} color="#FFFFFF" />
+                      <Text style={styles.metaText}>Has Quiz</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {/* Learning Path */}
+        {learningPath.length > 0 && (
+          <View style={styles.learningPathContainer}>
+            <Text style={styles.sectionTitle}>Your Learning Path</Text>
+            <LearningPathTracker
+              pathTitle="Personal Finance Fundamentals"
+              pathDescription="Master the essentials of managing your money with these key lessons"
+              steps={learningPath}
+              progress={educationStats ? educationStats.articlesRead / educationStats.totalArticles : 0}
+              onStepPress={handleLearningPathStepPress}
+            />
+          </View>
+        )}
+
+        {/* Education Categories */}
+        <View style={styles.categoriesContainer}>
+          <Text style={styles.sectionTitle}>Categories</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoriesScrollContent}
+          >
+            <TouchableOpacity
+              style={[
+                styles.categoryButton,
+                selectedCategory === null && styles.categoryButtonActive,
+                {backgroundColor: selectedCategory === null ? '#6366F1' : '#F3F4F6'}
+              ]}
+              onPress={() => handleCategoryPress(null)}
+            >
+              <Ionicons
+                name="grid-outline"
+                size={22}
+                color={selectedCategory === null ? "#FFFFFF" : "#5B21B6"}
+              />
+              <Text
+                style={[
+                  styles.categoryButtonText,
+                  selectedCategory === null && styles.categoryButtonTextActive,
+                ]}
+              >
+                All
+              </Text>
+            </TouchableOpacity>
+
+            {categories.map((category) => (
+              <TouchableOpacity
+                key={category.id}
+                style={[
+                  styles.categoryButton,
+                  selectedCategory === category.id && styles.categoryButtonActive,
+                  { 
+                    backgroundColor: selectedCategory === category.id 
+                      ? category.color 
+                      : `${category.color}15` 
+                  }
+                ]}
+                onPress={() => handleCategoryPress(category.id)}
+              >
+                <Ionicons
+                  name={category.icon as any}
+                  size={22}
+                  color={selectedCategory === category.id ? "#FFFFFF" : category.color}
+                />
+                <Text
+                  style={[
+                    styles.categoryButtonText,
+                    selectedCategory === category.id && styles.categoryButtonTextActive,
+                  ]}
+                >
+                  {category.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Articles Grid */}
+        <View style={styles.articlesContainer}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {selectedCategory 
+                ? `${categories.find(c => c.id === selectedCategory)?.name} Articles` 
+                : 'All Articles'}
+            </Text>
+            
+            {educationStats && (
+              <Text style={styles.statsText}>
+                {educationStats.articlesRead} of {educationStats.totalArticles} completed
+              </Text>
+            )}
           </View>
           
-          {/* Featured Article */}
-          {featuredArticle && !selectedCategory && (
-            <View style={styles.featuredContainer}>
-              <Text style={styles.sectionTitle}>Featured</Text>
-              <TouchableOpacity 
-                style={styles.featuredCard}
-                onPress={() => handleArticlePress(featuredArticle)}
-              >
-                <Image
-                  source={{ uri: `${featuredArticle.imageUrl}?w=600` }}
-                  style={styles.featuredImage}
-                  resizeMode="cover"
-                />
-                <View style={styles.featuredOverlay}>
-                  <View style={styles.featuredBadge}>
-                    <Text style={styles.featuredBadgeText}>Featured</Text>
-                  </View>
-                  <Text style={styles.featuredTitle}>{featuredArticle.title}</Text>
-                  <Text style={styles.featuredDescription}>{featuredArticle.description}</Text>
-                  <View style={styles.featuredMeta}>
-                    <Text style={styles.featuredCategory}>{featuredArticle.category}</Text>
-                    <Text style={styles.featuredReadTime}>{featuredArticle.readTime} read</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            </View>
-          )}
-          
-          {/* Articles List */}
-          <View style={styles.articlesContainer}>
-            <View style={styles.articlesHeader}>
-              <Text style={styles.sectionTitle}>
-                {selectedCategory 
-                  ? `${categories.find(c => c.id === selectedCategory)?.name} Articles` 
-                  : 'Recent Articles'}
-              </Text>
-              {selectedCategory && (
-                <TouchableOpacity onPress={() => setSelectedCategory(null)}>
-                  <Text style={styles.clearFilterText}>Clear filter</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            
-            {filteredArticles.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="document-text-outline" size={48} color="#9CA3AF" />
-                <Text style={styles.emptyStateText}>No articles found</Text>
-                <Text style={styles.emptyStateSubtext}>Try selecting a different category</Text>
-              </View>
-            ) : (
-              filteredArticles.map((article) => (
+          <View style={styles.articlesGrid}>
+            {articles.map((article) => {
+              const isCompleted = userProgress?.completedArticles?.includes(article.id);
+              
+              return (
                 <TouchableOpacity
                   key={article.id}
                   style={styles.articleCard}
                   onPress={() => handleArticlePress(article)}
                 >
                   <Image
-                    source={{ uri: `${article.imageUrl}?w=400` }}
+                    source={{ uri: article.imageUrl }}
                     style={styles.articleImage}
                     resizeMode="cover"
                   />
                   <View style={styles.articleContent}>
+                    <Text style={styles.articleTitle} numberOfLines={2}>{article.title}</Text>
                     <View style={styles.articleMeta}>
-                      <Text style={styles.articleCategory}>{article.category}</Text>
-                      <Text style={styles.articleReadTime}>{article.readTime} read</Text>
-                    </View>
-                    <Text style={styles.articleTitle}>{article.title}</Text>
-                    <Text style={styles.articleDescription} numberOfLines={2}>
-                      {article.description}
-                    </Text>
-                    <View style={styles.articleFooter}>
+                      <View style={styles.metaItem}>
+                        <Ionicons name="time-outline" size={12} color="#6B7280" />
+                        <Text style={styles.articleMetaText}>{article.readTime}</Text>
+                      </View>
+                      {article.hasQuiz && (
+                        <View style={styles.metaItem}>
+                          <Ionicons name="school-outline" size={12} color="#6B7280" />
+                          <Text style={styles.articleMetaText}>Quiz</Text>
+                        </View>
+                      )}
                       {article.isNew && (
                         <View style={styles.newBadge}>
                           <Text style={styles.newBadgeText}>NEW</Text>
                         </View>
                       )}
-                      {article.hasQuiz && (
-                        <View style={styles.quizBadge}>
-                          <Ionicons name="help-circle-outline" size={14} color="#4F46E5" />
-                          <Text style={styles.quizBadgeText}>Quiz</Text>
+                      {isCompleted && (
+                        <View style={styles.completedBadge}>
+                          <Ionicons name="checkmark-circle" size={12} color="#10B981" />
+                          <Text style={styles.completedText}>Done</Text>
                         </View>
                       )}
                     </View>
                   </View>
                 </TouchableOpacity>
-              ))
-            )}
+              );
+            })}
           </View>
-        </ScrollView>
-      ) : (
-        <InsightsScreen />
-      )}
+        </View>
+
+        {/* Courses */}
+        <View style={styles.coursesContainer}>
+          <Text style={styles.sectionTitle}>Courses</Text>
+          <View style={styles.comingSoonContainer}>
+            <Ionicons name="time-outline" size={32} color={colors.primary} />
+            <Text style={styles.comingSoonTitle}>Coming Soon</Text>
+            <Text style={styles.comingSoonText}>
+              Our in-depth courses are being developed to provide you with comprehensive financial education.
+            </Text>
+          </View>
+          
+          {categories.map(category => {
+            // Calculate total and completed articles for this category
+            const categoryArticles = articles.filter(a => a.category === category.name);
+            const totalArticles = categoryArticles.length;
+            
+            return (
+              <View key={category.id} style={styles.courseCard}>
+                <View style={[styles.courseIconContainer, {backgroundColor: category.color}]}>
+                  <Ionicons name={category.icon as any} size={24} color="#FFFFFF" />
+                </View>
+                <View style={styles.courseContent}>
+                  <View>
+                    <Text style={styles.courseTitle}>{category.name}</Text>
+                    <Text style={styles.courseDescription}>{category.description}</Text>
+                  </View>
+                  <View style={styles.comingSoonBadge}>
+                    <Text style={styles.comingSoonBadgeText}>Coming Soon</Text>
+                  </View>
+                </View>
+                <View style={styles.courseOverlay} />
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
+    );
+  };
+
+  const renderInsightsContent = () => {
+    return <InsightsScreen />;
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Learn</Text>
+        
+        {/* Tabs */}
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'education' && styles.activeTab]}
+            onPress={() => setActiveTab('education')}
+          >
+            <Text
+              style={[styles.tabText, activeTab === 'education' && styles.activeTabText]}
+            >
+              Education
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'insights' && styles.activeTab]}
+            onPress={() => setActiveTab('insights')}
+          >
+            <Text
+              style={[styles.tabText, activeTab === 'insights' && styles.activeTabText]}
+            >
+              Insights
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      
+      {/* Content */}
+      {activeTab === 'education' ? renderEducationContent() : renderInsightsContent()}
     </SafeAreaView>
   );
 };
@@ -454,9 +438,6 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#FFFFFF',
@@ -464,45 +445,192 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 26,
     fontWeight: '600',
     color: '#1F2937',
+    marginBottom: 10,
   },
-  searchButton: {
-    padding: 8,
-  },
-  tabContainer: {
+  tabsContainer: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
   },
-  tabButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
+  tab: {
+    marginRight: 24,
+    paddingBottom: 8,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
-  activeTabButton: {
-    borderBottomColor: '#4F46E5',
+  activeTab: {
+    borderBottomColor: '#6366F1',
   },
   tabText: {
-    marginLeft: 8,
     fontSize: 16,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#9CA3AF',
   },
   activeTabText: {
-    color: '#4F46E5',
+    color: '#6366F1',
+    fontWeight: '600',
   },
-  categoriesContainer: {
+  featuredArticleContainer: {
     paddingTop: 16,
     paddingBottom: 8,
     backgroundColor: '#FFFFFF',
+    marginBottom: 8,
+  },
+  featuredArticleCard: {
+    marginHorizontal: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#1F2937',
+    height: 200,
+  },
+  featuredArticleImage: {
+    width: '100%',
+    height: '100%',
+  },
+  featuredArticleOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    padding: 16,
+    justifyContent: 'flex-end',
+  },
+  featuredArticleBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: '#6366F1',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  featuredArticleBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  featuredArticleTitle: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  featuredArticleDescription: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  featuredArticleMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  metaText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  learningPathContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  statsText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  coursesContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  courseCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    overflow: 'hidden',
+  },
+  courseIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#6366F1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    margin: 12,
+  },
+  courseContent: {
+    flex: 1,
+    padding: 12,
+    justifyContent: 'space-between',
+  },
+  courseTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 2,
+  },
+  courseDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 6,
+  },
+  courseProgress: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  progressBarContainer: {
+    height: 6,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 3,
+    marginBottom: 4,
+    justifyContent: 'center',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#10B981',
+    borderRadius: 3,
+  },
+  progressPercentage: {
+    position: 'absolute',
+    right: 0,
+    top: 6,
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  completedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  completedText: {
+    fontSize: 10,
+    color: '#10B981',
+    marginLeft: 2,
+  },
+  categoriesContainer: {
+    paddingTop: 8,
+    paddingBottom: 8,
     marginBottom: 8,
   },
   sectionTitle: {
@@ -516,85 +644,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   categoryButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  categoryIcon: {
-    width: 48,
-    height: 48,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: 24,
+    minWidth: 80,
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
   },
-  categoryName: {
-    fontSize: 12,
+  categoryButtonText: {
+    fontSize: 14,
     fontWeight: '500',
     color: '#4B5563',
+    marginLeft: 6,
   },
-  featuredContainer: {
-    paddingTop: 16,
-    paddingBottom: 8,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 8,
+  categoryButtonActive: {
+    // Styles are applied dynamically
   },
-  featuredCard: {
-    marginHorizontal: 16,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#1F2937',
-    height: 200,
-  },
-  featuredImage: {
-    width: '100%',
-    height: '100%',
-  },
-  featuredOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    padding: 16,
-    justifyContent: 'flex-end',
-  },
-  featuredBadge: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    backgroundColor: '#4F46E5',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  featuredBadgeText: {
+  categoryButtonTextActive: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  featuredTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  featuredDescription: {
-    color: '#E5E7EB',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  featuredMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  featuredCategory: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  featuredReadTime: {
-    color: '#D1D5DB',
-    fontSize: 12,
   },
   articlesContainer: {
     flex: 1,
@@ -602,21 +671,14 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 24,
   },
-  articlesHeader: {
+  articlesGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  clearFilterText: {
-    color: '#4F46E5',
-    fontSize: 14,
-    fontWeight: '500',
   },
   articleCard: {
-    flexDirection: 'row',
-    marginHorizontal: 16,
+    width: (width - 40) / 2,
     marginBottom: 16,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -625,7 +687,7 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   articleImage: {
-    width: 100,
+    width: '100%',
     height: 100,
   },
   articleContent: {
@@ -633,79 +695,87 @@ const styles = StyleSheet.create({
     padding: 12,
     justifyContent: 'space-between',
   },
-  articleMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  articleCategory: {
-    fontSize: 12,
-    color: '#4F46E5',
-    fontWeight: '500',
-  },
-  articleReadTime: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
   articleTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: 6,
+    height: 40,
   },
-  articleDescription: {
-    fontSize: 14,
-    color: '#4B5563',
-    marginBottom: 8,
-  },
-  articleFooter: {
+  articleMeta: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
+  },
+  articleMetaText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginLeft: 4,
   },
   newBadge: {
     backgroundColor: '#10B981',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
-    marginRight: 8,
+    marginRight: 6,
   },
   newBadgeText: {
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '600',
   },
-  quizBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EBF5FF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  quizBadgeText: {
-    color: '#4F46E5',
-    fontSize: 10,
-    fontWeight: '600',
-    marginLeft: 2,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4B5563',
-    marginTop: 12,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#9CA3AF',
-    marginTop: 4,
-  },
   scrollViewContent: {
     paddingBottom: 100,
+  },
+  comingSoonContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  comingSoonTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.primary,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  comingSoonText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  comingSoonBadge: {
+    backgroundColor: colors.primary + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  comingSoonBadgeText: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  courseOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    borderRadius: 12,
   },
 });
 

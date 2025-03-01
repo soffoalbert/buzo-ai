@@ -792,10 +792,374 @@ export const analyzeSpendingPatterns = (
   };
 };
 
+/**
+ * Generates financial insights based on user's financial data
+ * @param financialData User's financial data including income, expenses, budgets, and savings goals
+ * @returns Array of financial insights
+ */
+export const generateFinancialInsights = async (
+  financialData: FinancialData
+): Promise<FinancialInsight[]> => {
+  try {
+    const insights: FinancialInsight[] = [];
+    const { income, expenses, budgets, savingsGoals } = financialData;
+    
+    // Analyze spending patterns
+    const spendingPatterns = analyzeSpendingPatterns(expenses, income);
+    
+    // Generate insights based on spending patterns
+    if (spendingPatterns.frequentCategories.length > 0) {
+      insights.push({
+        id: `frequent-categories-${Date.now()}`,
+        title: 'Top Spending Categories',
+        description: `Your top spending categories are ${spendingPatterns.frequentCategories.join(', ')}. Consider setting budget limits for these categories.`,
+        type: 'tip',
+        priority: 'medium',
+        category: 'spending',
+        actionable: true,
+        action: {
+          label: 'Set Budget',
+          screen: 'Budget',
+        },
+        createdAt: new Date().toISOString(),
+      });
+    }
+    
+    // Add insights for unusual expenses
+    if (spendingPatterns.unusualExpenses.length > 0) {
+      const topUnusual = spendingPatterns.unusualExpenses[0];
+      insights.push({
+        id: `unusual-expense-${Date.now()}`,
+        title: 'Unusual Expense Detected',
+        description: `You spent ${topUnusual.amount} on ${topUnusual.category}, which is ${topUnusual.percentageAboveAverage}% above your average for this category.`,
+        type: 'warning',
+        priority: 'high',
+        category: 'spending',
+        actionable: false,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    
+    // Add insights for recurring expenses
+    if (spendingPatterns.recurringExpenses.length > 0) {
+      insights.push({
+        id: `recurring-expenses-${Date.now()}`,
+        title: 'Recurring Expenses',
+        description: `You have ${spendingPatterns.recurringExpenses.length} recurring expenses. Review them to identify potential savings.`,
+        type: 'recommendation',
+        priority: 'medium',
+        category: 'spending',
+        actionable: true,
+        action: {
+          label: 'Review Expenses',
+          screen: 'Expenses',
+        },
+        createdAt: new Date().toISOString(),
+      });
+    }
+    
+    // Add savings rate insight
+    if (spendingPatterns.savingsRate !== undefined) {
+      const savingsRate = spendingPatterns.savingsRate;
+      let savingsInsight: FinancialInsight;
+      
+      if (savingsRate < 10) {
+        savingsInsight = {
+          id: `low-savings-${Date.now()}`,
+          title: 'Low Savings Rate',
+          description: `Your current savings rate is ${savingsRate}%. Financial experts recommend saving at least 20% of your income.`,
+          type: 'warning',
+          priority: 'high',
+          category: 'savings',
+          actionable: true,
+          action: {
+            label: 'Create Savings Goal',
+            screen: 'Savings',
+          },
+          createdAt: new Date().toISOString(),
+        };
+      } else if (savingsRate < 20) {
+        savingsInsight = {
+          id: `moderate-savings-${Date.now()}`,
+          title: 'Moderate Savings Rate',
+          description: `Your current savings rate is ${savingsRate}%. You're on the right track, but consider increasing it to 20% or more.`,
+          type: 'tip',
+          priority: 'medium',
+          category: 'savings',
+          actionable: true,
+          action: {
+            label: 'Increase Savings',
+            screen: 'Savings',
+          },
+          createdAt: new Date().toISOString(),
+        };
+      } else {
+        savingsInsight = {
+          id: `good-savings-${Date.now()}`,
+          title: 'Excellent Savings Rate',
+          description: `Your current savings rate is ${savingsRate}%. Great job maintaining a healthy savings habit!`,
+          type: 'achievement',
+          priority: 'low',
+          category: 'savings',
+          actionable: false,
+          createdAt: new Date().toISOString(),
+        };
+      }
+      
+      insights.push(savingsInsight);
+    }
+    
+    // Add budget-related insights
+    if (budgets && budgets.length > 0) {
+      const overBudgetCategories = budgets.filter(budget => budget.spent > budget.limit);
+      
+      if (overBudgetCategories.length > 0) {
+        insights.push({
+          id: `over-budget-${Date.now()}`,
+          title: 'Budget Alert',
+          description: `You've exceeded your budget in ${overBudgetCategories.length} categories. Review your spending to stay on track.`,
+          type: 'warning',
+          priority: 'high',
+          category: 'budget',
+          actionable: true,
+          action: {
+            label: 'Review Budgets',
+            screen: 'Budget',
+          },
+          createdAt: new Date().toISOString(),
+        });
+      }
+      
+      const nearBudgetCategories = budgets.filter(budget => 
+        budget.spent > budget.limit * 0.8 && budget.spent <= budget.limit
+      );
+      
+      if (nearBudgetCategories.length > 0) {
+        insights.push({
+          id: `near-budget-${Date.now()}`,
+          title: 'Approaching Budget Limit',
+          description: `You're approaching your budget limit in ${nearBudgetCategories.length} categories. Monitor your spending carefully.`,
+          type: 'tip',
+          priority: 'medium',
+          category: 'budget',
+          actionable: true,
+          action: {
+            label: 'View Budgets',
+            screen: 'Budget',
+          },
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+    
+    // Add savings goal insights
+    if (savingsGoals && savingsGoals.length > 0) {
+      const upcomingGoals = savingsGoals.filter(goal => {
+        const deadline = new Date(goal.deadline);
+        const now = new Date();
+        const monthsRemaining = (deadline.getFullYear() - now.getFullYear()) * 12 + 
+                               (deadline.getMonth() - now.getMonth());
+        
+        return monthsRemaining <= 3 && goal.current < goal.target;
+      });
+      
+      if (upcomingGoals.length > 0) {
+        insights.push({
+          id: `upcoming-goals-${Date.now()}`,
+          title: 'Upcoming Savings Deadline',
+          description: `You have ${upcomingGoals.length} savings goals with deadlines in the next 3 months. Increase your contributions to meet your targets.`,
+          type: 'recommendation',
+          priority: 'high',
+          category: 'savings',
+          actionable: true,
+          action: {
+            label: 'View Goals',
+            screen: 'Savings',
+          },
+          createdAt: new Date().toISOString(),
+        });
+      }
+      
+      const completedGoals = savingsGoals.filter(goal => goal.current >= goal.target);
+      
+      if (completedGoals.length > 0) {
+        insights.push({
+          id: `completed-goals-${Date.now()}`,
+          title: 'Savings Goal Achieved',
+          description: `Congratulations! You've reached ${completedGoals.length} of your savings goals. Consider setting new goals to continue building wealth.`,
+          type: 'achievement',
+          priority: 'medium',
+          category: 'savings',
+          actionable: true,
+          action: {
+            label: 'Set New Goal',
+            screen: 'Savings',
+          },
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+    
+    return insights;
+  } catch (error) {
+    console.error('Error generating financial insights:', error);
+    return [];
+  }
+};
+
+/**
+ * Gets AI-powered financial insights using OpenAI API
+ * @param financialData User's financial data
+ * @returns Array of AI-generated financial insights
+ */
+export const getAIFinancialInsights = async (
+  financialData: FinancialData
+): Promise<FinancialInsight[]> => {
+  try {
+    // Get API key
+    const apiKey = await getApiKey();
+    
+    if (!apiKey) {
+      throw new Error('No API key available');
+    }
+    
+    // Prepare the prompt for OpenAI
+    const prompt = `
+      Based on the following financial data, generate 5 personalized financial insights:
+      
+      Income: ${financialData.income || 'Not provided'}
+      
+      Expenses: ${JSON.stringify(financialData.expenses?.slice(0, 10) || [])}
+      
+      Budgets: ${JSON.stringify(financialData.budgets || [])}
+      
+      Savings Goals: ${JSON.stringify(financialData.savingsGoals || [])}
+      
+      Generate insights that are actionable, specific, and helpful for financial planning.
+      Each insight should include:
+      - A title
+      - A detailed description
+      - A type (tip, warning, achievement, or recommendation)
+      - A priority (high, medium, or low)
+      - A category (spending, saving, budget, income, or debt)
+      - Whether it's actionable
+      - An action if applicable (with a label and screen to navigate to)
+      
+      Format the response as a JSON array of objects.
+    `;
+    
+    // Call OpenAI API
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a financial advisor assistant that generates personalized financial insights based on user data.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API request failed with status ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Parse the response and format as FinancialInsight[]
+    let aiInsights: FinancialInsight[] = [];
+    
+    try {
+      const content = data.choices[0].message.content;
+      // Extract JSON from the response (it might be wrapped in markdown code blocks)
+      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || content.match(/```\n([\s\S]*?)\n```/);
+      const jsonString = jsonMatch ? jsonMatch[1] : content;
+      
+      const parsedInsights = JSON.parse(jsonString);
+      
+      // Format and validate each insight
+      aiInsights = parsedInsights.map((insight: any, index: number) => ({
+        id: `ai-insight-${Date.now()}-${index}`,
+        title: insight.title || 'Financial Insight',
+        description: insight.description || 'No description provided',
+        type: ['tip', 'warning', 'achievement', 'recommendation'].includes(insight.type) 
+          ? insight.type 
+          : 'tip',
+        priority: ['high', 'medium', 'low'].includes(insight.priority) 
+          ? insight.priority 
+          : 'medium',
+        category: insight.category || 'general',
+        actionable: Boolean(insight.actionable),
+        action: insight.action ? {
+          label: insight.action.label || 'Take Action',
+          screen: mapScreenName(insight.action.screen),
+          params: insight.action.params || {}
+        } : undefined,
+        createdAt: new Date().toISOString(),
+      }));
+    } catch (parseError) {
+      console.error('Error parsing AI response:', parseError);
+      // Fall back to rule-based insights
+      return generateFinancialInsights(financialData);
+    }
+    
+    // Track feature engagement
+    trackFeatureEngagement('ai_insights', FeedbackContext.INSIGHTS);
+    
+    return aiInsights;
+  } catch (error) {
+    console.error('Error getting AI financial insights:', error);
+    throw error;
+  }
+};
+
+/**
+ * Maps API response screen names to actual navigation screen names
+ * @param screenName The screen name from the API response
+ * @returns The correct navigation screen name
+ */
+const mapScreenName = (screenName: string | undefined): string => {
+  if (!screenName) return 'Home';
+  
+  // Map common screen names to their correct navigation targets
+  const screenMap: Record<string, string> = {
+    'BudgetScreen': 'Budget',
+    'ExpensesScreen': 'Expenses',
+    'SavingsScreen': 'Savings',
+    'HomeScreen': 'Home',
+    'SettingsScreen': 'Settings',
+    'ProfileScreen': 'Profile',
+    'InsightsScreen': 'Insights',
+    'EducationScreen': 'Learn',
+    'LearnScreen': 'Learn',
+    'AnalyticsScreen': 'ExpenseAnalytics',
+    'ExpenseAnalyticsScreen': 'ExpenseAnalytics',
+    'Savings Goals': 'Savings',
+    'SavingsGoals': 'Savings',
+    'Budgets': 'Budget',
+  };
+  
+  return screenMap[screenName] || screenName;
+};
+
 export default {
   getFinancialAdvice,
   getUserLocationData,
   analyzeSpendingPatterns,
+  generateFinancialInsights,
+  getAIFinancialInsights,
   setApiKey,
   getApiKey,
   clearApiKey

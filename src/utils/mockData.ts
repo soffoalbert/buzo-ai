@@ -1,6 +1,7 @@
 import { Expense, PaymentMethod } from '../models/Expense';
 import { generateUUID } from './helpers';
 import { subDays, format, addDays } from 'date-fns';
+import { EducationArticle, EducationCategory } from '../services/educationService';
 
 // Categories with realistic expense amounts
 const EXPENSE_CATEGORIES = [
@@ -67,6 +68,208 @@ const PAYMENT_METHODS = [
   PaymentMethod.DEBIT_CARD,
   PaymentMethod.BANK_TRANSFER,
   PaymentMethod.MOBILE_PAYMENT,
+];
+
+// Mock education categories
+export const mockCategories: EducationCategory[] = [
+  {
+    id: generateUUID(),
+    name: 'Budgeting',
+    icon: 'calculator-outline',
+    color: '#4F46E5',
+    description: 'Learn how to create and stick to a budget'
+  },
+  {
+    id: generateUUID(),
+    name: 'Saving',
+    icon: 'wallet-outline',
+    color: '#10B981',
+    description: 'Strategies to build your savings'
+  },
+  {
+    id: generateUUID(),
+    name: 'Debt',
+    icon: 'trending-down-outline',
+    color: '#EF4444',
+    description: 'Managing and reducing debt effectively'
+  },
+  {
+    id: generateUUID(),
+    name: 'Investing',
+    icon: 'trending-up-outline',
+    color: '#F59E0B',
+    description: 'Introduction to investments'
+  },
+  {
+    id: generateUUID(),
+    name: 'Banking',
+    icon: 'card-outline',
+    color: '#6366F1',
+    description: 'Understanding banking services'
+  }
+];
+
+// Mock education articles
+export const mockArticles: EducationArticle[] = [
+  {
+    id: generateUUID(),
+    title: 'Creating Your First Budget',
+    description: 'Learn the basics of budgeting and how to create a plan that works for you.',
+    category: 'Budgeting',
+    imageUrl: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '5 min',
+    isFeatured: true,
+    hasQuiz: true,
+    createdAt: new Date(2023, 1, 15).toISOString(),
+    updatedAt: new Date(2023, 2, 5).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'The 50/30/20 Rule',
+    description: 'A simple budgeting method to help you manage your money effectively.',
+    category: 'Budgeting',
+    imageUrl: 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '3 min',
+    createdAt: new Date(2023, 2, 10).toISOString(),
+    updatedAt: new Date(2023, 2, 10).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Tracking Expenses Like a Pro',
+    description: 'Master the art of tracking your spending to gain control of your finances.',
+    category: 'Budgeting',
+    imageUrl: 'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '4 min',
+    hasQuiz: true,
+    createdAt: new Date(2023, 3, 5).toISOString(),
+    updatedAt: new Date(2023, 3, 5).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Emergency Fund Basics',
+    description: 'Why you need an emergency fund and how to build one.',
+    category: 'Saving',
+    imageUrl: 'https://images.unsplash.com/photo-1579621970795-87facc2f976d?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '4 min',
+    isNew: true,
+    createdAt: new Date(2023, 4, 20).toISOString(),
+    updatedAt: new Date(2023, 4, 20).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Saving for Big Goals',
+    description: 'Strategies for saving for major life expenses like education or a home.',
+    category: 'Saving',
+    imageUrl: 'https://images.unsplash.com/photo-1565514020179-026b92b2ed33?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '6 min',
+    createdAt: new Date(2023, 3, 12).toISOString(),
+    updatedAt: new Date(2023, 3, 15).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'The Power of Compound Interest',
+    description: 'How compound interest works and why it\'s the secret to building wealth.',
+    category: 'Saving',
+    imageUrl: 'https://images.unsplash.com/photo-1525452661156-a87b68c93525?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '5 min',
+    hasQuiz: true,
+    createdAt: new Date(2023, 2, 28).toISOString(),
+    updatedAt: new Date(2023, 2, 28).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Understanding Credit Scores',
+    description: 'What credit scores mean and how they affect your financial life.',
+    category: 'Debt',
+    imageUrl: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '7 min',
+    hasQuiz: true,
+    createdAt: new Date(2023, 1, 5).toISOString(),
+    updatedAt: new Date(2023, 2, 10).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Debt Repayment Strategies',
+    description: 'Effective methods to pay down debt faster.',
+    category: 'Debt',
+    imageUrl: 'https://images.unsplash.com/photo-1559526324-593bc073d938?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '5 min',
+    createdAt: new Date(2023, 2, 15).toISOString(),
+    updatedAt: new Date(2023, 2, 15).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Good Debt vs. Bad Debt',
+    description: 'How to distinguish between helpful and harmful forms of debt.',
+    category: 'Debt',
+    imageUrl: 'https://images.unsplash.com/photo-1434626881859-194d67b2b86f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '4 min',
+    createdAt: new Date(2023, 3, 8).toISOString(),
+    updatedAt: new Date(2023, 3, 8).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Investing for Beginners',
+    description: 'The basics of investing and how to get started with small amounts.',
+    category: 'Investing',
+    imageUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '8 min',
+    isNew: true,
+    hasQuiz: true,
+    createdAt: new Date(2023, 4, 1).toISOString(),
+    updatedAt: new Date(2023, 4, 1).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Introduction to Stocks and Bonds',
+    description: 'Learn the differences between stocks and bonds and how they work.',
+    category: 'Investing',
+    imageUrl: 'https://images.unsplash.com/photo-1642543492481-44e81e3914a7?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '6 min',
+    createdAt: new Date(2023, 3, 25).toISOString(),
+    updatedAt: new Date(2023, 3, 25).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Understanding Risk and Return',
+    description: 'How to balance risk and potential returns in your investments.',
+    category: 'Investing',
+    imageUrl: 'https://images.unsplash.com/photo-1604594849809-dfedbc827105?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '5 min',
+    createdAt: new Date(2023, 2, 20).toISOString(),
+    updatedAt: new Date(2023, 2, 20).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Understanding Banking Fees',
+    description: 'How to identify and minimize banking fees to save money.',
+    category: 'Banking',
+    imageUrl: 'https://images.unsplash.com/photo-1601597111158-2fceff292cdc?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '4 min',
+    createdAt: new Date(2023, 1, 10).toISOString(),
+    updatedAt: new Date(2023, 1, 10).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Mobile Banking Safety',
+    description: 'Tips to keep your mobile banking secure and protect your money.',
+    category: 'Banking',
+    imageUrl: 'https://images.unsplash.com/photo-1573164713988-8665fc963095?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '5 min',
+    hasQuiz: true,
+    createdAt: new Date(2023, 2, 5).toISOString(),
+    updatedAt: new Date(2023, 2, 5).toISOString()
+  },
+  {
+    id: generateUUID(),
+    title: 'Choosing the Right Bank Account',
+    description: 'How to select banking services that match your financial needs.',
+    category: 'Banking',
+    imageUrl: 'https://images.unsplash.com/photo-1622186477895-f2af6a0f5a97?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80',
+    readTime: '4 min',
+    createdAt: new Date(2023, 3, 15).toISOString(),
+    updatedAt: new Date(2023, 3, 15).toISOString()
+  }
 ];
 
 /**

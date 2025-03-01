@@ -18,6 +18,7 @@ import { migrateApiKeyToSupabase } from './src/services/apiKeyManager';
 import { ThemeProvider } from './src/hooks/useTheme';
 // Import test user initialization
 import initTestUser from './src/scripts/initTestUser';
+// Import database setup function
 
 const AppContent = () => {
   const insets = useSafeAreaInsets();
