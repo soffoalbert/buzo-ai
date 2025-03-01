@@ -22,7 +22,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import Button from '../components/Button';
 import ReceiptScanner from '../components/ReceiptScanner';
-import { createExpense } from '../services/expenseService';
+import { createExpense, syncExpensesToSupabase } from '../services/expenseService';
 import { processReceiptImage, ExtractedReceiptData, createExpenseFromReceipt } from '../services/receiptService';
 import { isMockDataEnabled, setMockDataEnabled, generateAndSaveMockExpenses } from '../services/mockDataService';
 
@@ -172,7 +172,16 @@ const ExpenseScreen: React.FC = () => {
         receiptImage: receiptImage || undefined,
       };
       
+      // Create the expense
       await createExpense(expenseData);
+      
+      // Explicitly trigger sync to Supabase
+      try {
+        await syncExpensesToSupabase();
+      } catch (syncError) {
+        console.warn('Failed to sync expenses to Supabase:', syncError);
+        // Continue with the flow even if sync fails
+      }
       
       Alert.alert(
         'Success',

@@ -62,6 +62,7 @@ export type RootStackParamList = {
   Insights: undefined;
   EditProfile: undefined;
   ExpenseScreen: { receiptData?: any };
+  ExpensesScreen: undefined;
   ExpenseAnalytics: undefined;
   AIAdvisor: undefined;
   Settings: undefined;
@@ -201,6 +202,7 @@ export const RootNavigator: React.FC = () => {
       <RootStack.Screen name="Insights" component={InsightsScreen} />
       <RootStack.Screen name="EditProfile" component={EditProfileScreen} />
       <RootStack.Screen name="ExpenseScreen" component={ExpenseScreen} />
+      <RootStack.Screen name="ExpensesScreen" component={ExpenseScreen} />
       <RootStack.Screen name="ExpenseAnalytics" component={ExpenseAnalyticsScreen} />
       <RootStack.Screen name="AIAdvisor" component={AIAdvisorScreen} />
       <RootStack.Screen name="Settings" component={SettingsScreen} />
