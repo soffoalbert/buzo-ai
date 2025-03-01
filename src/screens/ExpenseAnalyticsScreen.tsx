@@ -411,74 +411,52 @@ const ExpenseAnalyticsScreen: React.FC = () => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Expense Analytics</Text>
         {renderPremiumBadge()}
-        <TouchableOpacity 
-          style={styles.optionsButton}
-          onPress={() => {
-            if (mockDataEnabled) {
-              Alert.alert(
-                'Reset Mock Data',
-                'Do you want to reset the mock data?',
-                [
-                  {
-                    text: 'Cancel',
-                    style: 'cancel',
-                  },
-                  {
-                    text: 'Reset',
-                    onPress: handleResetMockData,
-                  },
-                ]
-              );
-            }
-          }}
-        >
-          <Ionicons name="ellipsis-vertical" size={24} color={colors.text} />
-        </TouchableOpacity>
       </View>
-      
-      {/* Mock Data Toggle */}
-      <View style={styles.mockDataToggleContainer}>
-        <Text style={styles.mockDataLabel}>Use Demo Data</Text>
-        <Switch
-          value={mockDataEnabled}
-          onValueChange={handleToggleMockData}
-          trackColor={{ false: colors.border, true: colors.primary + '80' }}
-          thumbColor={mockDataEnabled ? colors.primary : colors.white}
-        />
-      </View>
-      
       {/* Time Period Selector */}
-      <ScrollView 
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.periodSelector}
-        contentContainerStyle={styles.periodSelectorContent}
-        bounces={false}
-      >
-        {TIME_PERIODS.map(period => (
-          <TouchableOpacity
-            key={period.id}
-            style={[
-              styles.periodButton,
-              selectedPeriod === period.id && styles.selectedPeriodButton,
-              (period.id === '3months' || period.id === '6months' || period.id === 'year') && !isPremium && styles.premiumPeriodButton
-            ]}
-            onPress={() => handlePeriodSelect(period.id)}
+      <View style={styles.periodSelectorContainer}>
+        <View style={styles.periodSelectorInner}>
+          <ScrollView 
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.periodSelectorContent}
+            bounces={false}
           >
-            <Text 
-              style={[
-                styles.periodButtonText,
-                selectedPeriod === period.id && styles.selectedPeriodButtonText
-              ]}
-            >
-              {period.label}
-            </Text>
-            {(period.id === '3months' || period.id === '6months' || period.id === 'year') && !isPremium && (
-              <Ionicons name="lock-closed" size={12} color={colors.textSecondary} style={styles.premiumLockIcon} />
-            )}
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+            {TIME_PERIODS.map(period => {
+              const isSelected = selectedPeriod === period.id;
+              const isPremiumOption = (period.id === '3months' || period.id === '6months' || period.id === 'year');
+              const isLocked = isPremiumOption && !isPremium;
+              
+              return (
+                <TouchableOpacity
+                  key={period.id}
+                  style={[
+                    styles.periodButton,
+                    isSelected && styles.selectedPeriodButton,
+                    isLocked && styles.lockedPeriodButton
+                  ]}
+                  onPress={() => handlePeriodSelect(period.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text 
+                    style={[
+                      styles.periodButtonText,
+                      isSelected && styles.selectedPeriodButtonText,
+                      isLocked && styles.lockedPeriodButtonText
+                    ]}
+                  >
+                    {period.label}
+                  </Text>
+                  {isLocked && (
+                    <View style={styles.lockIconContainer}>
+                      <Ionicons name="lock-closed" size={10} color={colors.textSecondary} />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
       
       {/* Main Content */}
       <ScrollView 
@@ -501,16 +479,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
           </View>
         ) : (
           <>
-            {/* Mock Data Banner */}
-            {mockDataEnabled && (
-              <View style={styles.mockDataBanner}>
-                <Ionicons name="information-circle-outline" size={20} color={colors.white} />
-                <Text style={styles.mockDataBannerText}>
-                  Viewing demo data. Toggle switch to see your real expenses.
-                </Text>
-              </View>
-            )}
-            
+        
             {/* Total Spending Overview */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Total Spending</Text>
@@ -790,62 +759,74 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...shadows.sm,
   },
-  periodSelector: {
-    paddingVertical: 0,
-    marginVertical: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  periodSelectorContainer: {
     backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border + '30',
+    paddingTop: 8,
+    paddingBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 5,
+    elevation: 2,
+    zIndex: 10,
+  },
+  periodSelectorInner: {
+    maxWidth: '100%',
+  },
+  periodSelectorContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 2,
+    justifyContent: 'flex-start',
+  },
+  periodButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 10,
+    backgroundColor: colors.background,
+    minWidth: 76,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: colors.border + '60',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
-    elevation: 2,
-    zIndex: 10,
-  },
-  periodSelectorContent: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 0,
-    marginVertical: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  periodButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs / 2,
-    borderRadius: 20,
-    marginHorizontal: spacing.xs,
-    backgroundColor: colors.white,
-    minWidth: 100,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    ...shadows.sm,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    elevation: 1,
   },
   selectedPeriodButton: {
     backgroundColor: colors.primary,
-    transform: [{ scale: 1.05 }],
-    ...shadows.md,
+    borderColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
   },
   periodButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.text,
     textAlign: 'center',
   },
   selectedPeriodButtonText: {
     color: colors.white,
+    fontWeight: '700',
   },
   scrollView: {
     flex: 1,
     backgroundColor: colors.background,
   },
   scrollContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 8,
     paddingBottom: spacing.xxxl,
   },
   loadingContainer: {
@@ -864,8 +845,9 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.white,
     borderRadius: borderRadius.lg,
-    padding: 0,
-    marginBottom: 0,
+    padding: spacing.lg,
+    marginTop: 8,
+    marginBottom: spacing.lg,
     ...shadows.md,
     borderWidth: 1,
     borderColor: colors.border + '20',
@@ -887,8 +869,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.background,
-    // paddingHorizontal: spacing.sm,
-    // paddingVertical: spacing.xs / 2,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     borderRadius: borderRadius.md,
     alignSelf: 'flex-start',
   },
@@ -917,6 +899,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border + '20',
     ...shadows.sm,
+    paddingVertical: spacing.md,
   },
   topCategoriesContainer: {
     marginTop: spacing.md,
@@ -1072,18 +1055,22 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 12,
   },
-  premiumPeriodButton: {
-    flexDirection: 'row',
+  lockedPeriodButton: {
+    backgroundColor: colors.background + '80',
+    borderColor: colors.border + '40',
+    opacity: 0.9,
+  },
+  lockedPeriodButtonText: {
+    color: colors.textSecondary,
+  },
+  lockIconContainer: {
+    marginLeft: 4,
+    backgroundColor: colors.border + '40',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.background,
-    opacity: 0.9,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  premiumLockIcon: {
-    marginLeft: spacing.xs,
-    alignSelf: 'center',
   },
   premiumFeatureButton: {
     flexDirection: 'row',
