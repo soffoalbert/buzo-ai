@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -33,19 +33,27 @@ import Chart from '../components/Chart';
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { SavingsGoal, SavingsMilestone, SAVINGS_CATEGORIES } from '../models/SavingsGoal';
 import { formatCurrency, calculatePercentage, calculateDaysLeft, formatDate } from '../utils/helpers';
+import { loadSavingsGoals } from '../services/savingsService';
+import { RootStackParamList } from '../navigation';
 
 const { width } = Dimensions.get('window');
 
+type SavingsGoalDetailRouteProp = RouteProp<RootStackParamList, 'SavingsGoalDetail'>;
+
 const SavingsGoalDetailScreen = () => {
-  // Mock data based on the screenshot
+  // Get goalId from route params
+  const route = useRoute<SavingsGoalDetailRouteProp>();
+  const goalId = route.params?.goalId;
+  
+  // Initialize with a default empty goal (will be replaced when data is loaded)
   const [savingsGoal, setSavingsGoal] = useState<SavingsGoal>({
-    id: '1',
-    title: 'Emergency fund 2025',
-    description: 'Emergency Fund',
-    targetAmount: 50000,
-    currentAmount: 1000,
-    startDate: '2025-01-03',
-    targetDate: '2025-03-31',
+    id: '',
+    title: '',
+    description: '',
+    targetAmount: 0,
+    currentAmount: 0,
+    startDate: new Date().toISOString(),
+    targetDate: new Date().toISOString(),
     category: '1',
     isCompleted: false,
     isShared: false,
@@ -53,7 +61,8 @@ const SavingsGoalDetailScreen = () => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
-
+  
+  const [isLoading, setIsLoading] = useState(true);
   const [contribution, setContribution] = useState('');
   const [isAddingMilestone, setIsAddingMilestone] = useState(false);
   const [milestoneTitle, setMilestoneTitle] = useState('');
@@ -83,6 +92,34 @@ const SavingsGoalDetailScreen = () => {
   const dailyAmount = Math.ceil(
     (savingsGoal.targetAmount - savingsGoal.currentAmount) / daysLeft
   );
+
+  // Load the specific savings goal based on goalId
+  useEffect(() => {
+    const loadSavingsGoal = async () => {
+      try {
+        setIsLoading(true);
+        const goals = await loadSavingsGoals();
+        const goal = goals.find(g => g.id === goalId);
+        
+        if (goal) {
+          setSavingsGoal(goal);
+        } else {
+          console.error(`No savings goal found with id ${goalId}`);
+          // Handle the case when goal is not found
+          navigation.goBack();
+        }
+      } catch (error) {
+        console.error('Error loading savings goal:', error);
+        // Handle error
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (goalId) {
+      loadSavingsGoal();
+    }
+  }, [goalId]);
 
   // Animate progress on mount and when progress changes
   useEffect(() => {
@@ -226,6 +263,18 @@ const SavingsGoalDetailScreen = () => {
       legend: ["Projected Savings"]
     };
   };
+
+  // Add loading indicator
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading savings goal...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -516,7 +565,7 @@ const SavingsGoalDetailScreen = () => {
                   title="Add Milestone"
                   onPress={handleAddMilestone}
                   variant="primary"
-                  style={[styles.modalButton, styles.modalPrimaryButton]}
+                  style={styles.modalPrimaryButton}
                 />
               </View>
             </View>
@@ -861,7 +910,19 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
   modalPrimaryButton: {
+    flex: 1,
+    marginHorizontal: 8,
     backgroundColor: '#4F46E5',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: textStyles.body1.fontSize,
+    color: colors.textSecondary,
   },
 });
 
