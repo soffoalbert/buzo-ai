@@ -431,6 +431,17 @@ const ExpenseAnalyticsScreen: React.FC = () => {
            statistics.dailyExpenses.length === 0;
   };
 
+  // Check if insights data is empty
+  const hasNoInsights = () => {
+    return (!statistics || 
+            !statistics.dailyExpenses || 
+            statistics.dailyExpenses.length === 0) &&
+           (comparisonData.previousPeriod <= 0) &&
+           (!statistics || 
+            !statistics.categoryBreakdown || 
+            Object.keys(statistics.categoryBreakdown).length === 0);
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="dark" />
@@ -689,65 +700,88 @@ const ExpenseAnalyticsScreen: React.FC = () => {
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Spending Insights</Text>
               
-              {/* Highest Spending Day */}
-              {statistics && statistics.dailyExpenses && statistics.dailyExpenses.length > 0 && (
-                <View style={styles.insightItem}>
-                  <Ionicons name="calendar-outline" size={24} color={colors.primary} style={styles.insightIcon} />
-                  <View style={styles.insightContent}>
-                    <Text style={styles.insightTitle}>Highest Spending Day</Text>
-                    {(() => {
-                      const highestDay = [...statistics.dailyExpenses].sort((a, b) => b.amount - a.amount)[0];
-                      return (
-                        <Text style={styles.insightText}>
-                          {format(parseISO(highestDay.date), 'EEEE, MMMM d')} with 
-                          {' '}{formatCurrency(highestDay.amount, 'en-ZA', 'ZAR')}
+              {hasNoInsights() ? (
+                renderEmptyState(
+                  "No Insights Available Yet",
+                  "As you track more of your expenses, we'll provide personalized insights to help you better understand your spending patterns and financial behavior.",
+                  "bulb-outline"
+                )
+              ) : (
+                <>
+                  {/* Highest Spending Day */}
+                  {statistics && statistics.dailyExpenses && statistics.dailyExpenses.length > 0 && (
+                    <View style={styles.insightItem}>
+                      <Ionicons name="calendar-outline" size={24} color={colors.primary} style={styles.insightIcon} />
+                      <View style={styles.insightContent}>
+                        <Text style={styles.insightTitle}>Highest Spending Day</Text>
+                        {(() => {
+                          const highestDay = [...statistics.dailyExpenses].sort((a, b) => b.amount - a.amount)[0];
+                          return (
+                            <Text style={styles.insightText}>
+                              {format(parseISO(highestDay.date), 'EEEE, MMMM d')} with 
+                              {' '}{formatCurrency(highestDay.amount, 'en-ZA', 'ZAR')}
+                            </Text>
+                          );
+                        })()}
+                      </View>
+                    </View>
+                  )}
+                  
+                  {/* Month-over-Month Change */}
+                  {comparisonData.previousPeriod > 0 && (
+                    <View style={styles.insightItem}>
+                      <Ionicons 
+                        name={comparisonData.percentageChange >= 0 ? "trending-up-outline" : "trending-down-outline"} 
+                        size={24} 
+                        color={comparisonData.percentageChange >= 0 ? colors.error : colors.success} 
+                        style={styles.insightIcon} 
+                      />
+                      <View style={styles.insightContent}>
+                        <Text style={styles.insightTitle}>
+                          {comparisonData.percentageChange >= 0 ? 'Spending Increased' : 'Spending Decreased'}
                         </Text>
-                      );
-                    })()}
-                  </View>
-                </View>
-              )}
-              
-              {/* Month-over-Month Change */}
-              {comparisonData.previousPeriod > 0 && (
-                <View style={styles.insightItem}>
-                  <Ionicons 
-                    name={comparisonData.percentageChange >= 0 ? "trending-up-outline" : "trending-down-outline"} 
-                    size={24} 
-                    color={comparisonData.percentageChange >= 0 ? colors.error : colors.success} 
-                    style={styles.insightIcon} 
-                  />
-                  <View style={styles.insightContent}>
-                    <Text style={styles.insightTitle}>
-                      {comparisonData.percentageChange >= 0 ? 'Spending Increased' : 'Spending Decreased'}
-                    </Text>
-                    <Text style={styles.insightText}>
-                      Your spending {comparisonData.percentageChange >= 0 ? 'increased' : 'decreased'} by
-                      {' '}{Math.abs(comparisonData.percentageChange).toFixed(1)}% compared to the previous period
-                    </Text>
-                  </View>
-                </View>
-              )}
-              
-              {/* Largest Category */}
-              {statistics && statistics.categoryBreakdown && Object.keys(statistics.categoryBreakdown).length > 0 && (
-                <View style={styles.insightItem}>
-                  <Ionicons name="pie-chart-outline" size={24} color={colors.accent} style={styles.insightIcon} />
-                  <View style={styles.insightContent}>
-                    <Text style={styles.insightTitle}>Largest Spending Category</Text>
-                    {(() => {
-                      const entries = Object.entries(statistics.categoryBreakdown);
-                      const [topCategory, topAmount] = entries.sort((a, b) => b[1] - a[1])[0];
-                      const percentage = (topAmount / statistics.totalAmount) * 100;
-                      
-                      return (
                         <Text style={styles.insightText}>
-                          {getCategoryName(topCategory)} accounts for {percentage.toFixed(1)}% of your total spending
+                          Your spending {comparisonData.percentageChange >= 0 ? 'increased' : 'decreased'} by
+                          {' '}{Math.abs(comparisonData.percentageChange).toFixed(1)}% compared to the previous period
                         </Text>
-                      );
-                    })()}
-                  </View>
-                </View>
+                      </View>
+                    </View>
+                  )}
+                  
+                  {/* Largest Category */}
+                  {statistics && statistics.categoryBreakdown && Object.keys(statistics.categoryBreakdown).length > 0 && (
+                    <View style={styles.insightItem}>
+                      <Ionicons name="pie-chart-outline" size={24} color={colors.accent} style={styles.insightIcon} />
+                      <View style={styles.insightContent}>
+                        <Text style={styles.insightTitle}>Largest Spending Category</Text>
+                        {(() => {
+                          const entries = Object.entries(statistics.categoryBreakdown);
+                          const [topCategory, topAmount] = entries.sort((a, b) => b[1] - a[1])[0];
+                          const percentage = (topAmount / statistics.totalAmount) * 100;
+                          
+                          return (
+                            <Text style={styles.insightText}>
+                              {getCategoryName(topCategory)} accounts for {percentage.toFixed(1)}% of your total spending
+                            </Text>
+                          );
+                        })()}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* No specific insights but some data */}
+                  {!hasNoInsights() && 
+                   !statistics?.dailyExpenses?.length && 
+                   !comparisonData.previousPeriod && 
+                   !Object.keys(statistics?.categoryBreakdown || {}).length && (
+                    <View style={styles.partialInsightContainer}>
+                      <Ionicons name="analytics-outline" size={22} color={colors.primary} />
+                      <Text style={styles.partialInsightText}>
+                        We're analyzing your spending patterns. Add more transaction data to see detailed insights.
+                      </Text>
+                    </View>
+                  )}
+                </>
               )}
             </View>
             
@@ -1255,6 +1289,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     paddingHorizontal: spacing.md,
+  },
+  partialInsightContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight + '40',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+  },
+  partialInsightText: {
+    flex: 1,
+    marginLeft: spacing.sm,
+    fontSize: textStyles.body2.fontSize,
+    color: colors.text,
+    lineHeight: 20,
   },
 });
 
