@@ -291,14 +291,6 @@ const SavingsScreen: React.FC = () => {
               }
             />
           )}
-          
-          {/* Add Goal Button */}
-          <TouchableOpacity 
-            style={styles.floatingButton}
-            onPress={handleAddSavingsGoal}
-          >
-            <Ionicons name="add" size={24} color={colors.white} />
-          </TouchableOpacity>
         </>
       )}
     </SafeAreaView>
