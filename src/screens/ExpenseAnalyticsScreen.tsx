@@ -9,7 +9,8 @@ import {
   Dimensions,
   RefreshControl,
   Alert,
-  Switch
+  Switch,
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -576,7 +577,21 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                 )
               ) : (
                 <>
-                  <View style={[styles.chartContainer, { backgroundColor: 'transparent' }]}>
+                  <View style={[
+                    styles.chartContainer, 
+                    { 
+                      backgroundColor: 'transparent', 
+                      borderWidth: Platform.OS === 'android' ? 0 : 1,
+                      ...(Platform.OS === 'android' ? {
+                        elevation: 0,
+                        shadowColor: 'transparent',
+                        shadowOpacity: 0,
+                        shadowRadius: 0,
+                        shadowOffset: { width: 0, height: 0 },
+                        borderColor: 'transparent'
+                      } : {})
+                    }
+                  ]}>
                     <Chart
                       type="pie"
                       data={prepareCategoryData()}
@@ -584,7 +599,19 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                       height={220}
                       showLegend={true}
                       backgroundColor="transparent"
-                      containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
+                      containerStyle={{ 
+                        marginVertical: 0, 
+                        backgroundColor: 'transparent', 
+                        elevation: 0,
+                        ...(Platform.OS === 'android' ? {
+                          shadowColor: 'transparent',
+                          shadowOpacity: 0,
+                          shadowRadius: 0,
+                          shadowOffset: { width: 0, height: 0 },
+                          borderWidth: 0,
+                          borderColor: 'transparent'
+                        } : {})
+                      }}
                     />
                   </View>
                   
@@ -627,7 +654,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                   "bar-chart-outline"
                 )
               ) : (
-                <View style={styles.chartContainer}>
+                <View style={[styles.chartContainer, Platform.OS === 'android' ? { borderWidth: 0, elevation: 0 } : {}]}>
                   <Chart
                     type="bar"
                     data={prepareMonthlyData()}
@@ -636,7 +663,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                     yAxisSuffix="R"
                     showGrid={true}
                     showValues={false}
-                    containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
+                    containerStyle={{ marginVertical: 0, backgroundColor: 'transparent', elevation: 0 }}
                     backgroundColor="#ffffff"
                     backgroundGradientFrom="#ffffff"
                     backgroundGradientTo="#ffffff"
@@ -657,7 +684,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                   "calendar-outline"
                 )
               ) : (
-                <View style={styles.chartContainer}>
+                <View style={[styles.chartContainer, Platform.OS === 'android' ? { borderWidth: 0, elevation: 0 } : {}]}>
                   <Chart
                     type="line"
                     data={prepareDailyData()}
@@ -666,7 +693,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                     yAxisSuffix="R"
                     showGrid={true}
                     showValues={true}
-                    containerStyle={{ marginVertical: 0, backgroundColor: 'transparent' }}
+                    containerStyle={{ marginVertical: 0, backgroundColor: 'transparent', elevation: 0 }}
                     backgroundColor="#ffffff"
                     backgroundGradientFrom="#ffffff"
                     backgroundGradientTo="#ffffff"
@@ -993,10 +1020,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: borderRadius.md,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border + '20',
-    ...shadows.sm,
     paddingVertical: spacing.md,
+    borderWidth: Platform.OS === 'android' ? 0 : 1,
+    borderColor: colors.border + '20',
+    ...(Platform.OS === 'android' 
+      ? { 
+          elevation: 0,
+          shadowColor: 'transparent',
+          shadowOpacity: 0,
+          shadowRadius: 0,
+          shadowOffset: { width: 0, height: 0 },
+        } 
+      : shadows.sm),
   },
   topCategoriesContainer: {
     marginTop: spacing.md,

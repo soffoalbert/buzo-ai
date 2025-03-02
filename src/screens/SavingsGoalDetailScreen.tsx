@@ -196,7 +196,7 @@ const SavingsGoalDetailScreen = () => {
   // Handle scroll for header opacity
   const handleScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { y: headerOpacity } } }],
-    { useNativeDriver: Platform.OS === 'android' }
+    { useNativeDriver: false }
   );
 
   // Handle add milestone

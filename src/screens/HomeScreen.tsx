@@ -9,6 +9,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -848,7 +849,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondary,
     borderRadius: borderRadius.lg,
     padding: spacing.lg,
-    marginBottom: spacing.xxl,
+    marginBottom: Platform.OS === 'android' ? spacing.xxl * 2 : spacing.xxl,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

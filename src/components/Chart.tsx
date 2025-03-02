@@ -6,7 +6,8 @@ import {
   Dimensions, 
   ViewStyle, 
   TextStyle,
-  ScrollView
+  ScrollView,
+  Platform
 } from 'react-native';
 import {
   LineChart,
@@ -123,6 +124,11 @@ const Chart: React.FC<ChartProps> = ({
   
   // Render the appropriate chart based on type
   const renderChart = () => {
+    // For Android, customize chart styles to avoid double borders for pie and line charts
+    const chartStylesForAndroid = Platform.OS === 'android' && (type === 'pie' || type === 'line')
+      ? { ...styles.chart, borderWidth: 0, elevation: 0 }
+      : styles.chart;
+      
     switch (type) {
       case 'line':
         return (
@@ -144,7 +150,7 @@ const Chart: React.FC<ChartProps> = ({
               useShadowColorFromDataset: false,
             }}
             bezier
-            style={[styles.chart, chartStyle]}
+            style={chartStylesForAndroid}
             withInnerLines={showGrid}
             withOuterLines={showGrid}
             withDots={showValues}
@@ -203,7 +209,7 @@ const Chart: React.FC<ChartProps> = ({
             paddingLeft="15"
             absolute
             hasLegend={showLegend && !hideLegend}
-            style={[styles.chart, chartStyle]}
+            style={chartStylesForAndroid}
           />
         );
       case 'progress':
@@ -241,7 +247,22 @@ const Chart: React.FC<ChartProps> = ({
   const ChartContainer = scrollable ? ScrollView : View;
   
   return (
-    <View style={[styles.container, containerStyle]}>
+    <View style={[
+      styles.container, 
+      Platform.OS === 'android' && (type === 'pie' || type === 'line') 
+        ? { 
+            borderWidth: 0, 
+            elevation: 0,
+            shadowColor: 'transparent',
+            shadowOpacity: 0,
+            shadowRadius: 0,
+            shadowOffset: { width: 0, height: 0 },
+            borderColor: 'transparent',
+            backgroundColor: 'transparent'
+          } 
+        : {},
+      containerStyle
+    ]}>
       {/* Chart Title and Subtitle */}
       {(title || subtitle) && (
         <View style={styles.titleContainer}>
@@ -273,6 +294,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    ...(Platform.OS === 'android' ? {
+      // Default Android styles for all charts
+      borderWidth: 0
+    } : {})
   },
   titleContainer: {
     marginBottom: 16,
