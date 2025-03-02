@@ -15,6 +15,13 @@ export interface Expense {
   paymentMethod?: PaymentMethod;
   createdAt: string;
   updatedAt: string;
+  // Integration fields
+  budgetId?: string; // Associated budget ID
+  impactsSavingsGoal?: boolean; // Whether this expense affects any savings goals
+  linkedSavingsGoals?: string[]; // Array of affected savings goal IDs
+  savingsContribution?: number; // If this is a savings contribution, the amount contributed
+  isAutomatedSaving?: boolean; // Whether this is an automated savings transfer
+  user_id?: string;
 }
 
 // Payment methods
@@ -24,6 +31,7 @@ export enum PaymentMethod {
   DEBIT_CARD = 'debit_card',
   BANK_TRANSFER = 'bank_transfer',
   MOBILE_PAYMENT = 'mobile_payment',
+  AUTOMATED_SAVING = 'automated_saving', // New payment method for automated savings
   OTHER = 'other',
 }
 
@@ -37,6 +45,9 @@ export interface ExpenseFilters {
   searchQuery?: string;
   paymentMethods?: PaymentMethod[];
   tags?: string[];
+  budgetIds?: string[]; // Filter by associated budgets
+  savingsGoalIds?: string[]; // Filter by associated savings goals
+  includeAutomatedSavings?: boolean; // Whether to include automated savings transfers
 }
 
 // Expense statistics
@@ -64,4 +75,23 @@ export interface ExpenseStatistics {
   averageAmount: number;
   expenseFrequency: number;
   expenseCount: number;
+  // Integration statistics
+  savingsProgress: {
+    totalSaved: number;
+    goalProgress: {
+      [goalId: string]: {
+        currentAmount: number;
+        targetAmount: number;
+        percentage: number;
+      }
+    }
+  };
+  budgetImpact: {
+    [budgetId: string]: {
+      allocated: number;
+      spent: number;
+      remaining: number;
+      savingsAllocated: number;
+    }
+  };
 } 

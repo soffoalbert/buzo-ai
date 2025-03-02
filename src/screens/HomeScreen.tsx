@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 // @ts-ignore
 import { LineChart } from 'react-native-chart-kit';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
 
@@ -29,6 +29,8 @@ import { generateAndSaveMockExpenses, setMockDataEnabled, isMockDataEnabled } fr
 import { supabase } from '../api/supabaseClient';
 import { getUserProfile } from '../services/authService';
 import { loadExpenses } from '../services/expenseService';
+import { financialIntegrationService } from '../services/financialIntegrationService';
+import { Expense } from '../models/Expense';
 
 const { width } = Dimensions.get('window');
 
@@ -58,6 +60,111 @@ export type HomeScreenNavigationProp = NativeStackNavigationProp<{
   FeedbackScreen: undefined;
 }>;
 
+type ThemeColors = typeof colors;
+
+const getRandomColor = (): string => {
+  const colorKeys = (Object.keys(colors) as Array<keyof ThemeColors>).filter(key => 
+    typeof colors[key] === 'string' && 
+    !['text', 'background', 'border'].includes(key as string)
+  );
+  const randomKey = colorKeys[Math.floor(Math.random() * colorKeys.length)];
+  return colors[randomKey];
+};
+
+// Update the interfaces to match the actual data structure
+interface BudgetUtilization {
+  id: string;
+  name: string;
+  utilization: number;
+  savingsContribution: number;
+  color?: string;
+}
+
+interface SavingsProgress {
+  id: string;
+  title: string;
+  progress: number;
+  nextSavingDate?: string;
+  targetAmount: number;
+  currentAmount: number;
+}
+
+interface BaseExpense {
+  id: string;
+  amount: number;
+  category: string;
+  date: string;
+  description: string;
+  user_id: string;
+}
+
+interface ExtendedExpense extends BaseExpense {
+  name: string;
+  spent: number;
+  color: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface RawFinancialOverviewResponse {
+  totalBudgeted?: number;
+  totalSpent?: number;
+  totalSaved?: number;
+  budgetUtilization?: Array<{
+    id?: string;
+    name?: string;
+    utilization?: number;
+    savingsContribution?: number;
+  }>;
+  savingsProgress?: Array<{
+    id?: string;
+    title?: string;
+    progress?: number;
+    nextSavingDate?: string;
+    targetAmount?: number;
+    currentAmount?: number;
+  }>;
+  recentTransactions?: Array<{
+    id?: string;
+    amount?: number;
+    category?: string;
+    date?: string;
+    description?: string;
+    user_id?: string;
+  }>;
+}
+
+interface IntegrationData {
+  totalBudgeted: number;
+  totalSpent: number;
+  totalSaved: number;
+  budgetUtilization: BudgetUtilization[];
+  savingsProgress: SavingsProgress[];
+  recentTransactions: ExtendedExpense[];
+}
+
+interface BudgetCategory {
+  name: string;
+  amount: number;
+  color: string;
+  spent?: number;
+}
+
+interface BudgetState {
+  total: number;
+  spent: number;
+  remaining: number;
+  categories: BudgetCategory[];
+}
+
+interface SavingsState {
+  goal: number;
+  current: number;
+  progress: number;
+  name: string;
+}
+
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const [refreshing, setRefreshing] = useState(false);
@@ -72,18 +179,18 @@ const HomeScreen: React.FC = () => {
     expenses: 0,
   });
   
-  const [budgetData, setBudgetData] = useState({
+  const [budgetData, setBudgetData] = useState<BudgetState>({
     total: 0,
     spent: 0,
     remaining: 0,
-    categories: [],
+    categories: []
   });
   
-  const [savingsData, setSavingsData] = useState({
+  const [savingsData, setSavingsData] = useState<SavingsState>({
     goal: 0,
     current: 0,
     progress: 0,
-    name: 'Emergency Fund',
+    name: ''
   });
   
   const [spendingChartData, setSpendingChartData] = useState({
@@ -101,6 +208,19 @@ const HomeScreen: React.FC = () => {
   const [hasWeeklySpendingData, setHasWeeklySpendingData] = useState(false);
   const [hasBudgetData, setHasBudgetData] = useState(false);
   const [hasSavingsData, setHasSavingsData] = useState(false);
+
+  const [integrationData, setIntegrationData] = useState<IntegrationData>({
+    totalBudgeted: 0,
+    totalSpent: 0,
+    totalSaved: 0,
+    budgetUtilization: [],
+    savingsProgress: [],
+    recentTransactions: []
+  });
+
+  const [expenseData, setExpenseData] = useState<ExtendedExpense[]>([]);
+
+  const [chartData, setChartData] = useState<any>({}); // Type this properly based on your chart library's requirements
 
   useEffect(() => {
     // Check Supabase authentication before loading data
@@ -214,107 +334,122 @@ const HomeScreen: React.FC = () => {
       
       if (profileError) {
         console.error('Error loading user profile:', profileError);
-      } else if (profile) {
-        // Set user name from profile - prefer full_name from Supabase profile
-        const firstName = (profile.full_name || '').split(' ')[0] || 'User';
-        setUserName(firstName);
-        console.log('Using name from authService getUserProfile:', firstName);
+        return; // Exit early if we can't get the profile
       }
       
-      // Load budget data
-      const budgets = await loadBudgets();
-      const budgetStats = await getBudgetStatistics();
+      if (!profile?.id) {
+        console.error('No user profile ID available');
+        return; // Exit early if no profile ID
+      }
+
+      console.log('Loading financial data for user:', profile.id);
       
-      if (budgets.length > 0 && budgetStats.totalBudgeted > 0) {
-        setHasBudgetData(true);
-        setBudgetData({
-          total: budgetStats.totalBudgeted,
-          spent: budgetStats.totalSpent,
-          remaining: budgetStats.remainingBudget,
-          categories: budgets.slice(0, 5).map(budget => ({
+      // Load integrated financial data
+      const rawResponse = await financialIntegrationService.getFinancialOverview(profile.id);
+      
+      console.log('Raw financial data:', JSON.stringify(rawResponse, null, 2));
+      
+      // Transform budget utilization data
+      const budgetData: BudgetUtilization[] = (rawResponse.budgetUtilization || []).map(b => ({
+        id: b.id || '',
+        name: b.name || '',
+        utilization: b.utilization || 0,
+        savingsContribution: b.savingsContribution || 0,
+        color: getRandomColor()
+      }));
+
+      // Transform savings progress data
+      const savingsData: SavingsProgress[] = (rawResponse.savingsProgress || []).map(s => ({
+        id: s.id || '',
+        title: s.title || '',
+        progress: s.progress || 0,
+        nextSavingDate: s.nextSavingDate,
+        targetAmount: s.targetAmount || 0,
+        currentAmount: s.currentAmount || 0
+      }));
+
+      // Transform expense data with proper typing
+      const expenses: ExtendedExpense[] = (rawResponse.recentTransactions || []).map(transaction => ({
+        id: transaction.id || '',
+        amount: transaction.amount || 0,
+        category: transaction.category || '',
+        date: transaction.date || new Date().toISOString(),
+        description: transaction.description || '',
+        user_id: transaction.user_id || '',
+        name: transaction.category || '',
+        spent: transaction.amount || 0,
+        color: getRandomColor(),
+        title: transaction.description || '',
+        createdAt: transaction.date || new Date().toISOString(),
+        updatedAt: transaction.date || new Date().toISOString()
+      }));
+
+      console.log('Transformed data:', {
+        budgetCount: budgetData.length,
+        savingsCount: savingsData.length,
+        expenseCount: expenses.length
+      });
+
+      const newIntegrationData: IntegrationData = {
+        totalBudgeted: rawResponse.totalBudgeted || 0,
+        totalSpent: rawResponse.totalSpent || 0,
+        totalSaved: rawResponse.totalSaved || 0,
+        budgetUtilization: budgetData,
+        savingsProgress: savingsData,
+        recentTransactions: expenses
+      };
+
+      console.log('Final integration data:', {
+        totalBudgeted: newIntegrationData.totalBudgeted,
+        totalSpent: newIntegrationData.totalSpent,
+        totalSaved: newIntegrationData.totalSaved
+      });
+
+      setIntegrationData(newIntegrationData);
+      setExpenseData(expenses);
+      
+      // Update chart data
+      setChartData({
+        labels: expenses.map(expense => expense.category),
+        datasets: [{
+          data: expenses.map(expense => expense.amount)
+        }]
+      });
+
+      setHasBudgetData(budgetData.length > 0);
+      setHasSavingsData(savingsData.length > 0);
+      
+      // Update budget state
+      if (rawResponse.totalBudgeted && rawResponse.totalBudgeted > 0) {
+        const newBudgetState: BudgetState = {
+          total: rawResponse.totalBudgeted,
+          spent: rawResponse.totalSpent || 0,
+          remaining: rawResponse.totalBudgeted - (rawResponse.totalSpent || 0),
+          categories: budgetData.map(budget => ({
             name: budget.name,
-            amount: budget.amount,
-            spent: budget.spent,
-            color: budget.color,
-          })),
-        });
+            amount: rawResponse.totalBudgeted! * (budget.utilization / 100),
+            color: budget.color || getRandomColor(),
+            spent: (rawResponse.totalSpent || 0) * (budget.utilization / 100)
+          }))
+        };
+        setBudgetData(newBudgetState);
       }
       
-      // Load savings data
-      const savingsGoals = await loadSavingsGoals();
-      const savingsStats = await getSavingsStatistics();
-      
-      if (savingsGoals.length > 0) {
-        setHasSavingsData(true);
-        // Get the most important savings goal (highest priority or most progress)
-        const topSavingsGoal = savingsGoals[0];
-        setSavingsData({
+      // Update savings state
+      if (savingsData.length > 0) {
+        const topSavingsGoal = savingsData[0];
+        const newSavingsState: SavingsState = {
           goal: topSavingsGoal.targetAmount,
           current: topSavingsGoal.currentAmount,
-          progress: Math.round((topSavingsGoal.currentAmount / topSavingsGoal.targetAmount) * 100),
-          name: topSavingsGoal.name,
-        });
-      }
-      
-      // Load expense statistics
-      const expenseStats = await getExpenseStatistics();
-      setBalanceData({
-        currentBalance: expenseStats.balance,
-        income: expenseStats.totalIncome,
-        expenses: expenseStats.totalExpenses,
-      });
-      
-      // Get weekly spending data
-      const now = new Date();
-      const start = startOfWeek(now, { weekStartsOn: 1 }); // Week starts on Monday
-      const end = endOfWeek(now, { weekStartsOn: 1 });
-      
-      // Ensure mock data is disabled
-      await setMockDataEnabled(false);
-      
-      // Get all expenses in the week - only real data from Supabase
-      const weeklyExpenses = await filterExpenses({
-        startDate: format(start, 'yyyy-MM-dd'),
-        endDate: format(end, 'yyyy-MM-dd'),
-      });      
-      // Only set hasWeeklySpendingData to true if there are real expenses
-      if (weeklyExpenses.length > 0) {
-        setHasWeeklySpendingData(true);
-        
-        // Create array of all days in the week
-        const daysInWeek = eachDayOfInterval({ start, end });
-        
-        // Map expenses to days
-        const dailyTotals = daysInWeek.map(day => {
-          const dayFormatted = format(day, 'yyyy-MM-dd');
-          const dayExpenses = weeklyExpenses.filter(expense => 
-            expense.date.substring(0, 10) === dayFormatted
-          );
-          
-          const total = dayExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-          return {
-            label: format(day, 'EEE'),
-            value: total,
-          };
-        });
-        
-        setSpendingChartData({
-          labels: dailyTotals.map(day => day.label),
-          datasets: [
-            {
-              data: dailyTotals.map(day => day.value || 0),
-              color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`,
-              strokeWidth: 2,
-            },
-          ],
-        });
-      } else {
-        // Make sure to set hasWeeklySpendingData to false when there are no expenses
-        setHasWeeklySpendingData(false);
+          progress: topSavingsGoal.progress,
+          name: topSavingsGoal.title
+        };
+        setSavingsData(newSavingsState);
       }
       
     } catch (error) {
-      console.error('Error loading home screen data:', error);
+      console.error('Error loading data:', error);
+      Alert.alert('Error', 'Failed to load financial data');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -421,34 +556,23 @@ const HomeScreen: React.FC = () => {
           </View>
         ) : (
           <>
-            {/* Balance Card */}
-            <View style={styles.balanceCard}>
-              <View style={styles.balanceHeader}>
-                <Text style={styles.balanceTitle}>Current Balance</Text>
-                <TouchableOpacity 
-                  style={styles.uploadButton}
-                  onPress={handleNavigateToBankStatements}
-                >
-                  <Ionicons name="document-text-outline" size={16} color={colors.white} />
-                  <Text style={styles.uploadButtonText}>Bank Statements</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.balanceAmount}>R {(balanceData.currentBalance || 0).toFixed(2)}</Text>
-              <View style={styles.balanceDetails}>
-                <View style={styles.balanceItem}>
-                  <Ionicons name="arrow-down-circle" size={20} color={colors.success} />
-                  <View>
-                    <Text style={styles.balanceItemLabel}>Income</Text>
-                    <Text style={styles.balanceItemValue}>R {(balanceData.income || 0).toFixed(2)}</Text>
-                  </View>
+            {/* Financial Overview Card */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Financial Overview</Text>
+              <View style={styles.overviewContainer}>
+                <View style={styles.overviewItem}>
+                  <Text style={styles.overviewLabel}>Total Budget</Text>
+                  <Text style={styles.overviewAmount}>R {integrationData.totalBudgeted.toFixed(2)}</Text>
                 </View>
-                <View style={styles.balanceDivider} />
-                <View style={styles.balanceItem}>
-                  <Ionicons name="arrow-up-circle" size={20} color={colors.error} />
-                  <View>
-                    <Text style={styles.balanceItemLabel}>Expenses</Text>
-                    <Text style={styles.balanceItemValue}>R {(balanceData.expenses || 0).toFixed(2)}</Text>
-                  </View>
+                <View style={styles.overviewItem}>
+                  <Text style={styles.overviewLabel}>Total Spent</Text>
+                  <Text style={styles.overviewAmount}>R {integrationData.totalSpent.toFixed(2)}</Text>
+                </View>
+                <View style={styles.overviewItem}>
+                  <Text style={styles.overviewLabel}>Total Saved</Text>
+                  <Text style={[styles.overviewAmount, { color: colors.success }]}>
+                    R {integrationData.totalSaved.toFixed(2)}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -589,7 +713,7 @@ const HomeScreen: React.FC = () => {
                 </View>
               ) : (
                 renderEmptyState(
-                  "piggy-bank-outline", 
+                  "wallet-outline", 
                   "No savings goals yet",
                   "Set up a savings goal to start building your financial future."
                 )
@@ -963,6 +1087,34 @@ const styles = StyleSheet.create({
     fontSize: textStyles.caption.fontSize,
     fontWeight: '600',
     marginLeft: spacing.xs,
+  },
+  card: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    ...shadows.md,
+  },
+  overviewContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  overviewItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  overviewLabel: {
+    fontSize: textStyles.caption.fontSize,
+    fontWeight: textStyles.caption.fontWeight as any,
+    lineHeight: textStyles.caption.lineHeight,
+    color: colors.textSecondary,
+  },
+  overviewAmount: {
+    fontSize: textStyles.h4.fontSize,
+    fontWeight: textStyles.h4.fontWeight as any,
+    lineHeight: textStyles.h4.lineHeight,
+    color: colors.text,
   },
 });
 

@@ -15,6 +15,7 @@ import Card from './Card';
 import ProgressBar from './ProgressBar';
 import Chart from './Chart';
 import { formatCurrency } from '../utils/helpers';
+import { colors } from 'utils/theme';
 
 // Types for financial insights
 export interface FinancialInsight {
@@ -62,6 +63,18 @@ interface FinancialInsightsProps {
   onSeeAllTrends?: () => void;
   currency?: string;
   locale?: string;
+  budgetUtilization?: {
+    id: string;
+    name: string;
+    utilization: number;
+    savingsContribution: number;
+  }[];
+  savingsProgress?: {
+    id: string;
+    title: string;
+    progress: number;
+    nextSavingDate?: string;
+  }[];
 }
 
 const FinancialInsights: React.FC<FinancialInsightsProps> = ({
@@ -78,6 +91,8 @@ const FinancialInsights: React.FC<FinancialInsightsProps> = ({
   onSeeAllTrends,
   currency = 'ZAR',
   locale = 'en-ZA',
+  budgetUtilization,
+  savingsProgress,
 }) => {
   const [activeInsights, setActiveInsights] = useState<FinancialInsight[]>([]);
   
@@ -460,6 +475,80 @@ const FinancialInsights: React.FC<FinancialInsightsProps> = ({
           </Card>
         </View>
       )}
+      
+      {/* Add new section for Budget & Savings Integration */}
+      {(budgetUtilization?.length > 0 || savingsProgress?.length > 0) && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Budget & Savings Overview</Text>
+          </View>
+          
+          <Card style={styles.card} variant="default" elevated={true}>
+            {/* Budget Utilization */}
+            {budgetUtilization?.length > 0 && (
+              <>
+                <Text style={styles.subsectionTitle}>Budget Utilization</Text>
+                {budgetUtilization.map((budget) => (
+                  <View key={budget.id} style={styles.budgetItem}>
+                    <View style={styles.budgetHeader}>
+                      <Text style={styles.budgetName}>{budget.name}</Text>
+                      <Text style={styles.budgetPercentage}>{budget.utilization.toFixed(1)}%</Text>
+                    </View>
+                    <View style={styles.budgetBarContainer}>
+                      <View 
+                        style={[
+                          styles.budgetBar,
+                          {
+                            width: `${Math.min(budget.utilization, 100)}%`,
+                            backgroundColor: budget.utilization > 90 ? colors.error : colors.primary
+                          }
+                        ]}
+                      />
+                    </View>
+                    {budget.savingsContribution > 0 && (
+                      <Text style={styles.savingsNote}>
+                        Contributing R {budget.savingsContribution.toFixed(2)} to savings
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </>
+            )}
+
+            {/* Savings Progress */}
+            {savingsProgress?.length > 0 && (
+              <>
+                <View style={styles.divider} />
+                <Text style={styles.subsectionTitle}>Savings Progress</Text>
+                {savingsProgress.map((goal) => (
+                  <View key={goal.id} style={styles.savingsItem}>
+                    <View style={styles.savingsHeader}>
+                      <Text style={styles.savingsName}>{goal.title}</Text>
+                      <Text style={styles.savingsPercentage}>{goal.progress.toFixed(1)}%</Text>
+                    </View>
+                    <View style={styles.savingsBarContainer}>
+                      <View 
+                        style={[
+                          styles.savingsBar,
+                          {
+                            width: `${Math.min(goal.progress, 100)}%`,
+                            backgroundColor: colors.success
+                          }
+                        ]}
+                      />
+                    </View>
+                    {goal.nextSavingDate && (
+                      <Text style={styles.nextSavingDate}>
+                        Next saving: {new Date(goal.nextSavingDate).toLocaleDateString()}
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </>
+            )}
+          </Card>
+        </View>
+      )}
     </ScrollView>
   );
 };
@@ -739,6 +828,81 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     marginLeft: 8,
     flex: 1,
+  },
+  subsectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 16,
+  },
+  budgetItem: {
+    marginBottom: 16,
+  },
+  budgetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  budgetName: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  budgetPercentage: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  budgetBarContainer: {
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  budgetBar: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  savingsNote: {
+    fontSize: 12,
+    color: colors.success,
+    marginTop: 4,
+  },
+  savingsItem: {
+    marginBottom: 16,
+  },
+  savingsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  savingsName: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  savingsPercentage: {
+    fontSize: 14,
+    color: colors.success,
+  },
+  savingsBarContainer: {
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  savingsBar: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  nextSavingDate: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 4,
   },
 });
 

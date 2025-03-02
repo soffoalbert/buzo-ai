@@ -22,9 +22,16 @@ const getCurrentUserId = async (): Promise<string | null> => {
  */
 export const fetchBudgets = async (): Promise<Budget[]> => {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
     const { data: budgets, error } = await supabase
       .from('budgets')
       .select('*')
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
     if (error) {

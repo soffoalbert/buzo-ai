@@ -14,6 +14,7 @@ import { getCurrentUser } from './userService';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { v4 as uuidv4 } from 'uuid';
+import { createOrUpdateUserProfile } from '../services/authService';
 
 // Storage keys
 const FEEDBACK_STORAGE_KEY = 'buzo_feedback';
@@ -475,29 +476,15 @@ export const syncPendingFeedback = async (): Promise<number> => {
             if (userError && userError.code === 'PGRST116') {
               console.log('User profile not found, creating one before syncing feedback...');
               
-              // Create a minimal profile for the user
-              const profileData = {
-                id: currentUser.id,
-                email: currentUser.email || '',
-                full_name: getUserName(currentUser),
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              };
-              
-              const { error: createError } = await supabaseAdmin
-                .from('profiles')
-                .insert(profileData);
-                
-              if (createError) {
-                console.warn('Failed to create user profile:', createError);
-                
-                // If we can't create a profile due to foreign key constraint, we can't sync
-                if (createError.code === '23503') {
-                  console.warn('Foreign key constraint violation. Cannot create profile.');
-                  userExistsInAuthTable = false;
-                }
-              } else {
+              try {
+                await createOrUpdateUserProfile(currentUser.id, {
+                  email: currentUser.email || '',
+                  full_name: getUserName(currentUser)
+                });
                 console.log('User profile created successfully');
+              } catch (profileError) {
+                console.warn('Failed to create user profile:', profileError);
+                userExistsInAuthTable = false;
               }
             } else if (userError) {
               console.warn('Error checking for user profile:', userError);
@@ -846,29 +833,15 @@ export const trackFeatureEngagement = async (
             if (userError && userError.code === 'PGRST116') {
               console.log('User profile not found, creating one before tracking engagement...');
               
-              // Create a minimal profile for the user
-              const profileData = {
-                id: currentUser.id,
-                email: currentUser.email || '',
-                full_name: getUserName(currentUser),
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              };
-              
-              const { error: createError } = await supabaseAdmin
-                .from('profiles')
-                .insert(profileData);
-                
-              if (createError) {
-                console.warn('Failed to create user profile:', createError);
-                
-                // If we can't create a profile due to foreign key constraint, we can't track
-                if (createError.code === '23503') {
-                  console.warn('Foreign key constraint violation. Cannot create profile.');
-                  userExistsInAuthTable = false;
-                }
-              } else {
+              try {
+                await createOrUpdateUserProfile(currentUser.id, {
+                  email: currentUser.email || '',
+                  full_name: getUserName(currentUser)
+                });
                 console.log('User profile created successfully');
+              } catch (profileError) {
+                console.warn('Failed to create user profile:', profileError);
+                userExistsInAuthTable = false;
               }
             } else if (userError) {
               console.warn('Error checking for user profile:', userError);

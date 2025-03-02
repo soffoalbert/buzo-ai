@@ -30,6 +30,11 @@
       "distribution": "internal",
       "autoIncrement": true
     },
+    "test": {
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
       "android": {
         "buildType": "app-bundle",

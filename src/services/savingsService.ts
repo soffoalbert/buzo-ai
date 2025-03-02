@@ -11,6 +11,163 @@ import { v4 as uuidv4 } from 'uuid';
 const SAVINGS_GOALS_STORAGE_KEY = 'buzo_savings_goals';
 const SAVINGS_CATEGORIES_STORAGE_KEY = 'buzo_savings_categories';
 
+class SavingsService {
+  private readonly tableName = 'savings_goals';
+
+  async createSavingsGoal(goal: SavingsGoal): Promise<SavingsGoal> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .insert([{
+        ...goal,
+        currentAmount: 0,
+        isCompleted: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getSavingsGoal(id: string): Promise<SavingsGoal | null> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getUserSavingsGoals(userId: string): Promise<SavingsGoal[]> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async updateSavingsGoal(goal: SavingsGoal): Promise<SavingsGoal> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .update({
+        ...goal,
+        updatedAt: new Date().toISOString()
+      })
+      .eq('id', goal.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async deleteSavingsGoal(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(this.tableName)
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  }
+
+  // Integration methods
+  async addContribution(goalId: string, amount: number, source: 'manual' | 'automated' | 'budget_allocation', metadata?: { budgetId?: string; expenseId?: string }): Promise<SavingsGoal> {
+    const goal = await this.getSavingsGoal(goalId);
+    if (!goal) throw new Error('Savings goal not found');
+
+    goal.currentAmount += amount;
+    goal.savingHistory = [
+      ...(goal.savingHistory || []),
+      {
+        date: new Date().toISOString(),
+        amount,
+        source,
+        ...metadata
+      }
+    ];
+
+    // Check if goal is completed
+    if (goal.currentAmount >= goal.targetAmount) {
+      goal.isCompleted = true;
+    }
+
+    return this.updateSavingsGoal(goal);
+  }
+
+  async linkBudget(goalId: string, budgetId: string, allocationPercentage: number, autoSave: boolean): Promise<SavingsGoal> {
+    const goal = await this.getSavingsGoal(goalId);
+    if (!goal) throw new Error('Savings goal not found');
+
+    goal.linkedBudgets = [
+      ...(goal.linkedBudgets || []),
+      {
+        budgetId,
+        allocationPercentage,
+        autoSave
+      }
+    ];
+
+    if (autoSave) {
+      // Set up next saving date based on frequency
+      if (goal.savingFrequency) {
+        const now = new Date();
+        switch (goal.savingFrequency) {
+          case 'daily':
+            now.setDate(now.getDate() + 1);
+            break;
+          case 'weekly':
+            now.setDate(now.getDate() + 7);
+            break;
+          case 'monthly':
+            now.setMonth(now.getMonth() + 1);
+            break;
+        }
+        goal.nextSavingDate = now.toISOString();
+      }
+    }
+
+    return this.updateSavingsGoal(goal);
+  }
+
+  async getSavingsAnalytics(goalId: string) {
+    const goal = await this.getSavingsGoal(goalId);
+    if (!goal) throw new Error('Savings goal not found');
+
+    const progress = (goal.currentAmount / goal.targetAmount) * 100;
+    const savingHistory = goal.savingHistory || [];
+
+    return {
+      currentAmount: goal.currentAmount,
+      targetAmount: goal.targetAmount,
+      progress,
+      isCompleted: goal.isCompleted,
+      contributionsBySource: savingHistory.reduce((acc, contribution) => {
+        acc[contribution.source] = (acc[contribution.source] || 0) + contribution.amount;
+        return acc;
+      }, {} as Record<string, number>),
+      milestoneProgress: goal.milestones?.map(milestone => ({
+        title: milestone.title,
+        targetAmount: milestone.targetAmount,
+        isCompleted: milestone.isCompleted,
+        progress: (goal.currentAmount / milestone.targetAmount) * 100
+      })) || [],
+      nextSavingDate: goal.nextSavingDate,
+      averageContribution: savingHistory.length > 0 
+        ? savingHistory.reduce((sum, c) => sum + c.amount, 0) / savingHistory.length 
+        : 0
+    };
+  }
+}
+
+export const savingsService = new SavingsService();
+
 /**
  * Save savings goals to local storage
  * @param goals Array of savings goals to save

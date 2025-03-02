@@ -4,7 +4,7 @@ import { SubscriptionInfo, SubscriptionTier, SubscriptionTransaction } from '../
 import { getUserSubscription, updateSubscription } from './subscriptionService';
 import { generateUUID } from '../utils/helpers';
 import * as RNIap from 'react-native-iap';
-import supabase, { RECEIPT_VALIDATION_ENDPOINT, getPlatformHeaders } from './supabase';
+import { supabase } from '../api/supabaseClient';
 import axios from 'axios';
 
 // Constants

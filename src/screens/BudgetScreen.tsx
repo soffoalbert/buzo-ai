@@ -84,7 +84,8 @@ const BudgetScreen: React.FC = () => {
 
   const renderCategoryItem = ({ item }: { item: Budget }) => {
     const spentPercentage = (item.spent / item.amount) * 100;
-    const isOverBudget = item.spent > item.amount;
+    const savingsPercentage = ((item.savingsAllocation || 0) / item.amount) * 100;
+    const isOverBudget = item.spent + (item.savingsAllocation || 0) > item.amount;
     
     return (
       <TouchableOpacity style={styles.categoryCard}>
@@ -94,14 +95,22 @@ const BudgetScreen: React.FC = () => {
           </View>
           <View style={styles.categoryInfo}>
             <Text style={styles.categoryName}>{item.name}</Text>
-            <Text style={styles.categoryAmount}>
-              R {item.spent.toFixed(2)} <Text style={styles.budgetLimit}>/ R {item.amount.toFixed(2)}</Text>
-            </Text>
+            <View style={styles.amountContainer}>
+              <Text style={styles.categoryAmount}>
+                R {item.spent.toFixed(2)} <Text style={styles.budgetLimit}>/ R {item.amount.toFixed(2)}</Text>
+              </Text>
+              {item.savingsAllocation > 0 && (
+                <Text style={styles.savingsText}>
+                  (R {item.savingsAllocation.toFixed(2)} saved)
+                </Text>
+              )}
+            </View>
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
         </View>
         
         <View style={styles.progressBarContainer}>
+          {/* Spending progress */}
           <View 
             style={[
               styles.progressBar, 
@@ -111,20 +120,56 @@ const BudgetScreen: React.FC = () => {
               }
             ]} 
           />
+          {/* Savings progress overlay */}
+          {item.savingsAllocation > 0 && (
+            <View 
+              style={[
+                styles.savingsProgressBar, 
+                { 
+                  width: `${Math.min(savingsPercentage, 100)}%`,
+                  backgroundColor: colors.success
+                }
+              ]} 
+            />
+          )}
         </View>
         
         <View style={styles.categoryFooter}>
-          <Text style={[
-            styles.remainingText,
-            isOverBudget ? styles.overBudgetText : null
-          ]}>
-            {isOverBudget 
-              ? `R ${(item.spent - item.amount).toFixed(2)} over budget` 
-              : `R ${(item.amount - item.spent).toFixed(2)} remaining`
-            }
+          <View style={styles.footerLeft}>
+            <Text style={[
+              styles.remainingText,
+              isOverBudget ? styles.overBudgetText : null
+            ]}>
+              {isOverBudget 
+                ? `R ${(item.spent + (item.savingsAllocation || 0) - item.amount).toFixed(2)} over budget` 
+                : `R ${(item.amount - item.spent - (item.savingsAllocation || 0)).toFixed(2)} remaining`
+              }
+            </Text>
+            {item.autoSavePercentage > 0 && (
+              <Text style={styles.autoSaveText}>
+                Auto-save: {item.autoSavePercentage}%
+              </Text>
+            )}
+          </View>
+          <Text style={styles.percentageText}>
+            {((spentPercentage + savingsPercentage)).toFixed(0)}%
           </Text>
-          <Text style={styles.percentageText}>{spentPercentage.toFixed(0)}%</Text>
         </View>
+
+        {/* Linked Savings Goals */}
+        {item.linkedSavingsGoals && item.linkedSavingsGoals.length > 0 && (
+          <View style={styles.linkedGoalsContainer}>
+            <Text style={styles.linkedGoalsTitle}>Linked Goals:</Text>
+            <View style={styles.goalChips}>
+              {item.linkedSavingsGoals.map((goalId, index) => (
+                <View key={goalId} style={styles.goalChip}>
+                  <Ionicons name="wallet-outline" size={14} color={colors.primary} />
+                  <Text style={styles.goalChipText}>Goal {index + 1}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };

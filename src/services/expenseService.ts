@@ -966,3 +966,193 @@ export const syncExpensesToSupabase = async (): Promise<void> => {
     console.error('Error syncing expenses to Supabase:', error);
   }
 };
+
+class ExpenseService {
+  private readonly tableName = 'expenses';
+
+  async createExpense(expense: Expense): Promise<Expense> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .insert([{
+        ...expense,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getExpense(id: string): Promise<Expense | null> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getUserExpenses(userId: string, filters?: ExpenseFilters): Promise<Expense[]> {
+    let query = supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('user_id', userId);
+
+    if (filters) {
+      if (filters.startDate) {
+        query = query.gte('date', filters.startDate);
+      }
+      if (filters.endDate) {
+        query = query.lte('date', filters.endDate);
+      }
+      if (filters.categories?.length) {
+        query = query.in('category', filters.categories);
+      }
+      if (filters.minAmount) {
+        query = query.gte('amount', filters.minAmount);
+      }
+      if (filters.maxAmount) {
+        query = query.lte('amount', filters.maxAmount);
+      }
+      if (filters.paymentMethods?.length) {
+        query = query.in('paymentMethod', filters.paymentMethods);
+      }
+      if (filters.budgetIds?.length) {
+        query = query.in('budgetId', filters.budgetIds);
+      }
+      if (filters.savingsGoalIds?.length) {
+        query = query.overlaps('linkedSavingsGoals', filters.savingsGoalIds);
+      }
+      if (filters.includeAutomatedSavings !== undefined) {
+        query = query.eq('isAutomatedSaving', filters.includeAutomatedSavings);
+      }
+    }
+
+    const { data, error } = await query.order('date', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async updateExpense(expense: Expense): Promise<Expense> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .update({
+        ...expense,
+        updatedAt: new Date().toISOString()
+      })
+      .eq('id', expense.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async deleteExpense(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(this.tableName)
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  }
+
+  // Integration methods
+  async getExpensesByBudget(budgetId: string): Promise<Expense[]> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('budgetId', budgetId)
+      .order('date', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async getExpensesBySavingsGoal(goalId: string): Promise<Expense[]> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .contains('linkedSavingsGoals', [goalId])
+      .order('date', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async getExpenseStatistics(userId: string, filters?: ExpenseFilters): Promise<ExpenseStatistics> {
+    const expenses = await this.getUserExpenses(userId, filters);
+    
+    const stats: ExpenseStatistics = {
+      totalAmount: 0,
+      categoryBreakdown: {},
+      dailyExpenses: [],
+      monthlyComparison: [],
+      weeklyComparison: [],
+      paymentMethodBreakdown: {},
+      averageAmount: 0,
+      expenseFrequency: 0,
+      expenseCount: expenses.length,
+      savingsProgress: {
+        totalSaved: 0,
+        goalProgress: {}
+      },
+      budgetImpact: {}
+    };
+
+    // Calculate basic statistics
+    expenses.forEach(expense => {
+      stats.totalAmount += expense.amount;
+      
+      // Category breakdown
+      stats.categoryBreakdown[expense.category] = (stats.categoryBreakdown[expense.category] || 0) + expense.amount;
+      
+      // Payment method breakdown
+      if (expense.paymentMethod) {
+        stats.paymentMethodBreakdown[expense.paymentMethod] = 
+          (stats.paymentMethodBreakdown[expense.paymentMethod] || 0) + expense.amount;
+      }
+
+      // Savings tracking
+      if (expense.savingsContribution && expense.linkedSavingsGoals) {
+        stats.savingsProgress.totalSaved += expense.savingsContribution;
+        expense.linkedSavingsGoals.forEach(goalId => {
+          if (!stats.savingsProgress.goalProgress[goalId]) {
+            stats.savingsProgress.goalProgress[goalId] = {
+              currentAmount: 0,
+              targetAmount: 0,
+              percentage: 0
+            };
+          }
+          stats.savingsProgress.goalProgress[goalId].currentAmount += expense.savingsContribution;
+        });
+      }
+
+      // Budget impact
+      if (expense.budgetId) {
+        if (!stats.budgetImpact[expense.budgetId]) {
+          stats.budgetImpact[expense.budgetId] = {
+            allocated: 0,
+            spent: 0,
+            remaining: 0,
+            savingsAllocated: 0
+          };
+        }
+        stats.budgetImpact[expense.budgetId].spent += expense.amount;
+      }
+    });
+
+    // Calculate averages
+    stats.averageAmount = stats.totalAmount / (expenses.length || 1);
+    stats.expenseFrequency = expenses.length / 30; // Average number of expenses per day over last 30 days
+
+    return stats;
+  }
+}
+
+export const expenseService = new ExpenseService();

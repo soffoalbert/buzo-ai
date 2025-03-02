@@ -69,6 +69,116 @@ const NOTIFICATION_HISTORY_KEY = 'buzo_notification_history';
 // Storage key for notification preferences
 const NOTIFICATION_PREFERENCES_KEY = 'buzo_notification_preferences';
 
+class NotificationService {
+  async init() {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+      });
+    }
+  }
+
+  async requestPermissions() {
+    const { status } = await Notifications.requestPermissionsAsync();
+    return status === 'granted';
+  }
+
+  async scheduleNotification(title: string, body: string, trigger?: Notifications.NotificationTriggerInput) {
+    return Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+      },
+      trigger,
+    });
+  }
+
+  // Budget notifications
+  async sendBudgetAlert({ budgetId, type, remainingPercentage }: { 
+    budgetId: string; 
+    type: 'threshold' | 'limit_reached'; 
+    remainingPercentage: number;
+  }) {
+    const title = type === 'threshold' 
+      ? 'Budget Alert' 
+      : 'Budget Limit Reached';
+    
+    const body = type === 'threshold'
+      ? `You have ${remainingPercentage.toFixed(1)}% remaining in your budget.`
+      : 'You have reached your budget limit.';
+
+    await this.scheduleNotification(title, body);
+  }
+
+  // Savings notifications
+  async sendSavingsProgressAlert({ goalId, progress }: {
+    goalId: string;
+    progress: number;
+  }) {
+    const milestone = Math.floor(progress / 25) * 25; // Get nearest 25% milestone
+    const title = 'Savings Goal Progress';
+    const body = `Congratulations! You've reached ${milestone}% of your savings goal!`;
+
+    await this.scheduleNotification(title, body);
+  }
+
+  async sendMilestoneAlert({ goalId, milestoneId, title: milestoneTitle }: {
+    goalId: string;
+    milestoneId: string;
+    title: string;
+  }) {
+    const title = 'Milestone Achieved!';
+    const body = `You've completed the milestone: ${milestoneTitle}`;
+
+    await this.scheduleNotification(title, body);
+  }
+
+  // AI Insights notifications
+  async sendFinancialInsight({ type, message }: {
+    type: 'ai_insight' | 'recommendation' | 'alert';
+    message: string;
+  }) {
+    const title = type === 'ai_insight' 
+      ? 'Financial Insight'
+      : type === 'recommendation'
+      ? 'Recommendation'
+      : 'Alert';
+
+    await this.scheduleNotification(title, message);
+  }
+
+  // Automated savings notifications
+  async scheduleSavingsReminder({ goalId, nextDate, amount }: {
+    goalId: string;
+    nextDate: Date;
+    amount: number;
+  }) {
+    const title = 'Savings Reminder';
+    const body = `Time to save R${amount.toFixed(2)} towards your goal!`;
+
+    await this.scheduleNotification(title, body, {
+      date: nextDate,
+    });
+  }
+
+  // Budget-savings integration notifications
+  async sendAutoSaveNotification({ budgetId, goalId, amount }: {
+    budgetId: string;
+    goalId: string;
+    amount: number;
+  }) {
+    const title = 'Automatic Savings';
+    const body = `R${amount.toFixed(2)} has been automatically saved from your budget.`;
+
+    await this.scheduleNotification(title, body);
+  }
+}
+
+export const notificationService = new NotificationService();
+
 /**
  * Register for push notifications
  * @returns The Expo push token

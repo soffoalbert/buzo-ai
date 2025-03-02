@@ -11,6 +11,119 @@ import { supabase } from '../api/supabaseClient';
 const BUDGETS_STORAGE_KEY = 'buzo_budgets';
 const BUDGET_CATEGORIES_STORAGE_KEY = 'buzo_budget_categories';
 
+class BudgetService {
+  private readonly tableName = 'budgets';
+
+  async createBudget(budget: Budget): Promise<Budget> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .insert([{
+        ...budget,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getBudget(id: string): Promise<Budget | null> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getUserBudgets(userId: string): Promise<Budget[]> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async updateBudget(budget: Budget): Promise<Budget> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .update({
+        ...budget,
+        updatedAt: new Date().toISOString()
+      })
+      .eq('id', budget.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async deleteBudget(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(this.tableName)
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  }
+
+  // Integration methods
+  async updateBudgetSpending(budgetId: string, amount: number): Promise<Budget> {
+    const budget = await this.getBudget(budgetId);
+    if (!budget) throw new Error('Budget not found');
+
+    budget.spent += amount;
+    budget.remainingAmount = budget.amount - budget.spent - (budget.savingsAllocation || 0);
+    return this.updateBudget(budget);
+  }
+
+  async linkExpenseToBudget(budgetId: string, expenseId: string): Promise<Budget> {
+    const budget = await this.getBudget(budgetId);
+    if (!budget) throw new Error('Budget not found');
+
+    budget.linkedExpenses = [...(budget.linkedExpenses || []), expenseId];
+    return this.updateBudget(budget);
+  }
+
+  async linkSavingsGoalToBudget(budgetId: string, goalId: string, autoSavePercentage?: number): Promise<Budget> {
+    const budget = await this.getBudget(budgetId);
+    if (!budget) throw new Error('Budget not found');
+
+    budget.linkedSavingsGoals = [...(budget.linkedSavingsGoals || []), goalId];
+    if (autoSavePercentage !== undefined) {
+      budget.autoSavePercentage = autoSavePercentage;
+      const savingsAmount = (budget.amount * autoSavePercentage) / 100;
+      budget.savingsAllocation = savingsAmount;
+      budget.remainingAmount = budget.amount - budget.spent - savingsAmount;
+    }
+    return this.updateBudget(budget);
+  }
+
+  async getBudgetAnalytics(budgetId: string) {
+    const budget = await this.getBudget(budgetId);
+    if (!budget) throw new Error('Budget not found');
+
+    return {
+      totalAllocated: budget.amount,
+      totalSpent: budget.spent,
+      totalSaved: budget.savingsAllocation || 0,
+      remaining: budget.remainingAmount || 0,
+      utilizationPercentage: (budget.spent / budget.amount) * 100,
+      savingsPercentage: ((budget.savingsAllocation || 0) / budget.amount) * 100
+    };
+  }
+}
+
+export const budgetService = new BudgetService();
+
 /**
  * Save budgets to local storage
  * @param budgets Array of budgets to save
@@ -50,8 +163,15 @@ export const loadBudgets = async (): Promise<Budget[]> => {
     const isOnline = await checkSupabaseConnection();
     
     if (isOnline) {
-      // If online, fetch from Supabase
-      const budgets = await budgetApi.fetchBudgets();
+      // Get the current user from Supabase auth
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // If online, fetch from Supabase using getUserBudgets
+      const budgetService = new BudgetService();
+      const budgets = await budgetService.getUserBudgets(user.id);
       
       // Save to local storage for offline access
       await saveBudgetsLocally(budgets);
@@ -91,6 +211,14 @@ export const createBudget = async (
       const currentBudgets = await loadBudgetsLocally();
       await saveBudgetsLocally([...currentBudgets, newBudget]);
       
+      // Queue for sync when back online
+      await syncQueueService.addToSyncQueue({
+        id: newBudget.id,
+        type: 'CREATE_BUDGET',
+        data: newBudget,
+        entity: 'budget'
+      }, 5); // Higher priority for budgets
+      
       return newBudget;
     } else {
       // If offline, create locally and queue for sync
@@ -122,7 +250,7 @@ export const createBudget = async (
         id: newBudget.id,
         type: 'CREATE_BUDGET',
         data: newBudget,
-        timestamp: Date.now(),
+        entity: 'budget'
       }, 5); // Higher priority for budgets
       
       return newBudget;
@@ -158,6 +286,14 @@ export const updateBudget = async (
       );
       await saveBudgetsLocally(updatedBudgets);
       
+      // Queue for sync when back online
+      await syncQueueService.addToSyncQueue({
+        id: updatedBudget.id,
+        type: 'UPDATE_BUDGET',
+        data: updatedBudget,
+        entity: 'budget'
+      }, 5); // Higher priority for budgets
+      
       return updatedBudget;
     } else {
       // If offline, update locally and queue for sync
@@ -184,8 +320,8 @@ export const updateBudget = async (
       await syncQueueService.addToSyncQueue({
         id: updatedBudget.id,
         type: 'UPDATE_BUDGET',
-        data: { id, ...budgetData },
-        timestamp: Date.now(),
+        data: updatedBudget,
+        entity: 'budget'
       }, 5); // Higher priority for budgets
       
       return updatedBudget;
@@ -234,7 +370,7 @@ export const deleteBudget = async (id: string): Promise<boolean> => {
         id,
         type: 'DELETE_BUDGET',
         data: { id },
-        timestamp: Date.now(),
+        entity: 'budget'
       }, 5); // Higher priority for budgets
       
       return true;
@@ -274,31 +410,6 @@ export const getBudgetById = async (id: string): Promise<Budget | null> => {
     const budgets = await loadBudgetsLocally();
     const budget = budgets.find(budget => budget.id === id);
     return budget || null;
-  }
-};
-
-/**
- * Update budget spending amount
- * @param id Budget ID to update
- * @param amount Amount to add to spent (can be negative)
- * @returns Promise resolving to the updated budget
- */
-export const updateBudgetSpending = async (
-  id: string,
-  amount: number
-): Promise<Budget> => {
-  try {
-    const budget = await getBudgetById(id);
-    
-    if (!budget) {
-      throw new Error(`Budget with ID ${id} not found`);
-    }
-    
-    const newSpent = Math.max(0, (budget.spent || 0) + amount);
-    return updateBudget(id, { spent: newSpent });
-  } catch (error) {
-    console.error('Error updating budget spending:', error);
-    throw error;
   }
 };
 

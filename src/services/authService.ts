@@ -136,53 +136,26 @@ export const registerUser = async (
   email: string,
   password: string,
   fullName: string
-): Promise<{
-  data: any;
-  error: any;
-  needsEmailConfirmation?: boolean;
-  message?: string;
-}> => {
+): Promise<{ data: any; error: any; message?: string }> => {
   try {
-    console.log(`Attempting to register user with email: ${email}`);
-    
-    // Validate inputs
-    if (!email || !password || !fullName) {
-      console.error('Registration failed: Missing required fields');
-      return { 
-        data: null, 
-        error: new Error('Email, password, and full name are required'),
-        message: 'Please provide all required information'
-      };
-    }
-    
-    // Check if email verification is disabled
-    const disableEmailVerification = await isEmailVerificationDisabled();
-    
-    // Register the user with Supabase
+    // Register user with Supabase auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
           full_name: fullName
-        },
-        // Disable email confirmation in development mode
-        emailRedirectTo: IS_DEVELOPMENT && disableEmailVerification ? undefined : 'buzoai://verify-email'
+        }
       }
     });
 
     if (authError) {
-      console.error('Supabase auth error:', authError);
-      
-      // Provide more user-friendly error messages
-      let message = 'Registration failed';
-      if (authError.message.includes('email')) {
-        message = 'Invalid email format or email already in use';
-      } else if (authError.message.includes('password')) {
-        message = 'Password does not meet requirements';
-      }
-      
-      return { data: null, error: authError, message };
+      console.error('Registration error:', authError);
+      return {
+        data: null,
+        error: authError,
+        message: 'Registration failed. Please try again.'
+      };
     }
 
     if (!authData.user) {
@@ -191,153 +164,37 @@ export const registerUser = async (
       return { data: null, error, message: 'Registration failed. Please try again.' };
     }
 
-    // Check if email confirmation is required
-    // In development mode with verification disabled, we'll always return false
-    const needsEmailConfirmation = IS_DEVELOPMENT && disableEmailVerification 
-      ? false 
-      : !authData.session;
-    
-    // If we're in development mode and email verification is disabled,
-    // we'll automatically sign in the user after registration
-    if (IS_DEVELOPMENT && disableEmailVerification && !authData.session) {
-      console.log('🔧 Development mode: Auto-signing in user after registration');
-      
-      try {
-        // Sign in the user
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password
-        });
-        
-        if (signInError) {
-          console.warn('Auto sign-in failed:', signInError);
-        } else {
-          console.log('Auto sign-in successful');
-        }
-      } catch (signInError) {
-        console.warn('Error during auto sign-in:', signInError);
-      }
-    }
-
-    // Log successful user creation
-    console.log('User created successfully with ID:', authData.user.id);
-    console.log('Email confirmation required:', needsEmailConfirmation);
-
-    // Create a user profile in the profiles table with minimal required fields
+    // Create user profile using the centralized function
     try {
-      // First check if a profile already exists (it might be auto-created)
-      const { data: existingProfile, error: fetchError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single();
-      
-      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 is "not found" which is expected
-        console.error('Error checking for existing profile:', fetchError);
-      }
-      
-      if (existingProfile) {
-        console.log('Profile already exists, updating it');
-        // Update the existing profile - use admin client to bypass RLS
-        const { error: updateError } = supabaseAdmin
-          ? await supabaseAdmin
-              .from('profiles')
-              .update({
-                full_name: fullName,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', authData.user.id)
-          : await supabase
-              .from('profiles')
-              .update({
-                full_name: fullName,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', authData.user.id);
-          
-        if (updateError) {
-          console.error('Error updating profile:', updateError);
-          // Continue anyway - the user is created
-        } else {
-          console.log('Profile updated successfully');
-        }
-      } else {
-        // Create a new profile with minimal fields
-        console.log('Creating new profile');
-        const profileData: any = {
-          id: authData.user.id,
-          full_name: fullName,
-          email: email,
-          created_at: new Date().toISOString()
-        };
-        
-        console.log('Profile data to insert:', profileData);
-        
-        // Try to insert the profile using admin client to bypass RLS
-        const { error: insertError } = supabaseAdmin
-          ? await supabaseAdmin
-              .from('profiles')
-              .insert([profileData])
-          : await supabase
-              .from('profiles')
-              .insert([profileData]);
-          
-        if (insertError) {
-          console.error('Profile creation error details:', insertError);
-          
-          // If we get a row-level security policy violation, store profile data locally
-          if (insertError.code === '42501') {
-            console.log('Row-level security policy violation. Storing profile data locally.');
-            await AsyncStorage.setItem('userProfile', JSON.stringify(profileData));
-          }
-        } else {
-          console.log('Profile created successfully');
-        }
-      }
-    } catch (profileError) {
-      console.error('Unexpected error during profile creation:', profileError);
-      // Store profile data locally as a fallback
-      const profileData = {
-        id: authData.user.id,
-        full_name: fullName,
-        email: email,
-        created_at: new Date().toISOString()
+      const profileData = await createOrUpdateUserProfile(authData.user.id, {
+        email,
+        full_name: fullName
+      });
+
+      return {
+        data: {
+          user: authData.user,
+          profile: profileData
+        },
+        error: null
       };
-      await AsyncStorage.setItem('userProfile', JSON.stringify(profileData));
+    } catch (profileError) {
+      console.error('Error creating user profile:', profileError);
+      return {
+        data: {
+          user: authData.user,
+          profile: null
+        },
+        error: profileError,
+        message: 'Registration successful but profile creation failed.'
+      };
     }
-
-    // Only store session data if we have a session (user is confirmed)
-    if (authData.session) {
-      // Store user data in secure storage
-      try {
-        // Use the new secure storage helper for the token
-        await secureStoreWithFallback('userToken', authData.session?.access_token || '');
-        await AsyncStorage.setItem('userId', authData.user.id);
-        await AsyncStorage.setItem('userEmail', email);
-        await AsyncStorage.setItem('userFullName', fullName);
-        console.log('User session data stored successfully');
-      } catch (storageError) {
-        console.error('Storage error:', storageError);
-        // Continue even if storage fails, just log the error
-      }
-    } else {
-      console.log('No session available - user needs to confirm email');
-    }
-
-    return { 
-      data: authData, 
-      error: null,
-      needsEmailConfirmation,
-      message: needsEmailConfirmation 
-        ? 'Please check your email to confirm your account' 
-        : 'Registration successful'
-    };
   } catch (error) {
-    console.error('Error in registerUser:', error);
-    return { 
-      data: null, 
+    console.error('Unexpected error during registration:', error);
+    return {
+      data: null,
       error,
-      message: 'An unexpected error occurred during registration'
+      message: 'An unexpected error occurred during registration.'
     };
   }
 };
@@ -352,73 +209,20 @@ export const loginUser = async (email: string, password: string): Promise<{
   data: any;
   error: any;
   message?: string;
-  isNewUser?: boolean;
 }> => {
   try {
-    console.log(`Attempting to login user with email: ${email}`);
-    
-    // Validate inputs
-    if (!email || !password) {
-      console.error('Login failed: Missing required fields');
-      return { 
-        data: null, 
-        error: new Error('Email and password are required'),
-        message: 'Please provide both email and password'
-      };
-    }
-    
-    // Login the user with Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
-      password,
+      password
     });
 
     if (error) {
-      console.error('Supabase auth error:', error);
-      
-      // Check if email verification is disabled
-      const disableEmailVerification = await isEmailVerificationDisabled();
-      
-      // In development mode with email verification disabled, 
-      // we'll ignore the "Email not confirmed" error
-      if (IS_DEVELOPMENT && disableEmailVerification && 
-          error.message.includes('Email not confirmed')) {
-        console.log('🔧 Development mode: Ignoring email verification requirement');
-        
-        // Try to sign in again with a workaround for development
-        try {
-          // Use signUp as a workaround to get a session without email verification
-          // This is ONLY for development purposes
-          const { data: devData, error: devError } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: { email_confirmed: true }
-            }
-          });
-          
-          if (!devError && devData.session) {
-            console.log('🔧 Development login successful');
-            return { data: devData, error: null };
-          } else {
-            console.warn('Development login workaround failed:', devError);
-          }
-        } catch (devError) {
-          console.warn('Error in development login workaround:', devError);
-        }
-      }
-      
-      // Provide more user-friendly error messages
-      let message = 'Login failed';
-      if (error.message.includes('Invalid login credentials')) {
-        message = 'Invalid email or password';
-      } else if (error.message.includes('Email not confirmed')) {
-        message = 'Please verify your email address before logging in';
-      } else if (error.message.includes('rate limit')) {
-        message = 'Too many login attempts. Please try again later';
-      }
-      
-      return { data: null, error, message };
+      console.error('Login error:', error);
+      return {
+        data: null,
+        error,
+        message: 'Login failed. Please check your credentials.'
+      };
     }
 
     if (!data.user) {
@@ -429,86 +233,40 @@ export const loginUser = async (email: string, password: string): Promise<{
 
     console.log('User logged in successfully with ID:', data.user.id);
 
-    // Check if this is a new user (no profile yet)
-    let isNewUser = false;
-    
-    // Get user profile from the profiles table
-    const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', data.user.id)
-      .single();
-
-    if (profileError) {
-      console.error('Error fetching user profile:', profileError);
-      
-      if (profileError.code === 'PGRST116') { // Not found
-        console.log('No profile found for user, may be a new user');
-        isNewUser = true;
-        
-        // Try to create a profile for this user
-        try {
-          const newProfileData = {
-            id: data.user.id,
-            email: email,
-            full_name: data.user.user_metadata?.full_name || '',
-            created_at: new Date().toISOString()
-          };
-          
-          const { error: createError } = supabaseAdmin
-            ? await supabaseAdmin
-                .from('profiles')
-                .insert([newProfileData])
-            : await supabase
-                .from('profiles')
-                .insert([newProfileData]);
-                
-          if (createError) {
-            console.error('Error creating profile for new user:', createError);
-            // Store locally as fallback
-            await AsyncStorage.setItem('userProfile', JSON.stringify(newProfileData));
-          } else {
-            console.log('Created new profile for user');
-          }
-        } catch (createProfileError) {
-          console.error('Unexpected error creating profile:', createProfileError);
-        }
-      }
-    } else {
-      console.log('User profile retrieved successfully');
-    }
-
-    // Store user data in secure storage
+    // Get or create user profile
     try {
-      // Use the new secure storage helper for the token
-      await secureStoreWithFallback('userToken', data.session?.access_token || '');
-      await AsyncStorage.setItem('userId', data.user.id);
-      await AsyncStorage.setItem('userEmail', email);
-      
-      // Get full name from profile or user metadata
-      const fullName = profileData?.full_name || data.user.user_metadata?.full_name || '';
-      if (fullName) {
-        await AsyncStorage.setItem('userFullName', fullName);
-      }
-      
-      console.log('User session data stored successfully');
-    } catch (storageError) {
-      console.error('Storage error:', storageError);
-      // Continue even if storage fails, just log the error
-    }
+      const profileData = await createOrUpdateUserProfile(data.user.id, {
+        email: data.user.email,
+        full_name: data.user.user_metadata?.full_name
+      });
 
-    return { 
-      data, 
-      error: null,
-      isNewUser,
-      message: isNewUser ? 'Welcome! Please complete your profile' : 'Login successful'
-    };
+      return {
+        data: {
+          user: data.user,
+          profile: profileData,
+          session: data.session
+        },
+        error: null,
+        message: 'Login successful'
+      };
+    } catch (profileError) {
+      console.error('Error getting/creating user profile:', profileError);
+      return {
+        data: {
+          user: data.user,
+          profile: null,
+          session: data.session
+        },
+        error: profileError,
+        message: 'Login successful but profile sync failed.'
+      };
+    }
   } catch (error) {
-    console.error('Error in loginUser:', error);
-    return { 
-      data: null, 
+    console.error('Unexpected error during login:', error);
+    return {
+      data: null,
       error,
-      message: 'An unexpected error occurred during login'
+      message: 'An unexpected error occurred during login.'
     };
   }
 };
@@ -954,5 +712,98 @@ export const resendVerificationEmail = async (email: string): Promise<{
       error,
       message: 'An unexpected error occurred. Please try again later.'
     };
+  }
+};
+
+/**
+ * Create or update a user profile in Supabase with fallback to local storage
+ * @param userId The user's ID
+ * @param userData The user data to save
+ * @returns The created/updated profile data
+ */
+export const createOrUpdateUserProfile = async (
+  userId: string,
+  userData: {
+    email?: string;
+    full_name?: string;
+    avatar_url?: string;
+  }
+): Promise<any> => {
+  if (!userId) {
+    throw new Error('User ID is required');
+  }
+
+  const profileData = {
+    id: userId,
+    email: userData.email,
+    full_name: userData.full_name,
+    avatar_url: userData.avatar_url,
+    updated_at: new Date().toISOString()
+  };
+
+  try {
+    // First check if profile exists
+    const { data: existingProfile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('Error checking for existing profile:', fetchError);
+    }
+
+    if (existingProfile) {
+      // Update existing profile
+      const { data, error: updateError } = supabaseAdmin
+        ? await supabaseAdmin
+            .from('profiles')
+            .update(profileData)
+            .eq('id', userId)
+            .select()
+            .single()
+        : await supabase
+            .from('profiles')
+            .update(profileData)
+            .eq('id', userId)
+            .select()
+            .single();
+
+      if (updateError) {
+        console.error('Error updating profile:', updateError);
+        // Store locally as fallback
+        await AsyncStorage.setItem('userProfile', JSON.stringify(profileData));
+        return profileData;
+      }
+
+      return data;
+    } else {
+      // Create new profile
+      const { data, error: insertError } = supabaseAdmin
+        ? await supabaseAdmin
+            .from('profiles')
+            .insert([{ ...profileData, created_at: new Date().toISOString() }])
+            .select()
+            .single()
+        : await supabase
+            .from('profiles')
+            .insert([{ ...profileData, created_at: new Date().toISOString() }])
+            .select()
+            .single();
+
+      if (insertError) {
+        console.error('Error creating profile:', insertError);
+        // Store locally as fallback
+        await AsyncStorage.setItem('userProfile', JSON.stringify(profileData));
+        return profileData;
+      }
+
+      return data;
+    }
+  } catch (error) {
+    console.error('Unexpected error in createOrUpdateUserProfile:', error);
+    // Store locally as fallback
+    await AsyncStorage.setItem('userProfile', JSON.stringify(profileData));
+    return profileData;
   }
 }; 
