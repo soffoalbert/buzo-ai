@@ -1,0 +1,70 @@
+{
+  "cli": {
+    "version": ">= 9.1.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "android": {
+        "buildType": "app-bundle",
+        "distribution": "internal",
+        "autoIncrement": true
+      },
+      "ios": {
+        "simulator": false,
+        "autoIncrement": true
+      }
+    },
+    "preview2": {
+      "android": {
+        "gradleCommand": ":app:assembleRelease",
+        "autoIncrement": true
+      }
+    },
+    "preview3": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "autoIncrement": true
+    },
+    "preview4": {
+      "distribution": "internal",
+      "autoIncrement": true
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle",
+        "distribution": "store",
+        "autoIncrement": true
+      },
+      "ios": {
+        "simulator": false,
+        "distribution": "store",
+        "autoIncrement": true
+      }
+    }
+  },
+  "submit": {
+    "preview": {
+      "android": {
+        "serviceAccountKeyPath": "apps/afrisend-mobile/intellirec-1677603784122-89a2686cc90d.json",
+        "track": "internal"
+      },
+      "ios": {
+        "appleId": "sofo@plandies.com",
+        "ascAppId": "126028812",
+        "appleTeamId": "37XLN6Y7RU"
+      }
+    },
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "apps/afrisend-mobile/intellirec-1677603784122-89a2686cc90d.json",
+        "track": "production"
+      },
+      "ios": {
+        "appleId": "sofo@plandies.com",
+        "ascAppId": "126028812",
+        "appleTeamId": "37XLN6Y7RU"
+      }
+    }
+  }
+}

@@ -4,12 +4,10 @@
     "slug": "buzo-ai",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./src/assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "jsEngine": "hermes",
     "splash": {
-      "image": "./src/assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#4F46E5"
     },
@@ -18,11 +16,13 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.buzoai.app"
+      "bundleIdentifier": "com.buzoai.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./src/assets/adaptive-icon.png",
         "backgroundColor": "#4F46E5"
       },
       "package": "com.buzoai.app",
@@ -32,17 +32,12 @@
       ]
     },
     "web": {
-      "favicon": "./src/assets/favicon.png"
     },
     "plugins": [
       [
         "expo-notifications",
         {
-          "icon": "./src/assets/notification-icon.png",
-          "color": "#4F46E5",
-          "sounds": [
-            "./src/assets/notification-sound.wav"
-          ]
+          "color": "#4F46E5"
         }
       ],
       "expo-camera",
