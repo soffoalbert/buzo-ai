@@ -14,7 +14,7 @@ const STORAGE_KEYS = {
 // Types
 export interface PendingSyncItem {
   id: string;
-  type: 'create' | 'update' | 'delete' | 'CREATE_BUDGET' | 'UPDATE_BUDGET' | 'DELETE_BUDGET';
+  type: 'create' | 'update' | 'delete' | 'CREATE_BUDGET' | 'UPDATE_BUDGET' | 'DELETE_BUDGET' | 'CREATE_SAVINGS_GOAL' | 'UPDATE_SAVINGS_GOAL' | 'DELETE_SAVINGS_GOAL';
   entity: 'budget' | 'expense' | 'savings' | 'transaction';
   data: any;
   timestamp: number;

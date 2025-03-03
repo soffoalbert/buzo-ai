@@ -39,6 +39,8 @@ const BudgetScreen: React.FC = () => {
     remainingBudget: 0,
     spendingPercentage: 0,
   });
+  const [syncIssue, setSyncIssue] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
 
   const handleBack = () => {
     if (navigationState.routes.length > 1) {
@@ -62,7 +64,13 @@ const BudgetScreen: React.FC = () => {
       
       // First, explicitly synchronize budgets to avoid duplicates
       console.log('Synchronizing budgets before fetching them...');
-      await syncQueueService.synchronizeBudgets();
+      try {
+        await syncQueueService.synchronizeBudgets(true); // Try with force=true
+        setSyncIssue(false); // Reset sync issue flag if successful
+      } catch (syncError) {
+        console.error('Sync error:', syncError);
+        setSyncIssue(true); // Set sync issue flag if there's an error
+      }
       
       // Now get the budgets directly from Supabase
       const loadedBudgets = await budgetService.getUserBudgets(user.id);
@@ -112,13 +120,84 @@ const BudgetScreen: React.FC = () => {
     }, [])
   );
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setRefreshing(true);
-    fetchBudgets();
+    try {
+      // Get the current sync status
+      const syncStatus = await syncQueueService.getSyncStatus();
+      
+      // If sync is stuck (been syncing for more than 5 minutes), show sync issue
+      if (syncStatus?.isSyncing && syncStatus.lastSyncAttempt && 
+          (Date.now() - syncStatus.lastSyncAttempt > 5 * 60 * 1000)) {
+        setSyncIssue(true);
+      }
+      
+      await fetchBudgets();
+    } catch (error) {
+      console.error('Error refreshing budgets:', error);
+      Alert.alert('Error', 'Failed to refresh budgets. There might be a synchronization issue.');
+      setSyncIssue(true);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const navigateToAddBudget = () => {
     navigation.navigate('AddBudget');
+  };
+
+  const handleFixSync = async () => {
+    try {
+      Alert.alert(
+        "Fix Sync Issues",
+        "This will reset the sync status and force a new sync. Continue?",
+        [
+          {
+            text: "Cancel",
+            style: "cancel"
+          },
+          {
+            text: "Reset & Sync",
+            onPress: async () => {
+              setIsLoading(true);
+              await syncQueueService.resetSyncStatus();
+              await syncQueueService.synchronizeBudgets(true);
+              await fetchBudgets();
+              Alert.alert("Sync Reset", "Sync status has been reset and a forced sync was attempted.");
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error resetting sync:', error);
+      Alert.alert('Error', 'Failed to reset sync status. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMenuPress = () => {
+    setShowMenu(true);
+  };
+  
+  const handleMenuClose = () => {
+    setShowMenu(false);
+  };
+  
+  const handleResetSync = async () => {
+    setShowMenu(false);
+    
+    try {
+      setIsLoading(true);
+      await syncQueueService.resetSyncStatus();
+      Alert.alert("Sync Reset", "Sync status has been reset. Pull down to refresh and sync again.");
+      setSyncIssue(false);
+    } catch (error) {
+      console.error('Error resetting sync:', error);
+      Alert.alert('Error', 'Failed to reset sync status. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const renderCategoryItem = ({ item }: { item: Budget }) => {
@@ -244,20 +323,39 @@ const BudgetScreen: React.FC = () => {
       
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={handleBack}
-        >
-          <Ionicons name="chevron-back" size={28} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Budget</Text>
-        <TouchableOpacity 
-          style={styles.headerButton}
-          onPress={navigateToAddBudget}
-        >
-          <Ionicons name="add-circle" size={40} color={colors.primary} />
-        </TouchableOpacity>
+        {navigationState.routes.length > 1 && (
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+          </TouchableOpacity>
+        )}
+        <Text style={styles.headerTitle}>Budgets</Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={handleMenuPress} style={styles.menuButton}>
+            <Ionicons name="ellipsis-vertical" size={24} color={colors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={navigateToAddBudget}
+          >
+            <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
+          </TouchableOpacity>
+          {showMenu && (
+            <View style={styles.menuContainer}>
+              <TouchableOpacity onPress={handleResetSync} style={styles.menuItem}>
+                <Ionicons name="refresh" size={18} color={colors.textPrimary} />
+                <Text style={styles.menuItemText}>Reset Sync Status</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
+      
+      {syncIssue && (
+        <TouchableOpacity onPress={handleFixSync} style={styles.syncIssueButton}>
+          <Ionicons name="warning-outline" size={18} color={colors.warning} />
+          <Text style={styles.syncIssueText}>Sync issues detected. Tap to fix.</Text>
+        </TouchableOpacity>
+      )}
       
       {/* Budget Summary */}
       <View style={styles.summaryCard}>
@@ -380,6 +478,10 @@ const styles = StyleSheet.create({
     fontWeight: textStyles.h2.fontWeight as any,
     lineHeight: textStyles.h2.lineHeight,
     color: textStyles.h2.color,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerButton: {
     padding: spacing.xs,
@@ -564,6 +666,50 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     ...shadows.lg,
+  },
+  syncIssueButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.warningBg || '#FFF3CD',
+    paddingVertical: 8,
+    paddingHorizontal: spacing.medium,
+    marginHorizontal: spacing.medium,
+    marginBottom: spacing.medium,
+    borderRadius: borderRadius.small,
+    borderWidth: 1,
+    borderColor: colors.warning || '#FFE69C',
+  },
+  syncIssueText: {
+    color: colors.warning || '#856404',
+    marginLeft: spacing.small,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  menuButton: {
+    padding: spacing.small,
+    marginRight: spacing.small,
+  },
+  menuContainer: {
+    position: 'absolute',
+    top: 45,
+    right: 10,
+    backgroundColor: colors.cardBackground,
+    borderRadius: borderRadius.medium,
+    padding: spacing.small,
+    ...shadows.md,
+    zIndex: 10,
+    minWidth: 180,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.small,
+    paddingHorizontal: spacing.medium,
+  },
+  menuItemText: {
+    marginLeft: spacing.small,
+    color: colors.textPrimary,
+    fontSize: 16,
   },
 });
 
