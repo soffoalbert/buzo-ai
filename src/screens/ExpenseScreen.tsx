@@ -10,16 +10,19 @@ import {
   Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import DateTimePicker from '@react-native-community/datetimepicker';
+// Comment out the DateTimePicker import causing issues
+// import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
+import { formatDate } from '../utils/helpers';
 import Button from '../components/Button';
 import ReceiptScanner from '../components/ReceiptScanner';
 import { createExpense, syncExpensesToSupabase } from '../services/expenseService';
@@ -70,7 +73,11 @@ const ExpenseScreen: React.FC = () => {
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
-  const [date, setDate] = useState(new Date());
+  const [date, setDate] = useState(() => {
+    // Ensure we initialize with a valid date
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  });
   const [description, setDescription] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
@@ -84,20 +91,45 @@ const ExpenseScreen: React.FC = () => {
   const [scanLimitReached, setScanLimitReached] = useState(false);
   const [remainingScans, setRemainingScans] = useState<number | null>(null);
   
-  // Initialize form with receipt data if provided
+  // Add useEffect to handle receipt data if provided
   useEffect(() => {
     if (route.params?.receiptData && route.params?.receiptImage) {
+      // Handle data from a receipt scan
       const { receiptData, receiptImage } = route.params;
       const expenseData = createExpenseFromReceipt(receiptData, receiptImage);
       
       setTitle(expenseData.title);
       setAmount(expenseData.amount.toString());
       setCategory(expenseData.category.toLowerCase());
+      
+      // Ensure we create a proper Date object if a date is provided
       if (expenseData.date) {
-        setDate(new Date(expenseData.date));
+        const parsedDate = new Date(expenseData.date);
+        if (!isNaN(parsedDate.getTime())) {
+          setDate(parsedDate);
+          console.log('Setting date from receipt:', parsedDate);
+        }
       }
+      
       setDescription(expenseData.description || '');
       setReceiptImage(expenseData.receiptImage);
+    } else if (route.params?.receiptData) {
+      // Handle direct data without receipt image
+      const data = route.params.receiptData;
+      if (data.title) setTitle(data.title);
+      if (data.amount) setAmount(String(data.amount));
+      if (data.category) setCategory(data.category);
+      
+      if (data.date) {
+        // Make sure we create a proper Date object
+        const parsedDate = new Date(data.date);
+        if (!isNaN(parsedDate.getTime())) {
+          setDate(parsedDate);
+          console.log('Setting date from params:', parsedDate);
+        }
+      }
+      
+      if (data.description) setDescription(data.description);
     }
   }, [route.params]);
   
@@ -116,22 +148,95 @@ const ExpenseScreen: React.FC = () => {
     checkScanLimits();
   }, []);
   
-  // Handle date change
-  const onDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      setDate(selectedDate);
+  // Custom date picker logic
+  const [year, setYear] = useState(date.getFullYear());
+  const [month, setMonth] = useState(date.getMonth());
+  const [day, setDay] = useState(date.getDate());
+  
+  // Get current date for comparing
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth();
+  const currentDay = currentDate.getDate();
+  
+  // Handle year change with validation
+  const handleYearChange = (selectedYear: number) => {
+    setYear(selectedYear);
+    
+    // If year is current year and month is greater than current month, reset month
+    if (selectedYear === currentYear && month > currentMonth) {
+      setMonth(currentMonth);
+    }
+    
+    // If year is current year and month is current month and day is greater than current day, reset day
+    if (selectedYear === currentYear && month === currentMonth && day > currentDay) {
+      setDay(currentDay);
     }
   };
   
-  // Format date for display
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-ZA', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+  // Handle month change with validation
+  const handleMonthChange = (selectedMonth: number) => {
+    // If year is current year, don't allow selecting future months
+    if (year === currentYear && selectedMonth > currentMonth) {
+      return;
+    }
+    
+    setMonth(selectedMonth);
+    
+    // If year is current year and month is current month and day is greater than current day, reset day
+    if (year === currentYear && selectedMonth === currentMonth && day > currentDay) {
+      setDay(currentDay);
+    }
+    
+    // Check if the day is valid for the new month
+    const daysInNewMonth = getDaysInMonth(year, selectedMonth);
+    if (day > daysInNewMonth) {
+      setDay(daysInNewMonth);
+    }
   };
+  
+  // Handle day change with validation
+  const handleDayChange = (selectedDay: number) => {
+    // If year is current year and month is current month, don't allow selecting future days
+    if (year === currentYear && month === currentMonth && selectedDay > currentDay) {
+      return;
+    }
+    
+    setDay(selectedDay);
+  };
+  
+  const updateDate = () => {
+    // Create new date with selected values
+    const newDate = new Date(year, month, day);
+    
+    // Ensure the date is not in the future
+    if (newDate > currentDate) {
+      // If somehow a future date slipped through, use today
+      setDate(new Date(currentYear, currentMonth, currentDay));
+    } else {
+      setDate(newDate);
+    }
+    
+    setShowDatePicker(false);
+  };
+  
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  
+  const getDaysInMonth = (year: number, month: number) => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+  
+  // Reset the day, month, year when the date picker is opened
+  useEffect(() => {
+    if(showDatePicker) {
+      setYear(date.getFullYear());
+      setMonth(date.getMonth());
+      setDay(date.getDate());
+    }
+  }, [showDatePicker]);
   
   // Handle receipt capture
   const handleReceiptCapture = (imageUri: string, extractedData?: ExtractedReceiptData) => {
@@ -394,19 +499,133 @@ const ExpenseScreen: React.FC = () => {
               style={styles.datePickerButton}
               onPress={() => setShowDatePicker(true)}
             >
-              <Text style={styles.dateText}>{formatDate(date)}</Text>
+              <Text style={styles.dateText}>
+                {formatDate(date, 'medium')}
+              </Text>
               <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
             
-            {showDatePicker && (
-              <DateTimePicker
-                value={date}
-                mode="date"
-                display="default"
-                onChange={onDateChange}
-                maximumDate={new Date()}
-              />
-            )}
+            {/* Custom Date Picker Modal */}
+            <Modal
+              visible={showDatePicker}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowDatePicker(false)}
+            >
+              <TouchableOpacity 
+                style={styles.modalOverlay}
+                activeOpacity={1}
+                onPress={() => setShowDatePicker(false)}
+              >
+                <View style={styles.modalContent}>
+                  <View style={styles.datePickerHeader}>
+                    <Text style={styles.datePickerTitle}>Select Date</Text>
+                    <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                      <Ionicons name="close" size={24} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={styles.pickerContainer}>
+                    {/* Month Picker */}
+                    <ScrollView style={styles.pickerColumn}>
+                      {months.map((monthName, index) => {
+                        // Skip future months in current year
+                        if (year === currentYear && index > currentMonth) {
+                          return null;
+                        }
+                        
+                        return (
+                          <TouchableOpacity
+                            key={monthName}
+                            style={[
+                              styles.pickerItem,
+                              month === index && styles.pickerItemSelected
+                            ]}
+                            onPress={() => handleMonthChange(index)}
+                          >
+                            <Text 
+                              style={[
+                                styles.pickerText,
+                                month === index && styles.pickerTextSelected
+                              ]}
+                            >
+                              {monthName}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                    
+                    {/* Day Picker */}
+                    <ScrollView style={styles.pickerColumn}>
+                      {Array.from({ length: getDaysInMonth(year, month) }, (_, i) => i + 1).map((d) => {
+                        // Skip future days in current month and year
+                        if (year === currentYear && month === currentMonth && d > currentDay) {
+                          return null;
+                        }
+                        
+                        return (
+                          <TouchableOpacity
+                            key={`day-${d}`}
+                            style={[
+                              styles.pickerItem,
+                              day === d && styles.pickerItemSelected
+                            ]}
+                            onPress={() => handleDayChange(d)}
+                          >
+                            <Text 
+                              style={[
+                                styles.pickerText,
+                                day === d && styles.pickerTextSelected
+                              ]}
+                            >
+                              {d}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                    
+                    {/* Year Picker */}
+                    <ScrollView style={styles.pickerColumn}>
+                      {Array.from({ length: 10 }, (_, i) => currentYear - 9 + i).map((y) => {
+                        // Skip future years
+                        if (y > currentYear) {
+                          return null;
+                        }
+                        
+                        return (
+                          <TouchableOpacity
+                            key={`year-${y}`}
+                            style={[
+                              styles.pickerItem,
+                              year === y && styles.pickerItemSelected
+                            ]}
+                            onPress={() => handleYearChange(y)}
+                          >
+                            <Text 
+                              style={[
+                                styles.pickerText,
+                                year === y && styles.pickerTextSelected
+                              ]}
+                            >
+                              {y}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                  
+                  <TouchableOpacity
+                    style={styles.confirmButton}
+                    onPress={updateDate}
+                  >
+                    <Text style={styles.confirmButtonText}>Confirm</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            </Modal>
           </View>
           
           {/* Category Selection */}
@@ -636,15 +855,15 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   datePickerButton: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     backgroundColor: colors.white,
     borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     ...shadows.sm,
   },
   dateText: {
@@ -755,23 +974,17 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xxl,
   },
   modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    zIndex: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.lg,
   },
   modalContent: {
     backgroundColor: colors.white,
     borderRadius: borderRadius.lg,
     padding: spacing.lg,
-    width: '100%',
-    ...shadows.lg,
+    width: '80%',
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -813,6 +1026,56 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: colors.primary,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  datePickerTitle: {
+    fontSize: textStyles.h3.fontSize,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  pickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: spacing.md,
+  },
+  pickerColumn: {
+    flex: 1,
+    height: 200,
+  },
+  pickerItem: {
+    padding: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickerItemSelected: {
+    backgroundColor: colors.primary + '20',
+    borderRadius: borderRadius.sm,
+  },
+  pickerText: {
+    fontSize: textStyles.body2.fontSize,
+    color: colors.text,
+  },
+  pickerTextSelected: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  confirmButton: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.md,
+  },
+  confirmButtonText: {
+    color: colors.white,
+    fontSize: textStyles.button.fontSize,
+    fontWeight: '600',
   },
 });
 

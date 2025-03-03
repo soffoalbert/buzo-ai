@@ -326,6 +326,59 @@ const HomeScreen: React.FC = () => {
     }
   };
 
+  const processWeeklySpendingData = (expenses: ExtendedExpense[]) => {
+    if (!expenses || expenses.length === 0) {
+      return {
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        datasets: [
+          {
+            data: [0, 0, 0, 0, 0, 0, 0],
+            color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`,
+            strokeWidth: 2,
+          },
+        ],
+      };
+    }
+
+    // Get current week's dates
+    const now = new Date();
+    const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Start week on Monday
+    const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+    
+    // Create array of dates for the week
+    const daysOfWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
+    
+    // Create labels for chart (e.g., 'Mon', 'Tue', etc.)
+    const labels = daysOfWeek.map(day => format(day, 'EEE'));
+    
+    // Initialize spending data for each day of the week
+    const dailySpending = Array(7).fill(0);
+    
+    // Process expenses and categorize by day of week
+    expenses.forEach(expense => {
+      const expenseDate = new Date(expense.date);
+      
+      // Only include expenses from the current week
+      if (expenseDate >= weekStart && expenseDate <= weekEnd) {
+        // Get day index (0 = Monday, 6 = Sunday)
+        const dayIndex = (expenseDate.getDay() + 6) % 7; // Convert Sunday=0 to Sunday=6
+        dailySpending[dayIndex] += expense.amount;
+      }
+    });
+    
+    // Format data for the chart
+    return {
+      labels,
+      datasets: [
+        {
+          data: dailySpending,
+          color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`,
+          strokeWidth: 2,
+        },
+      ],
+    };
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -415,6 +468,21 @@ const HomeScreen: React.FC = () => {
         datasets: [{
           data: expenses.map(expense => expense.amount)
         }]
+      });
+
+      // Process and update weekly spending chart data
+      const weeklyData = processWeeklySpendingData(expenses);
+      
+      // Check if any days in the current week have spending data
+      const hasCurrentWeekData = weeklyData.datasets[0].data.some(amount => amount > 0);
+      setSpendingChartData(weeklyData);
+      setHasWeeklySpendingData(hasCurrentWeekData);
+      
+      console.log('Weekly spending data processed:', {
+        hasData: expenses.length > 0,
+        hasCurrentWeekData,
+        dataPoints: weeklyData.datasets[0].data,
+        daysWithSpending: weeklyData.datasets[0].data.filter(amount => amount > 0).length
       });
 
       setHasBudgetData(budgetData.length > 0);
