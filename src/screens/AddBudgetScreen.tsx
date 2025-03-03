@@ -21,7 +21,8 @@ import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/the
 import { RootStackParamList } from '../navigation';
 import { createBudget } from '../services/budgetService';
 import { loadBudgetCategories } from '../services/budgetService';
-import { BudgetCategory } from '../models/Budget';
+import { BudgetCategory, DEFAULT_BUDGET_CATEGORIES } from '../models/Budget';
+import NetworkManager from '../utils/NetworkManager';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -34,6 +35,9 @@ const AddBudgetScreen: React.FC = () => {
   const [categories, setCategories] = useState<BudgetCategory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Use the NetworkManager hook instead of our own state and useEffect
+  const isOffline = !NetworkManager.useNetworkStatus();
 
   // Load budget categories when component mounts
   useEffect(() => {
@@ -41,21 +45,39 @@ const AddBudgetScreen: React.FC = () => {
       setIsLoading(true);
       try {
         const loadedCategories = await loadBudgetCategories();
-        setCategories(loadedCategories);
-        // Set default selected category if available
-        if (loadedCategories.length > 0) {
-          setSelectedCategory(loadedCategories[0]);
+        
+        if (loadedCategories.length === 0 && isOffline) {
+          // If offline and no categories, use default categories
+          setCategories(DEFAULT_BUDGET_CATEGORIES);
+          if (DEFAULT_BUDGET_CATEGORIES.length > 0) {
+            setSelectedCategory(DEFAULT_BUDGET_CATEGORIES[0]);
+          }
+        } else {
+          setCategories(loadedCategories);
+          // Set default selected category if available
+          if (loadedCategories.length > 0) {
+            setSelectedCategory(loadedCategories[0]);
+          }
         }
       } catch (error) {
         console.error('Error loading budget categories:', error);
-        Alert.alert('Error', 'Failed to load budget categories. Please try again.');
+        
+        if (isOffline) {
+          // If offline, use default categories
+          setCategories(DEFAULT_BUDGET_CATEGORIES);
+          if (DEFAULT_BUDGET_CATEGORIES.length > 0) {
+            setSelectedCategory(DEFAULT_BUDGET_CATEGORIES[0]);
+          }
+        } else {
+          Alert.alert('Error', 'Failed to load budget categories. Please try again.');
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchCategories();
-  }, []);
+  }, [isOffline]);
 
   const handleSaveBudget = async () => {
     // Validate inputs
@@ -77,7 +99,7 @@ const AddBudgetScreen: React.FC = () => {
     setIsSaving(true);
     try {
       // Create new budget
-      await createBudget({
+      const budget = await createBudget({
         name: name.trim(),
         amount: Number(amount),
         spent: 0,
@@ -86,8 +108,16 @@ const AddBudgetScreen: React.FC = () => {
         icon: selectedCategory.icon,
       });
 
-      // Navigate back to budget screen
-      navigation.goBack();
+      if (isOffline) {
+        Alert.alert(
+          'Budget Created (Offline)',
+          'Your budget has been saved locally and will be synchronized when you reconnect to the internet.',
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+      } else {
+        // Navigate back to budget screen
+        navigation.goBack();
+      }
     } catch (error) {
       console.error('Error creating budget:', error);
       Alert.alert('Error', 'Failed to create budget. Please try again.');

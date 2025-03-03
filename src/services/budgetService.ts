@@ -669,4 +669,19 @@ export const updateBudgetCategory = async (
     console.error(`Error updating budget category ${categoryId}:`, error);
     throw error;
   }
-}; 
+};
+
+// Add loadBudgetsLocally method to the existing budgetService instance
+Object.assign(budgetService, {
+  loadBudgetsLocally,
+  getUserBudgetsOffline: async (userId: string) => {
+    try {
+      // If offline, filter local budgets by user_id
+      const budgets = await loadBudgetsLocally();
+      return budgets.filter(budget => budget.user_id === userId);
+    } catch (error) {
+      console.error('Error fetching user budgets offline:', error);
+      return [];
+    }
+  }
+}); 

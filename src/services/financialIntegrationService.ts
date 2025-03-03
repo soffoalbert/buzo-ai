@@ -228,6 +228,20 @@ class FinancialIntegrationService {
         budgets: budgets.length,
         savingsGoals: savingsGoals.length
       });
+      
+      // Log expense dates and formatting for debugging
+      console.log('EXPENSE DATE DIAGNOSTICS:', expenses.map(exp => ({
+        id: exp.id,
+        amount: exp.amount,
+        description: exp.description || exp.category || 'Unknown',
+        rawDate: exp.date,
+        parsedDate: new Date(exp.date).toISOString(),
+        dateComponents: {
+          year: new Date(exp.date).getFullYear(),
+          month: new Date(exp.date).getMonth() + 1,
+          day: new Date(exp.date).getDate()
+        }
+      })));
 
       // Ensure we have arrays even if the promises failed
       const safeExpenses = Array.isArray(expenses) ? expenses : [];

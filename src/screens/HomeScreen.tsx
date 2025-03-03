@@ -172,6 +172,7 @@ const HomeScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('User');
   const [usingMockData, setUsingMockData] = useState(false);
+  const [useDayOfWeekMapping, setUseDayOfWeekMapping] = useState(false);
   
   // States for real data
   const [balanceData, setBalanceData] = useState({
@@ -328,6 +329,7 @@ const HomeScreen: React.FC = () => {
 
   const processWeeklySpendingData = (expenses: ExtendedExpense[]) => {
     if (!expenses || expenses.length === 0) {
+      console.log('No expenses provided to processWeeklySpendingData');
       return {
         labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
         datasets: [
@@ -340,10 +342,107 @@ const HomeScreen: React.FC = () => {
       };
     }
 
+    console.log('EXPENSES FOR WEEKLY SPENDING:', JSON.stringify(expenses.map(e => ({
+      id: e.id,
+      amount: e.amount,
+      date: e.date,
+      description: e.description,
+      category: e.category
+    })), null, 2));
+
     // Get current week's dates
     const now = new Date();
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Start week on Monday
-    const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+    
+    // DETAILED DATE DEBUGGING
+    console.log('DETAILED DATE DEBUGGING:');
+    console.log('Current date (now):', now.toISOString());
+    console.log('Current date components:', {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      day: now.getDate(),
+      dayOfWeek: now.getDay(), // 0 = Sunday, 1 = Monday, etc.
+      dayOfWeekName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][now.getDay()]
+    });
+    
+    // Check if date is in the future
+    if (now.getFullYear() > new Date().getFullYear() + 1) {
+      console.log('🚨 WARNING: Current date is from ' + now.getFullYear() + ' - this suggests device date is set to future!');
+    }
+    
+    // Analyze expense dates
+    const yearsInExpenses = [...new Set(expenses.map(e => new Date(e.date).getFullYear()))];
+    console.log('Years found in expenses:', yearsInExpenses);
+    
+    // OPTION 1: Force expenses to today's date for testing
+    // Uncomment this block to make all expenses show up as "today"
+    /*
+    const FORCE_EXPENSES_TO_TODAY = true;
+    if (FORCE_EXPENSES_TO_TODAY) {
+      console.log('⚠️ FORCING ALL EXPENSES TO TODAY FOR TESTING');
+      const today = new Date();
+      const todayStr = formatToDateString(today);
+      
+      // Clone expenses and update their dates
+      expenses = expenses.map(exp => {
+        return {
+          ...exp,
+          date: today.toISOString()
+        };
+      });
+      
+      console.log('Updated expense dates to today:', today.toISOString());
+    }
+    */
+    
+    // Use the state variable for day of week mapping
+    const USE_DAY_OF_WEEK_ONLY = useDayOfWeekMapping;
+    
+    if (USE_DAY_OF_WEEK_ONLY) {
+      console.log('⚠️ Using day-of-week mapping only - ignoring actual dates');
+    }
+    
+    // Group expenses by date
+    const expenseDateCount = {};
+    let mostFrequentDate = null;
+    let maxCount = 0;
+    
+    expenses.forEach(exp => {
+      try {
+        const dateStr = exp.date.substring(0, 10); // Get YYYY-MM-DD part
+        expenseDateCount[dateStr] = (expenseDateCount[dateStr] || 0) + 1;
+        
+        if (expenseDateCount[dateStr] > maxCount) {
+          maxCount = expenseDateCount[dateStr];
+          mostFrequentDate = dateStr;
+        }
+      } catch (e) {
+        console.warn('Error parsing expense date', e);
+      }
+    });
+    
+    console.log('Expense date distribution:', expenseDateCount);
+    console.log('Most frequent expense date:', mostFrequentDate);
+    
+    // Determine week start/end based on the most frequent expense date
+    let weekStart, weekEnd;
+    
+    if (mostFrequentDate) {
+      const referenceDate = new Date(mostFrequentDate);
+      console.log('Using reference date for week calculation:', referenceDate.toISOString());
+      
+      // NOTE: We're intentionally using the date from the expenses
+      weekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
+      weekEnd = endOfWeek(referenceDate, { weekStartsOn: 1 });
+      
+      console.log('Week calculated from most frequent expense date:', {
+        weekStart: weekStart.toISOString(),
+        weekEnd: weekEnd.toISOString()
+      });
+    } else {
+      // Fallback to current date
+      weekStart = startOfWeek(now, { weekStartsOn: 1 });
+      weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+    }
     
     // Create array of dates for the week
     const daysOfWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
@@ -354,16 +453,90 @@ const HomeScreen: React.FC = () => {
     // Initialize spending data for each day of the week
     const dailySpending = Array(7).fill(0);
     
+    // Get the year, month, and day of the week start and end
+    const weekStartYear = weekStart.getFullYear();
+    const weekStartMonth = weekStart.getMonth();
+    const weekStartDay = weekStart.getDate();
+    
+    const weekEndYear = weekEnd.getFullYear();
+    const weekEndMonth = weekEnd.getMonth();
+    const weekEndDay = weekEnd.getDate();
+    
+    console.log('Week range for spending data:', {
+      weekStartDate: `${weekStartYear}-${weekStartMonth+1}-${weekStartDay}`,
+      weekEndDate: `${weekEndYear}-${weekEndMonth+1}-${weekEndDay}`,
+      expenses: expenses.length
+    });
+    
+    // Create function to convert dates to YYYY-MM-DD format for comparison
+    const formatToDateString = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    // Create an array of all days in the week as strings
+    const daysInWeekAsStrings = daysOfWeek.map(day => formatToDateString(day));
+    console.log('Days in week as strings:', daysInWeekAsStrings);
+    
     // Process expenses and categorize by day of week
     expenses.forEach(expense => {
-      const expenseDate = new Date(expense.date);
-      
-      // Only include expenses from the current week
-      if (expenseDate >= weekStart && expenseDate <= weekEnd) {
-        // Get day index (0 = Monday, 6 = Sunday)
-        const dayIndex = (expenseDate.getDay() + 6) % 7; // Convert Sunday=0 to Sunday=6
-        dailySpending[dayIndex] += expense.amount;
+      try {
+        // Parse the expense date and normalize to YYYY-MM-DD format
+        const expenseDateObj = new Date(expense.date);
+        const expenseYMD = formatToDateString(expenseDateObj);
+        const dayOfWeek = expenseDateObj.getDay(); // 0 = Sunday, 1 = Monday
+        // Convert to our scale where 0 = Monday, 6 = Sunday
+        const adjustedDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        
+        // For debugging
+        console.log(`Processing expense: ${expense.description || expense.category} ($${expense.amount}) on date ${expenseYMD}`);
+        console.log(`  - Day of week: ${dayOfWeek} (0=Sunday, 1=Monday, etc.) → ${adjustedDayIndex} (0=Monday, 6=Sunday)`);
+        
+        if (USE_DAY_OF_WEEK_ONLY) {
+          // Always use day of week mapping
+          console.log(`✅ Adding expense using day of week mapping: ${expense.amount} to ${labels[adjustedDayIndex]}`);
+          dailySpending[adjustedDayIndex] += expense.amount;
+        } else {
+          // Use date-based mapping with fallback
+          // Check if this date is in our week
+          const dayIndex = daysInWeekAsStrings.indexOf(expenseYMD);
+          
+          if (dayIndex >= 0) {
+            console.log(`✅ Expense found for ${labels[dayIndex]} (${expenseYMD}): $${expense.amount}`);
+            dailySpending[dayIndex] += expense.amount;
+          } else {
+            // Try to directly map to day of week for very recent expenses
+            console.log(`⚠️ Using direct day mapping: ${dayOfWeek} → ${adjustedDayIndex} (${labels[adjustedDayIndex]})`);
+            
+            // Only add if expense date is roughly within current week (within 3 days of today)
+            const today = new Date();
+            const expenseDate = new Date(expense.date);
+            const diffDays = Math.abs(Math.floor((today.getTime() - expenseDate.getTime()) / (1000 * 60 * 60 * 24)));
+            
+            if (diffDays <= 3) {
+              console.log(`✅ Adding expense using day of week mapping: ${expense.amount} to ${labels[adjustedDayIndex]}`);
+              dailySpending[adjustedDayIndex] += expense.amount;
+            } else {
+              console.log(`❌ Expense date ${expenseYMD} not in current week range [${daysInWeekAsStrings[0]} to ${daysInWeekAsStrings[6]}] and too far from today (${diffDays} days)`);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error processing expense date:', err, expense);
       }
+    });
+    
+    // Check if any spending data is present
+    const hasSpendingData = dailySpending.some(amount => amount > 0);
+    
+    console.log('Weekly spending data final:', {
+      labels,
+      dailySpending,
+      daysWithSpending: dailySpending.filter(amount => amount > 0).length,
+      hasSpendingData,
+      total: dailySpending.reduce((sum, amount) => sum + amount, 0)
     });
     
     // Format data for the chart
@@ -423,20 +596,36 @@ const HomeScreen: React.FC = () => {
       }));
 
       // Transform expense data with proper typing
-      const expenses: ExtendedExpense[] = (rawResponse.recentTransactions || []).map(transaction => ({
-        id: transaction.id || '',
-        amount: transaction.amount || 0,
-        category: transaction.category || '',
-        date: transaction.date || new Date().toISOString(),
-        description: transaction.description || '',
-        user_id: transaction.user_id || '',
-        name: transaction.category || '',
-        spent: transaction.amount || 0,
-        color: getRandomColor(),
-        title: transaction.description || '',
-        createdAt: transaction.date || new Date().toISOString(),
-        updatedAt: transaction.date || new Date().toISOString()
-      }));
+      const expenses: ExtendedExpense[] = (rawResponse.recentTransactions || []).map(transaction => {
+        // Ensure date is properly formatted
+        let transactionDate = transaction.date || new Date().toISOString();
+        // Try to parse the date to ensure it's valid
+        try {
+          const parsedDate = new Date(transactionDate);
+          if (isNaN(parsedDate.getTime())) {
+            console.warn(`Invalid date detected: ${transactionDate}, using current date instead`);
+            transactionDate = new Date().toISOString();
+          }
+        } catch (e) {
+          console.warn(`Error parsing date: ${transactionDate}, using current date instead`);
+          transactionDate = new Date().toISOString();
+        }
+        
+        return {
+          id: transaction.id || '',
+          amount: transaction.amount || 0,
+          category: transaction.category || '',
+          date: transactionDate,
+          description: transaction.description || '',
+          user_id: transaction.user_id || '',
+          name: transaction.category || '',
+          spent: transaction.amount || 0,
+          color: getRandomColor(),
+          title: transaction.description || '',
+          createdAt: transactionDate,
+          updatedAt: transactionDate
+        };
+      });
 
       console.log('Transformed data:', {
         budgetCount: budgetData.length,
@@ -473,7 +662,7 @@ const HomeScreen: React.FC = () => {
       // Process and update weekly spending chart data
       const weeklyData = processWeeklySpendingData(expenses);
       
-      // Check if any days in the current week have spending data
+      // Explicitly check dailySpending array for spending data
       const hasCurrentWeekData = weeklyData.datasets[0].data.some(amount => amount > 0);
       setSpendingChartData(weeklyData);
       setHasWeeklySpendingData(hasCurrentWeekData);
@@ -482,7 +671,8 @@ const HomeScreen: React.FC = () => {
         hasData: expenses.length > 0,
         hasCurrentWeekData,
         dataPoints: weeklyData.datasets[0].data,
-        daysWithSpending: weeklyData.datasets[0].data.filter(amount => amount > 0).length
+        daysWithSpending: weeklyData.datasets[0].data.filter(amount => amount > 0).length,
+        labels: weeklyData.labels
       });
 
       setHasBudgetData(budgetData.length > 0);
@@ -563,16 +753,69 @@ const HomeScreen: React.FC = () => {
   const renderEmptyState = (
     icon: keyof typeof Ionicons.glyphMap, 
     title: string, 
-    message: string
+    message: string,
+    actionButton?: {
+      label: string;
+      onPress: () => void;
+    }
   ) => (
     <View style={styles.emptyStateContainer}>
-      <View style={styles.emptyStateIconContainer}>
-        <Ionicons name={icon} size={36} color={colors.primary} />
-      </View>
+      <Ionicons name={icon} size={40} color={colors.textSecondary} />
       <Text style={styles.emptyStateTitle}>{title}</Text>
       <Text style={styles.emptyStateMessage}>{message}</Text>
+      {actionButton && (
+        <TouchableOpacity 
+          style={styles.emptyStateActionButton}
+          onPress={actionButton.onPress}
+        >
+          <Text style={styles.emptyStateActionText}>{actionButton.label}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
+
+  // Function to create a sample expense for the current week
+  const addSampleExpenseForWeek = async () => {
+    try {
+      setLoading(true);
+      
+      // Create today's date in ISO format
+      const today = new Date();
+      const formattedDate = today.toISOString().split('T')[0] + 'T00:00:00+00:00';
+      
+      console.log('Creating sample expense with date:', formattedDate);
+      
+      const { data: profile } = await getUserProfile();
+      if (!profile?.id) {
+        Alert.alert('Error', 'Unable to add sample data: No user profile found');
+        return;
+      }
+      
+      // Create a sample expense
+      const sampleExpense = {
+        amount: Math.floor(Math.random() * 50) + 10, // Random amount between 10-60
+        category: 'Groceries',
+        date: formattedDate,
+        description: 'Sample Expense',
+        user_id: profile.id,
+        paymentMethod: PaymentMethod.CreditCard,
+        isAutomatedSaving: false
+      };
+      
+      const createdExpense = await expenseService.createExpense(sampleExpense);
+      console.log('Sample expense created:', createdExpense);
+      
+      // Reload data
+      await loadData();
+      
+      Alert.alert('Success', 'Sample expense created for today');
+    } catch (error) {
+      console.error('Error creating sample expense:', error);
+      Alert.alert('Error', 'Failed to create sample expense');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -654,9 +897,11 @@ const HomeScreen: React.FC = () => {
             <View style={styles.chartCard}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardTitle}>Weekly Spending</Text>
-                <TouchableOpacity onPress={handleNavigateToExpenseAnalytics}>
-                  <Text style={styles.seeAllText}>See Analytics</Text>
-                </TouchableOpacity>
+                <View style={styles.chartHeaderRight}>
+                  <TouchableOpacity onPress={handleNavigateToExpenseAnalytics}>
+                    <Text style={styles.seeAllText}>See Analytics</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               
               {hasWeeklySpendingData ? (
@@ -691,7 +936,11 @@ const HomeScreen: React.FC = () => {
                 renderEmptyState(
                   "bar-chart-outline", 
                   "No spending data yet", 
-                  "Track your expenses to see your weekly spending patterns here."
+                  "Track your expenses to see your weekly spending patterns here.",
+                  {
+                    label: "Show Demo Data",
+                    onPress: addSampleExpenseForWeek
+                  }
                 )
               )}
             </View>
@@ -1189,6 +1438,29 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 18,
     flexShrink: 1,
+  },
+  emptyStateActionButton: {
+    padding: spacing.xs,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.sm,
+  },
+  emptyStateActionText: {
+    color: colors.white,
+    fontSize: textStyles.caption.fontSize,
+  },
+  chartHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chartViewToggle: {
+    padding: spacing.xs,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.sm,
+    marginRight: spacing.sm,
+  },
+  toggleText: {
+    color: colors.white,
+    fontSize: textStyles.caption.fontSize,
   },
 });
 

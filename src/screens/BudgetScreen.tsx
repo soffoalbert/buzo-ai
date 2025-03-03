@@ -15,6 +15,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect, useNavigationState } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import NetInfo from '@react-native-community/netinfo';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { RootStackParamList } from '../navigation';
@@ -23,6 +24,7 @@ import { getBudgetStatistics } from '../services/budgetService';
 import { budgetService } from '../services/budgetService';
 import { supabase } from '../api/supabaseClient';
 import syncQueueService from '../services/syncQueueService';
+import NetworkManager from '../utils/NetworkManager';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -41,6 +43,8 @@ const BudgetScreen: React.FC = () => {
   });
   const [syncIssue, setSyncIssue] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  
+  const isOffline = !NetworkManager.useNetworkStatus();
 
   const handleBack = () => {
     if (navigationState.routes.length > 1) {
@@ -52,7 +56,6 @@ const BudgetScreen: React.FC = () => {
     try {
       setIsLoading(true);
       
-      // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
       
       if (!user) {
@@ -62,20 +65,33 @@ const BudgetScreen: React.FC = () => {
         return;
       }
       
-      // First, explicitly synchronize budgets to avoid duplicates
-      console.log('Synchronizing budgets before fetching them...');
-      try {
-        await syncQueueService.synchronizeBudgets(true); // Try with force=true
-        setSyncIssue(false); // Reset sync issue flag if successful
-      } catch (syncError) {
-        console.error('Sync error:', syncError);
-        setSyncIssue(true); // Set sync issue flag if there's an error
+      let loadedBudgets: Budget[] = [];
+      
+      if (!isOffline) {
+        try {
+          console.log('Synchronizing budgets before fetching them...');
+          await syncQueueService.synchronizeBudgets(true);
+          setSyncIssue(false);
+          
+          loadedBudgets = await budgetService.getUserBudgets(user.id);
+        } catch (syncError) {
+          console.error('Sync error:', syncError);
+          setSyncIssue(true);
+          
+          console.log('Falling back to local budgets due to sync error');
+          loadedBudgets = await budgetService.getUserBudgetsOffline(user.id);
+        }
+      } else {
+        console.log('Offline mode: Loading budgets from local storage');
+        loadedBudgets = await budgetService.getUserBudgetsOffline(user.id);
+        
+        const syncQueue = await syncQueueService.getSyncQueue();
+        
+        if (syncQueue.length > 0) {
+          setSyncIssue(true);
+        }
       }
       
-      // Now get the budgets directly from Supabase
-      const loadedBudgets = await budgetService.getUserBudgets(user.id);
-      
-      // Deduplicate budgets by ID before setting state
       const uniqueBudgetsMap = new Map();
       loadedBudgets.forEach(budget => {
         if (budget.id) {
@@ -85,14 +101,12 @@ const BudgetScreen: React.FC = () => {
       
       const uniqueBudgets = Array.from(uniqueBudgetsMap.values());
       
-      // Log if we found and removed duplicates
       if (uniqueBudgets.length < loadedBudgets.length) {
         console.warn(`Removed ${loadedBudgets.length - uniqueBudgets.length} duplicate budgets`);
       }
       
       setBudgets(uniqueBudgets);
       
-      // Calculate statistics directly from the deduplicated budgets
       const totalBudgeted = uniqueBudgets.reduce((sum, budget) => sum + budget.amount, 0);
       const totalSpent = uniqueBudgets.reduce((sum, budget) => sum + (budget.spent || 0), 0);
       const remainingBudget = totalBudgeted - totalSpent;
@@ -113,30 +127,32 @@ const BudgetScreen: React.FC = () => {
     }
   };
 
-  // Fetch budgets when the screen comes into focus
   useFocusEffect(
     useCallback(() => {
       fetchBudgets();
-    }, [])
+    }, [isOffline])
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      // Get the current sync status
       const syncStatus = await syncQueueService.getSyncStatus();
       
-      // If sync is stuck (been syncing for more than 5 minutes), show sync issue
       if (syncStatus?.isSyncing && syncStatus.lastSyncAttempt && 
           (Date.now() - syncStatus.lastSyncAttempt > 5 * 60 * 1000)) {
         setSyncIssue(true);
       }
       
-      await fetchBudgets();
+      if (isOffline) {
+        console.log('Offline mode: Refreshing from local storage only');
+        await fetchBudgets();
+      } else {
+        console.log('Online mode: Refreshing with sync');
+        await fetchBudgets();
+      }
     } catch (error) {
       console.error('Error refreshing budgets:', error);
-      Alert.alert('Error', 'Failed to refresh budgets. There might be a synchronization issue.');
-      setSyncIssue(true);
+      Alert.alert('Error', 'Failed to refresh budgets. Please try again.');
     } finally {
       setRefreshing(false);
     }
@@ -204,6 +220,7 @@ const BudgetScreen: React.FC = () => {
     const spentPercentage = (item.spent / item.amount) * 100;
     const savingsPercentage = ((item.savingsAllocation || 0) / item.amount) * 100;
     const isOverBudget = item.spent + (item.savingsAllocation || 0) > item.amount;
+    const isPendingSync = item.id && item.id.startsWith('local_');
     
     return (
       <TouchableOpacity style={styles.categoryCard}>
@@ -212,7 +229,12 @@ const BudgetScreen: React.FC = () => {
             <Ionicons name={item.icon as any} size={24} color={item.color} />
           </View>
           <View style={styles.categoryInfo}>
-            <Text style={styles.categoryName}>{item.name}</Text>
+            <Text style={styles.categoryName}>
+              {item.name}
+              {isPendingSync && (
+                <Text style={styles.pendingSyncTag}> (Offline)</Text>
+              )}
+            </Text>
             <View style={styles.amountContainer}>
               <Text style={styles.categoryAmount}>
                 R {item.spent.toFixed(2)} <Text style={styles.budgetLimit}>/ R {item.amount.toFixed(2)}</Text>
@@ -224,11 +246,14 @@ const BudgetScreen: React.FC = () => {
               )}
             </View>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+          {isPendingSync ? (
+            <Ionicons name="cloud-upload-outline" size={20} color={colors.warning || '#856404'} />
+          ) : (
+            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+          )}
         </View>
         
         <View style={styles.progressBarContainer}>
-          {/* Spending progress */}
           <View 
             style={[
               styles.progressBar, 
@@ -238,7 +263,6 @@ const BudgetScreen: React.FC = () => {
               }
             ]} 
           />
-          {/* Savings progress overlay */}
           {item.savingsAllocation > 0 && (
             <View 
               style={[
@@ -274,7 +298,6 @@ const BudgetScreen: React.FC = () => {
           </Text>
         </View>
 
-        {/* Linked Savings Goals */}
         {item.linkedSavingsGoals && item.linkedSavingsGoals.length > 0 && (
           <View style={styles.linkedGoalsContainer}>
             <Text style={styles.linkedGoalsTitle}>Linked Goals:</Text>
@@ -321,7 +344,6 @@ const BudgetScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
       
-      {/* Header */}
       <View style={styles.header}>
         {navigationState.routes.length > 1 && (
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
@@ -357,7 +379,13 @@ const BudgetScreen: React.FC = () => {
         </TouchableOpacity>
       )}
       
-      {/* Budget Summary */}
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={18} color={colors.white} />
+          <Text style={styles.offlineText}>You're offline. Changes will sync when you reconnect.</Text>
+        </View>
+      )}
+      
       <View style={styles.summaryCard}>
         <View style={styles.summaryRow}>
           <View style={styles.summaryItem}>
@@ -399,7 +427,6 @@ const BudgetScreen: React.FC = () => {
         </Text>
       </View>
       
-      {/* Tabs */}
       <View style={styles.tabContainer}>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'categories' && styles.activeTab]}
@@ -419,7 +446,6 @@ const BudgetScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
       
-      {/* Categories List */}
       {activeTab === 'categories' ? (
         <FlatList
           data={budgets}
@@ -710,6 +736,27 @@ const styles = StyleSheet.create({
     marginLeft: spacing.small,
     color: colors.textPrimary,
     fontSize: 16,
+  },
+  pendingSyncTag: {
+    fontSize: 12,
+    color: colors.warning || '#856404',
+    fontStyle: 'italic',
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.textSecondary || '#6c757d',
+    paddingVertical: 8,
+    paddingHorizontal: spacing.medium,
+    marginHorizontal: spacing.medium,
+    marginBottom: spacing.medium,
+    borderRadius: borderRadius.small,
+  },
+  offlineText: {
+    color: colors.white,
+    marginLeft: spacing.small,
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 

@@ -981,6 +981,8 @@ class ExpenseService {
   }
 
   async getUserExpenses(userId: string, filters?: ExpenseFilters): Promise<Expense[]> {
+    console.log(`Getting expenses for user ${userId} with filters:`, filters || 'none');
+    
     let query = supabase
       .from(this.tableName)
       .select('*')
@@ -1018,7 +1020,55 @@ class ExpenseService {
 
     const { data, error } = await query.order('date', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error fetching user expenses:', error);
+      throw error;
+    }
+    
+    console.log(`Retrieved ${data?.length || 0} expenses for user ${userId}`);
+    
+    // Log the first few expenses for debugging
+    if (data && data.length > 0) {
+      console.log('EXPENSE SERVICE - First 3 expenses:', data.slice(0, 3).map(expense => ({
+        id: expense.id,
+        amount: expense.amount,
+        date: expense.date,
+        description: expense.description || expense.category,
+        category: expense.category
+      })));
+      
+      // Debug the expense dates
+      const now = new Date();
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay() + (currentWeekStart.getDay() === 0 ? -6 : 1)); // Start on Monday
+      currentWeekStart.setHours(0, 0, 0, 0);
+      
+      const currentWeekEnd = new Date(currentWeekStart);
+      currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
+      currentWeekEnd.setHours(23, 59, 59, 999);
+      
+      console.log('Current week range:', {
+        start: currentWeekStart.toISOString(),
+        end: currentWeekEnd.toISOString()
+      });
+      
+      // Check which expenses fall within the current week
+      const expensesInCurrentWeek = data.filter(expense => {
+        const expenseDate = new Date(expense.date);
+        return expenseDate >= currentWeekStart && expenseDate <= currentWeekEnd;
+      });
+      
+      console.log(`Found ${expensesInCurrentWeek.length} expenses in current week`);
+      if (expensesInCurrentWeek.length > 0) {
+        console.log('Expenses in current week:', expensesInCurrentWeek.map(e => ({
+          id: e.id,
+          date: e.date,
+          amount: e.amount,
+          description: e.description || e.category
+        })));
+      }
+    }
+    
     return data || [];
   }
 

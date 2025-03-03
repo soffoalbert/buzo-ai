@@ -11,6 +11,7 @@ import deepLinkHandler from './src/utils/deepLinkHandler';
 import notificationService from './src/services/notifications';
 import syncService from './src/services/syncService';
 import { initNetworkListeners } from './src/services/budgetService';
+import NetworkManager from './src/utils/NetworkManager';
 import OfflineStatusBar from './src/components/OfflineStatusBar';
 // Import the API key migration function
 import { migrateApiKeyToSupabase } from './src/services/apiKeyManager';
@@ -69,7 +70,7 @@ export default function App() {
         syncServiceCleanup.current = syncService.initializeSyncService();
         
         // Initialize budget network listeners
-        networkListenerCleanup.current = initNetworkListeners();
+        networkListenerCleanup.current = NetworkManager.initNetworkListener();
         
         return () => {
           // Clean up deep links

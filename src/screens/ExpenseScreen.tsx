@@ -329,10 +329,25 @@ const ExpenseScreen: React.FC = () => {
       // Find the selected budget category to include the proper name
       const selectedCategory = budgetCategories.find(cat => cat.id === category);
       
+      // Fix the date issue by creating a proper ISO string with correct time
+      const fixedDate = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        new Date().getHours(),
+        new Date().getMinutes(),
+        new Date().getSeconds()
+      );
+      
+      console.log('DATE DEBUGGING:');
+      console.log('Raw date from picker:', date.toISOString());
+      console.log('Fixed date with current time:', fixedDate.toISOString());
+      console.log('Current date for comparison:', new Date().toISOString());
+      
       const expenseData = {
         title,
         amount: parseFloat(amount),
-        date: date.toISOString().split('T')[0],
+        date: fixedDate.toISOString(), // Use full ISO string with time
         category, // This is the budget category ID
         categoryName: selectedCategory?.name, // Add the category name for better integration
         description: description.trim() || undefined,

@@ -129,6 +129,16 @@ const Chart: React.FC<ChartProps> = ({
       ? { ...styles.chart, borderWidth: 0, elevation: 0 }
       : styles.chart;
       
+    // Add debugging logs
+    console.log(`Chart.tsx - Rendering ${type} chart with data:`, 
+      type === 'line' 
+        ? { 
+            labels: (data as ChartData).labels,
+            dataPoints: (data as ChartData).datasets[0].data,
+            hasData: (data as ChartData).datasets[0].data.some(value => value > 0)
+          } 
+        : 'Non-line chart data');
+      
     switch (type) {
       case 'line':
         return (
