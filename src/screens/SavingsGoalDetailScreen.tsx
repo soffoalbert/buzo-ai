@@ -35,6 +35,7 @@ import { SavingsGoal, SavingsMilestone, SAVINGS_CATEGORIES } from '../models/Sav
 import { formatCurrency, calculatePercentage, calculateDaysLeft, formatDate } from '../utils/helpers';
 import { loadSavingsGoals } from '../services/savingsService';
 import { RootStackParamList } from '../navigation';
+import { savingsService } from '../services/savingsService';
 
 const { width } = Dimensions.get('window');
 
@@ -94,31 +95,36 @@ const SavingsGoalDetailScreen = () => {
   );
 
   // Load the specific savings goal based on goalId
-  useEffect(() => {
-    const loadSavingsGoal = async () => {
-      try {
-        setIsLoading(true);
-        const goals = await loadSavingsGoals();
-        const goal = goals.find(g => g.id === goalId);
-        
-        if (goal) {
-          setSavingsGoal(goal);
-        } else {
-          console.error(`No savings goal found with id ${goalId}`);
-          // Handle the case when goal is not found
-          navigation.goBack();
-        }
-      } catch (error) {
-        console.error('Error loading savings goal:', error);
-        // Handle error
-      } finally {
-        setIsLoading(false);
+  const loadSavingsGoal = async () => {
+    try {
+      setIsLoading(true);
+      console.log('[Load Goal] Loading savings goal:', { goalId });
+      
+      const goal = await savingsService.getSavingsGoal(goalId);
+      
+      console.log('[Load Goal] Service response:', {
+        goalFound: !!goal,
+        currentAmount: goal?.currentAmount,
+        milestonesCount: goal?.milestones?.length
+      });
+      
+      if (goal) {
+        setSavingsGoal(goal);
+      } else {
+        console.error(`No savings goal found with id ${goalId}`);
+        navigation.goBack();
       }
-    };
-
-    if (goalId) {
-      loadSavingsGoal();
+    } catch (error) {
+      console.error('[Load Goal] Error details:', error);
+      Alert.alert('Error', 'Failed to load savings goal');
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  // Add a useEffect hook to load the savings goal data when the component mounts
+  useEffect(() => {
+    loadSavingsGoal();
   }, [goalId]);
 
   // Animate progress on mount and when progress changes
@@ -136,38 +142,73 @@ const SavingsGoalDetailScreen = () => {
   };
 
   // Handle add contribution
-  const handleAddContribution = () => {
+  const handleAddContribution = async () => {
     if (!contribution || isNaN(parseFloat(contribution))) {
       Alert.alert('Invalid Amount', 'Please enter a valid contribution amount');
       return;
     }
 
-    const amount = parseFloat(contribution);
-    const updatedGoal = {
-      ...savingsGoal,
-      currentAmount: savingsGoal.currentAmount + amount,
-      updatedAt: new Date().toISOString()
-    };
+    if (!savingsGoal) {
+      Alert.alert('Error', 'No savings goal loaded');
+      return;
+    }
 
-    // Animate add button
-    Animated.sequence([
-      Animated.timing(addButtonScale, {
-        toValue: 0.95,
-        duration: 100,
-        useNativeDriver: true
-      }),
-      Animated.timing(addButtonScale, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true
-      })
-    ]).start();
+    try {
+      setIsLoading(true);
+      const amount = parseFloat(contribution);
+      
+      console.log('[Contribution] Starting contribution process:', {
+        goalId: savingsGoal.id,
+        amount,
+        currentAmount: savingsGoal.currentAmount
+      });
 
-    // Haptic feedback
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Use savingsService to add contribution
+      console.log('[Contribution] Calling savingsService.addContribution...');
+      const updatedGoal = await savingsService.addContribution(
+        savingsGoal.id,
+        amount,
+        'manual'
+      );
+      
+      console.log('[Contribution] Service response:', {
+        goalId: updatedGoal.id,
+        newAmount: updatedGoal.currentAmount,
+        milestonesCount: updatedGoal.milestones?.length
+      });
 
-    setSavingsGoal(updatedGoal);
-    setContribution('');
+      // Animate add button
+      Animated.sequence([
+        Animated.timing(addButtonScale, {
+          toValue: 0.95,
+          duration: 100,
+          useNativeDriver: true
+        }),
+        Animated.timing(addButtonScale, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true
+        })
+      ]).start();
+
+      // Haptic feedback
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      console.log('[Contribution] Updating local state with new goal data');
+      setSavingsGoal(updatedGoal);
+      setContribution('');
+      Alert.alert('Success', `Added ${formatCurrency(amount)} to your savings goal`);
+    } catch (error) {
+      const err = error as Error;
+      console.error('[Contribution] Error details:', {
+        error: err.message,
+        goalId: savingsGoal.id,
+        attemptedAmount: parseFloat(contribution)
+      });
+      Alert.alert('Error', 'Failed to add contribution. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Handle sync
@@ -200,7 +241,7 @@ const SavingsGoalDetailScreen = () => {
   );
 
   // Handle add milestone
-  const handleAddMilestone = () => {
+  const handleAddMilestone = async () => {
     if (!milestoneTitle.trim()) {
       Alert.alert('Missing Title', 'Please enter a milestone title');
       return;
@@ -211,34 +252,67 @@ const SavingsGoalDetailScreen = () => {
       return;
     }
 
+    if (!savingsGoal) {
+      Alert.alert('Error', 'No savings goal loaded');
+      return;
+    }
+
     const amount = parseFloat(milestoneAmount);
     if (amount > savingsGoal.targetAmount) {
       Alert.alert('Invalid Amount', 'Milestone amount cannot exceed the target amount');
       return;
     }
 
-    const newMilestone: SavingsMilestone = {
-      id: Date.now().toString(),
-      title: milestoneTitle,
-      targetAmount: amount,
-      isCompleted: savingsGoal.currentAmount >= amount
-    };
+    try {
+      setIsLoading(true);
+      
+      console.log('[Milestone] Starting milestone creation:', {
+        goalId: savingsGoal.id,
+        title: milestoneTitle,
+        amount,
+        currentMilestones: savingsGoal.milestones?.length
+      });
+      
+      // Use savingsService to add milestone
+      console.log('[Milestone] Calling savingsService.addMilestoneToSavingsGoal...');
+      const updatedGoal = await savingsService.addMilestoneToSavingsGoal(
+        savingsGoal.id,
+        {
+          title: milestoneTitle,
+          targetAmount: amount
+        }
+      );
 
-    const updatedMilestones = [...(savingsGoal.milestones || []), newMilestone];
-    
-    setSavingsGoal({
-      ...savingsGoal,
-      milestones: updatedMilestones,
-      updatedAt: new Date().toISOString()
-    });
+      console.log('[Milestone] Service response:', {
+        goalId: updatedGoal.id,
+        milestones: updatedGoal.milestones?.length,
+        latestMilestone: updatedGoal.milestones?.[updatedGoal.milestones.length - 1]
+      });
 
-    // Reset form
-    setMilestoneTitle('');
-    setMilestoneAmount('');
-    setShowMilestoneModal(false);
-    
-    // Haptic feedback
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      console.log('[Milestone] Updating local state with new goal data');
+      setSavingsGoal(updatedGoal);
+
+      // Reset form
+      setMilestoneTitle('');
+      setMilestoneAmount('');
+      setShowMilestoneModal(false);
+      
+      // Haptic feedback
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      Alert.alert('Success', 'Milestone added successfully');
+    } catch (error) {
+      const err = error as Error;
+      console.error('[Milestone] Error details:', {
+        error: err.message,
+        goalId: savingsGoal.id,
+        attemptedTitle: milestoneTitle,
+        attemptedAmount: parseFloat(milestoneAmount)
+      });
+      Alert.alert('Error', 'Failed to add milestone. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Create chart data for visualization

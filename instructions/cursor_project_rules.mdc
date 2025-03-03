@@ -1,0 +1,100 @@
+---
+description: Apply these rules when creating the project
+globs:
+alwaysApply: true
+---
+## Project Overview
+
+*   **Type:** cursor_project_rules
+*   **Description:** I am creating an AI-powered assistant designed to help youth in Africa manage their personal finances more effectively. This tool will guide users through budgeting, expense tracking, and saving strategies tailored to the specific economic conditions and challenges faced by young Africans. It will provide personalized financial advice to help users set and reach their financial goals.
+*   **Primary Goal:** Empower South African youth to manage their personal finances effectively through AI-driven budgeting, expense tracking, and savings guidance, while enhancing financial literacy and promoting responsible spending habits.
+
+## Project Structure
+
+### Framework-Specific Routing
+
+*   **Directory Rules:**
+
+    *   **React Native (Expo Managed Workflow):** Utilize a modular navigation structure. Organize routes within a dedicated `src/navigation` directory. Each screen (e.g., Home, Budget, Expense, Savings, Education) is housed in `src/screens/` while navigation logic (using React Navigation) is maintained in `src/navigation/index.tsx`.
+    *   Example: `App.tsx` serves as the root entry point initializing the navigation container, while screens like `HomeScreen.tsx` are placed under `src/screens/`.
+
+### Core Directories
+
+*   **Versioned Structure:**
+
+    *   **src/screens:** Contains all screen components (e.g., HomeScreen, BudgetScreen, ExpenseScreen, SavingsScreen, EducationScreen).
+    *   **src/components:** Houses reusable UI components and widgets.
+    *   **src/api:** Implements integrations with Supabase for backend communication, including authentication, data fetching, and secure storage logic.
+    *   **src/utils:** Contains utility functions and helper types maintained in TypeScript.
+
+### Key Files
+
+*   **Stack-Versioned Patterns:**
+
+    *   **App.tsx:** Serves as the entry point for the React Native app and sets up global state and navigation.
+    *   **src/navigation/index.tsx:** Configures the navigation stack using React Navigation.
+    *   **src/screens/HomeScreen.tsx:** Implements the main dashboard view with navigation hooks to other core features.
+    *   **src/api/supabaseClient.ts:** Contains version-specific Supabase integration logic including secure configuration using AES-256 and TLS settings.
+
+## Tech Stack Rules
+
+*   **Version Enforcement:**
+
+    *   **React Native (Expo Managed):** Ensure the project utilizes the managed Expo workflow to streamline cross-platform compatibility.
+    *   **TypeScript:** Enforce strict typing throughout the project for improved code reliability and maintainability.
+    *   **Supabase:** Use the latest Supabase SDK with enforced multi-factor authentication and AES-256 encryption for data at rest.
+    *   **GPT-4o:** Integrate GPT-4o for personalized financial recommendations while ensuring secure API access.
+    *   **Security Protocols:** Implement TLS for data in transit and AES-256 for data storage, in strict accordance with PRD requirements.
+
+## PRD Compliance
+
+*   **Non-Negotiable:**
+
+    *   "This project is an AI-powered personal finance assistant designed primarily for South African youth. The app aims to help users manage their money more effectively by guiding them through budgeting, expense tracking, and setting savings goals that accommodate their unique financial challenges." - This mandates robust data security, offline capabilities, and a culturally relevant interface.
+
+## App Flow Integration
+
+*   **Stack-Aligned Flow:**
+
+    *   Example: The onboarding flow begins in `src/screens/OnboardingScreen.tsx`, guiding the user to scan receipts and upload bank statements. Post-onboarding, navigation flows into the Home Screen (`src/screens/HomeScreen.tsx`), from where users access Budget Management, Expense Tracking, and Savings Goals.
+    *   The authentication and secure data sync processes are integrated via `src/api/supabaseClient.ts`, ensuring that every transition enforces data security principles using TLS and AES-256 encryption protocols.
+
+## Best Practices
+
+*   **React Native (Expo Managed):**
+
+    *   Maintain a clear separation of concerns between UI components, navigation logic, and business logic.
+    *   Leverage Expo’s asset management and development tools for rapid iteration.
+    *   Optimize performance by reducing unnecessary re-renders and utilizing lazy loading for screens.
+
+*   **TypeScript:**
+
+    *   Enforce strict type checking to avoid runtime errors.
+    *   Utilize interfaces and types to define clear contracts for API responses and component props.
+    *   Regularly run linting and type checks as part of CI/CD pipelines.
+
+*   **Supabase:**
+
+    *   Use environment variables to securely handle API keys and configuration settings.
+    *   Implement error handling and retries for API calls.
+    *   Regularly audit authentication flows and review database security rules.
+
+*   **GPT-4o:**
+
+    *   Secure API requests by avoiding hard-coded keys, using secure storage mechanisms instead.
+    *   Optimize prompt engineering to ensure accurate, context-aware financial advice.
+    *   Cache frequently used responses to improve performance and reduce API call costs.
+
+*   **Encryption Protocols (AES-256 & TLS):**
+
+    *   Ensure all sensitive data is encrypted both at rest and in transit.
+    *   Regularly update encryption libraries and conduct security audits to identify vulnerabilities.
+    *   Follow best practices in key management and rotation.
+
+## Rules
+
+*   Derive folder/file patterns directly from the techStackDoc versions and maintain consistency with the React Native (Expo managed) structure.
+*   For React Native projects using Expo, enforce the use of a centralized `src/navigation` directory for route management.
+*   Ensure that all screens follow the modular component-based structure within `src/screens` and reusable elements in `src/components`.
+*   Reflect Supabase, GPT-4o, and security-specific implementations (AES-256, TLS) based on their respective latest documentation and version guidelines.
+*   Never mix platform-specific implementations; maintain a consistent file structure for both Android and iOS as per Expo standards.

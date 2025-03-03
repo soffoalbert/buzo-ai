@@ -6,6 +6,8 @@ import './001_initial_schema';
 import './002_savings_goals';
 import './003_api_keys_table';
 import './004_vault_setup';
+import './005_savings_contributions';
+import './006_update_milestones';
 
 /**
  * Initialize and run all pending migrations

@@ -49,23 +49,28 @@ const isEmailVerificationDisabled = async (): Promise<boolean> => {
  */
 const secureStoreWithFallback = async (key: string, value: string): Promise<void> => {
   try {
-    // Check if value is too large for SecureStore (2048 bytes)
-    if (value && value.length > 1800) { // Using 1800 to be safe
-      console.log(`Value for ${key} is too large for SecureStore, using AsyncStorage with prefix`);
-      // Store a marker in SecureStore indicating the value is in AsyncStorage
-      await SecureStore.setItemAsync(`${key}_marker`, 'large_value_in_async');
-      // Store the actual value in AsyncStorage with a special prefix for security-sensitive data
+    // For session data, always use AsyncStorage with encryption
+    if (key.includes('session') || key.includes('auth')) {
       await AsyncStorage.setItem(`secure_${key}`, value);
+      return;
+    }
+
+    // For other data, try SecureStore first
+    if (value && value.length > 1800) {
+      // Store in chunks if the value is too large
+      const chunks = Math.ceil(value.length / 1800);
+      await SecureStore.setItemAsync(`${key}_chunks`, chunks.toString());
+      
+      for (let i = 0; i < chunks; i++) {
+        const chunk = value.substr(i * 1800, 1800);
+        await SecureStore.setItemAsync(`${key}_chunk_${i}`, chunk);
+      }
     } else {
-      // Value is small enough for SecureStore
       await SecureStore.setItemAsync(key, value);
-      // Clean up any marker and AsyncStorage value if they exist
-      await SecureStore.deleteItemAsync(`${key}_marker`);
-      await AsyncStorage.removeItem(`secure_${key}`);
     }
   } catch (error) {
-    console.error(`Error storing ${key}:`, error);
-    // Fallback to AsyncStorage if SecureStore fails
+    console.error(`Error in secureStoreWithFallback for ${key}:`, error);
+    // Fallback to AsyncStorage
     await AsyncStorage.setItem(`secure_${key}`, value);
   }
 };
@@ -77,25 +82,31 @@ const secureStoreWithFallback = async (key: string, value: string): Promise<void
  */
 const secureRetrieveWithFallback = async (key: string): Promise<string | null> => {
   try {
-    // Check if we have a marker indicating the value is in AsyncStorage
-    const marker = await SecureStore.getItemAsync(`${key}_marker`);
-    
-    if (marker === 'large_value_in_async') {
-      // Value was too large for SecureStore, retrieve from AsyncStorage
+    // For session data, always check AsyncStorage first
+    if (key.includes('session') || key.includes('auth')) {
       return await AsyncStorage.getItem(`secure_${key}`);
     }
-    
-    // Try to get from SecureStore first
-    const value = await SecureStore.getItemAsync(key);
-    if (value !== null) {
+
+    // Check if we have chunks
+    const chunks = await SecureStore.getItemAsync(`${key}_chunks`);
+    if (chunks) {
+      // Retrieve and combine chunks
+      let value = '';
+      for (let i = 0; i < parseInt(chunks); i++) {
+        const chunk = await SecureStore.getItemAsync(`${key}_chunk_${i}`);
+        if (chunk) value += chunk;
+      }
       return value;
     }
-    
-    // If not in SecureStore, check AsyncStorage fallback
+
+    // Try SecureStore
+    const value = await SecureStore.getItemAsync(key);
+    if (value !== null) return value;
+
+    // Fallback to AsyncStorage
     return await AsyncStorage.getItem(`secure_${key}`);
   } catch (error) {
-    console.error(`Error retrieving ${key}:`, error);
-    // Try AsyncStorage as last resort
+    console.error(`Error in secureRetrieveWithFallback for ${key}:`, error);
     return await AsyncStorage.getItem(`secure_${key}`);
   }
 };
@@ -233,6 +244,15 @@ export const loginUser = async (email: string, password: string): Promise<{
 
     console.log('User logged in successfully with ID:', data.user.id);
 
+    // Store session data
+    try {
+      await AsyncStorage.setItem('userId', data.user.id);
+      await secureStoreWithFallback('session', JSON.stringify(data.session));
+      await secureStoreWithFallback('auth_user', JSON.stringify(data.user));
+    } catch (storageError) {
+      console.error('Error storing session data:', storageError);
+    }
+
     // Get or create user profile
     try {
       const profileData = await createOrUpdateUserProfile(data.user.id, {
@@ -254,11 +274,10 @@ export const loginUser = async (email: string, password: string): Promise<{
       return {
         data: {
           user: data.user,
-          profile: null,
           session: data.session
         },
         error: profileError,
-        message: 'Login successful but profile sync failed.'
+        message: 'Login successful but profile sync failed'
       };
     }
   } catch (error) {
@@ -365,10 +384,26 @@ export const logoutUser = async (): Promise<{
  */
 export const isAuthenticated = async (): Promise<boolean> => {
   try {
-    const token = await secureRetrieveWithFallback('userToken');
-    return !!token;
+    const session = await secureRetrieveWithFallback('session');
+    const userId = await AsyncStorage.getItem('userId');
+    
+    if (!session || !userId) {
+      return false;
+    }
+
+    // Verify session with Supabase
+    const { data: { session: currentSession } } = await supabase.auth.getSession();
+    
+    if (!currentSession) {
+      // Clear invalid session data
+      await secureDeleteWithFallback('session');
+      await AsyncStorage.removeItem('userId');
+      return false;
+    }
+
+    return true;
   } catch (error) {
-    console.error('Error checking authentication:', error);
+    console.error('Error checking authentication status:', error);
     return false;
   }
 };

@@ -13,33 +13,50 @@ const SAVINGS_CATEGORIES_STORAGE_KEY = 'buzo_savings_categories';
 
 class SavingsService {
   private readonly tableName = 'savings_goals';
+  private readonly contributionsTable = 'savings_contributions';
+  private readonly milestonesTable = 'savings_milestones';
 
   async createSavingsGoal(goal: SavingsGoal): Promise<SavingsGoal> {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
     const { data, error } = await supabase
       .from(this.tableName)
       .insert([{
         ...goal,
-        currentAmount: 0,
-        isCompleted: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        user_id: user.id,
+        current_amount: 0,
+        is_completed: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }])
-      .select()
+      .select(`
+        *,
+        milestones:${this.milestonesTable}(*),
+        contributions:${this.contributionsTable}(*)
+      `)
       .single();
 
     if (error) throw error;
-    return data;
+    return this.mapToSavingsGoal(data);
   }
 
   async getSavingsGoal(id: string): Promise<SavingsGoal | null> {
     const { data, error } = await supabase
       .from(this.tableName)
-      .select('*')
+      .select(`
+        *,
+        milestones:${this.milestonesTable}(*),
+        contributions:${this.contributionsTable}(*)
+      `)
       .eq('id', id)
       .single();
 
     if (error) throw error;
-    return data;
+    return data ? this.mapToSavingsGoal(data) : null;
   }
 
   async getUserSavingsGoals(userId: string): Promise<SavingsGoal[]> {
@@ -58,7 +75,7 @@ class SavingsService {
       .from(this.tableName)
       .update({
         ...goal,
-        updatedAt: new Date().toISOString()
+        updated_at: new Date().toISOString()
       })
       .eq('id', goal.id)
       .select()
@@ -78,27 +95,85 @@ class SavingsService {
   }
 
   // Integration methods
-  async addContribution(goalId: string, amount: number, source: 'manual' | 'automated' | 'budget_allocation', metadata?: { budgetId?: string; expenseId?: string }): Promise<SavingsGoal> {
-    const goal = await this.getSavingsGoal(goalId);
-    if (!goal) throw new Error('Savings goal not found');
-
-    goal.currentAmount += amount;
-    goal.savingHistory = [
-      ...(goal.savingHistory || []),
-      {
-        date: new Date().toISOString(),
-        amount,
-        source,
-        ...metadata
+  async addContribution(goalId: string, amount: number, source: 'manual' | 'automated' | 'budget_allocation' = 'manual', metadata?: { budgetId?: string; expenseId?: string }): Promise<SavingsGoal> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
       }
-    ];
 
-    // Check if goal is completed
-    if (goal.currentAmount >= goal.targetAmount) {
-      goal.isCompleted = true;
+      // Start a transaction by getting the current goal first
+      const goal = await this.getSavingsGoal(goalId);
+      if (!goal) {
+        throw new Error(`Savings goal with id ${goalId} not found`);
+      }
+
+      // Insert the contribution
+      const { data: contribution, error: contributionError } = await supabase
+        .from(this.contributionsTable)
+        .insert([{
+          goal_id: goalId,
+          user_id: user.id,
+          amount: amount,
+          source: source,
+          budget_id: metadata?.budgetId,
+          expense_id: metadata?.expenseId,
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (contributionError) {
+        throw contributionError;
+      }
+
+      // Calculate new amount
+      const newAmount = goal.currentAmount + amount;
+      const isCompleted = newAmount >= goal.targetAmount;
+
+      // Update the goal with new amount
+      const { data: updatedGoal, error: goalError } = await supabase
+        .from(this.tableName)
+        .update({
+          current_amount: newAmount,
+          is_completed: isCompleted,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', goalId)
+        .select(`
+          *,
+          milestones:${this.milestonesTable}(*),
+          contributions:${this.contributionsTable}(*)
+        `)
+        .single();
+
+      if (goalError) {
+        throw goalError;
+      }
+
+      // Update milestone completion status if needed
+      if (goal.milestones?.length) {
+        const milestoneUpdates = goal.milestones
+          .filter(m => !m.isCompleted && newAmount >= m.targetAmount)
+          .map(m => ({
+            id: m.id,
+            is_reached: true,
+            completed_date: new Date().toISOString()
+          }));
+
+        if (milestoneUpdates.length > 0) {
+          await supabase
+            .from(this.milestonesTable)
+            .upsert(milestoneUpdates);
+        }
+      }
+
+      return this.mapToSavingsGoal(updatedGoal);
+    } catch (error) {
+      console.error('Error adding contribution:', error);
+      throw error;
     }
-
-    return this.updateSavingsGoal(goal);
   }
 
   async linkBudget(goalId: string, budgetId: string, allocationPercentage: number, autoSave: boolean): Promise<SavingsGoal> {
@@ -136,6 +211,64 @@ class SavingsService {
     return this.updateSavingsGoal(goal);
   }
 
+  async addMilestoneToSavingsGoal(
+    goalId: string,
+    milestone: { title: string; targetAmount: number }
+  ): Promise<SavingsGoal> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // First get the current goal
+      const goal = await this.getSavingsGoal(goalId);
+      if (!goal) {
+        throw new Error(`Savings goal with id ${goalId} not found`);
+      }
+
+      // Insert the milestone
+      const { data: insertedMilestone, error: milestoneError } = await supabase
+        .from(this.milestonesTable)
+        .insert([{
+          goal_id: goalId,
+          user_id: user.id,
+          title: milestone.title,
+          amount: milestone.targetAmount,
+          is_reached: goal.currentAmount >= milestone.targetAmount,
+          completed_date: goal.currentAmount >= milestone.targetAmount ? new Date().toISOString() : null,
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (milestoneError) {
+        throw milestoneError;
+      }
+
+      // Fetch the updated goal with the new milestone
+      const { data: updatedGoal, error: goalError } = await supabase
+        .from(this.tableName)
+        .select(`
+          *,
+          milestones:${this.milestonesTable}(*),
+          contributions:${this.contributionsTable}(*)
+        `)
+        .eq('id', goalId)
+        .single();
+
+      if (goalError) {
+        throw goalError;
+      }
+
+      return this.mapToSavingsGoal(updatedGoal);
+    } catch (error) {
+      console.error('Error adding milestone to savings goal:', error);
+      throw error;
+    }
+  }
+
   async getSavingsAnalytics(goalId: string) {
     const goal = await this.getSavingsGoal(goalId);
     if (!goal) throw new Error('Savings goal not found');
@@ -162,6 +295,57 @@ class SavingsService {
       averageContribution: savingHistory.length > 0 
         ? savingHistory.reduce((sum, c) => sum + c.amount, 0) / savingHistory.length 
         : 0
+    };
+  }
+
+  private mapToSavingsGoal(data: any): SavingsGoal {
+    return {
+      id: data.id,
+      userId: data.user_id,
+      title: data.title,
+      description: data.description,
+      targetAmount: Number(data.target_amount),
+      currentAmount: Number(data.current_amount || 0),
+      startDate: data.start_date,
+      targetDate: data.target_date,
+      category: data.category,
+      icon: data.icon,
+      color: data.color,
+      isCompleted: data.is_completed,
+      isShared: data.is_shared,
+      sharedWith: data.shared_with || [],
+      milestones: data.milestones?.map(this.mapToMilestone) || [],
+      contributions: data.contributions?.map(this.mapContribution) || [],
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      linkedBudgets: data.linked_budgets || [],
+      contributingExpenses: data.contributing_expenses || [],
+      savingFrequency: data.saving_frequency,
+      nextSavingDate: data.next_saving_date,
+      savingHistory: data.saving_history || []
+    };
+  }
+
+  private mapToMilestone(data: any): SavingsMilestone {
+    return {
+      id: data.id,
+      title: data.title,
+      targetAmount: Number(data.amount),
+      isCompleted: data.is_reached,
+      completedDate: data.completed_date,
+      description: data.description,
+      displayOrder: data.display_order
+    };
+  }
+
+  private mapContribution(data: any): any {
+    return {
+      id: data.id,
+      amount: Number(data.amount),
+      source: data.source,
+      createdAt: data.created_at,
+      budgetId: data.budget_id,
+      expenseId: data.expense_id
     };
   }
 }
