@@ -71,6 +71,8 @@ const SavingsGoalDetailScreen = () => {
   const [isOnline, setIsOnline] = useState(true);
   const [lastSynced, setLastSynced] = useState('5m ago');
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
+  const [contributions, setContributions] = useState<Array<{id: string, amount: number, date: string}>>([]);
+  const [hasContributionData, setHasContributionData] = useState(false);
   
   // Animation values
   const progressAnimation = useRef(new Animated.Value(0)).current;
@@ -110,6 +112,16 @@ const SavingsGoalDetailScreen = () => {
       
       if (goal) {
         setSavingsGoal(goal);
+        
+        // Load contribution history
+        const contributionHistory = await savingsService.getSavingsContributions(goalId);
+        console.log('[Load Goal] Contribution history:', {
+          count: contributionHistory.length
+        });
+        
+        setContributions(contributionHistory);
+        // Show chart data even with just one contribution
+        setHasContributionData(contributionHistory.length > 0); 
       } else {
         console.error(`No savings goal found with id ${goalId}`);
         navigation.goBack();
@@ -315,27 +327,60 @@ const SavingsGoalDetailScreen = () => {
     }
   };
 
-  // Create chart data for visualization
-  const createChartData = () => {
-    // For this example, we'll create a simple line chart showing savings progress over time
-    return {
-      labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-      datasets: [
-        {
-          data: [
-            0,
-            savingsGoal.currentAmount * 0.4,
-            savingsGoal.currentAmount * 0.7,
-            savingsGoal.currentAmount,
-            savingsGoal.currentAmount * 1.4,
-            savingsGoal.targetAmount
-          ],
-          color: () => category.color || colors.primary,
-          strokeWidth: 2
-        }
-      ],
-      legend: ["Projected Savings"]
-    };
+  // Replace the entire renderSavingsProgress function with this simpler version
+  const renderSavingsProgress = () => {
+    console.log('[Chart Debug] Attempting to render savings progress');
+    
+    return (
+      <Card
+        title="Savings Progress"
+        style={styles.chartCard}
+        variant="savings"
+      >
+        {/* Guaranteed visible content */}
+        <View style={styles.savingsProgressContainer}>
+          {/* Show a basic progress bar */}
+          <View style={styles.manualProgressBar}>
+            <View 
+              style={[
+                styles.manualProgressFill, 
+                { 
+                  width: `${Math.min(progress, 100)}%`,
+                  backgroundColor: category.color || colors.primary 
+                }
+              ]} 
+            />
+          </View>
+          
+          {/* Show savings stats */}
+          <View style={styles.savingsStatsContainer}>
+            <View style={styles.savingsStat}>
+              <Text style={styles.savingsStatLabel}>Current</Text>
+              <Text style={styles.savingsStatValue}>{formatCurrency(savingsGoal.currentAmount)}</Text>
+            </View>
+            
+            <View style={styles.savingsStat}>
+              <Text style={styles.savingsStatLabel}>Target</Text>
+              <Text style={styles.savingsStatValue}>{formatCurrency(savingsGoal.targetAmount)}</Text>
+            </View>
+            
+            <View style={styles.savingsStat}>
+              <Text style={styles.savingsStatLabel}>Left to save</Text>
+              <Text style={styles.savingsStatValue}>
+                {formatCurrency(Math.max(0, savingsGoal.targetAmount - savingsGoal.currentAmount))}
+              </Text>
+            </View>
+          </View>
+          
+          {/* Daily recommendation */}
+          <View style={styles.recommendationContainer}>
+            <Text style={styles.recommendationText}>
+              To reach your goal by the target date, save {formatCurrency(dailyAmount)} daily.
+            </Text>
+          </View>
+        </View>
+      </Card>
+    );
   };
 
   // Add loading indicator
@@ -494,19 +539,7 @@ const SavingsGoalDetailScreen = () => {
           </Animated.View>
         </View>
         
-        {/* Savings Visualization */}
-        <Card
-          title="Savings Progress"
-          style={styles.chartCard}
-          variant="savings"
-        >
-          <Chart
-            type="line"
-            data={createChartData()}
-            height={200}
-            formatYLabel={(value) => `R${parseInt(value) / 1000}k`}
-          />
-        </Card>
+        {/* {renderSavingsProgress()} */}
         
         {/* Milestones Section */}
         <View style={styles.sectionContainer}>
@@ -997,6 +1030,45 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     fontSize: textStyles.body1.fontSize,
     color: colors.textSecondary,
+  },
+  savingsProgressContainer: {
+    padding: 16,
+  },
+  manualProgressBar: {
+    height: 12,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  manualProgressFill: {
+    height: '100%',
+    borderRadius: 6,
+  },
+  savingsStatsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  savingsStat: {
+    alignItems: 'center',
+  },
+  savingsStatLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  savingsStatValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginTop: 4,
+  },
+  recommendationContainer: {
+    marginTop: 16,
+  },
+  recommendationText: {
+    fontSize: 14,
+    color: '#6B7280',
   },
 });
 

@@ -348,6 +348,30 @@ class SavingsService {
       expenseId: data.expense_id
     };
   }
+
+  async getSavingsContributions(goalId: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from(this.contributionsTable)
+        .select('*')
+        .eq('goal_id', goalId)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      
+      return data.map((contribution: any) => ({
+        id: contribution.id,
+        amount: Number(contribution.amount),
+        date: contribution.created_at,
+        source: contribution.source,
+        budgetId: contribution.budget_id,
+        expenseId: contribution.expense_id
+      }));
+    } catch (error) {
+      console.error('Error fetching savings contributions:', error);
+      return [];
+    }
+  }
 }
 
 export const savingsService = new SavingsService();
