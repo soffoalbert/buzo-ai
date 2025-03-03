@@ -60,14 +60,74 @@ class SavingsService {
   }
 
   async getUserSavingsGoals(userId: string): Promise<SavingsGoal[]> {
+    console.log(`Getting savings goals for user: ${userId}`);
+    
     const { data, error } = await supabase
       .from(this.tableName)
-      .select('*')
+      .select(`
+        *,
+        milestones:savings_milestones(*)
+      `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
-    return data || [];
+    if (error) {
+      console.error('Error fetching savings goals:', error);
+      throw error;
+    }
+    
+    console.log(`Found ${data?.length || 0} savings goals in database`);
+    
+    if (data && data.length > 0) {
+      console.log('First goal raw data sample:', JSON.stringify(data[0]).substring(0, 200) + '...');
+    }
+    
+    // Transform the data to match our model
+    const savingsGoals: SavingsGoal[] = (data || []).map(goal => {
+      // Parse milestones if any
+      const milestones = goal.milestones?.map((milestone: any) => ({
+        id: milestone.id,
+        title: milestone.title,
+        targetAmount: this.parseSafeNumber(milestone.amount, 0),
+        isCompleted: !!milestone.is_reached,
+        completedDate: milestone.completed_date,
+      })) || [];
+      
+      // Map database fields to our model
+      const mappedGoal = {
+        id: goal.id,
+        title: goal.title || 'Unnamed Goal',
+        description: goal.description,
+        targetAmount: this.parseSafeNumber(goal.target_amount, 0),
+        currentAmount: this.parseSafeNumber(goal.current_amount, 0),
+        startDate: goal.start_date || new Date().toISOString(),
+        targetDate: goal.target_date || new Date().toISOString(),
+        category: goal.category,
+        icon: goal.icon,
+        color: goal.color,
+        isCompleted: !!goal.is_completed,
+        isShared: !!goal.is_shared,
+        sharedWith: goal.shared_with || [],
+        milestones,
+        createdAt: goal.created_at || new Date().toISOString(),
+        updatedAt: goal.updated_at || new Date().toISOString(),
+        user_id: goal.user_id
+      };
+      
+      console.log(`Mapped goal: ${mappedGoal.title}, currentAmount: ${mappedGoal.currentAmount}, DB current_amount: ${goal.current_amount}`);
+      
+      return mappedGoal;
+    });
+
+    return savingsGoals;
+  }
+
+  // Helper to safely parse a number
+  private parseSafeNumber(value: any, defaultValue: number = 0): number {
+    if (value === null || value === undefined) return defaultValue;
+    
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? defaultValue : parsed;
   }
 
   async updateSavingsGoal(goal: SavingsGoal): Promise<SavingsGoal> {
@@ -973,20 +1033,66 @@ export const shareSavingsGoal = async (
  * @returns Object with savings statistics
  */
 export const getSavingsStatistics = async () => {
+  console.log('Starting getSavingsStatistics...');
   const goals = await loadSavingsGoals();
   
-  const totalSaved = goals.reduce((sum, goal) => sum + goal.currentAmount, 0);
-  const totalTarget = goals.reduce((sum, goal) => sum + goal.targetAmount, 0);
-  const completedGoals = goals.filter(goal => goal.isCompleted).length;
-  const inProgressGoals = goals.length - completedGoals;
+  // Check if any goals have corrupted data (extremely large values)
+  await checkAndRepairCorruptedGoals(goals);
+  
+  // Log goals data for debugging
+  console.log(`Raw goals data: ${JSON.stringify(goals, null, 2)}`);
+  console.log('Calculating savings statistics for', goals.length, 'goals');
+  goals.forEach(goal => {
+    console.log(`Goal: ${goal.title}, CurrentAmount: ${goal.currentAmount ?? 'undefined'} (type: ${typeof goal.currentAmount}), TargetAmount: ${goal.targetAmount ?? 'undefined'} (type: ${typeof goal.targetAmount}), Completed: ${goal.isCompleted ?? 'undefined'}`);
+  });
+  
+  // Ensure all goals have valid numerical values for currentAmount and targetAmount
+  const validatedGoals = goals.map(goal => {
+    const validatedGoal = {
+      ...goal,
+      currentAmount: typeof goal.currentAmount === 'number' && !isNaN(goal.currentAmount) ? goal.currentAmount : 0,
+      targetAmount: typeof goal.targetAmount === 'number' && !isNaN(goal.targetAmount) ? goal.targetAmount : 0,
+      isCompleted: !!goal.isCompleted
+    };
+    
+    console.log(`Validated goal: ${goal.title}, Original currentAmount: ${goal.currentAmount} (${typeof goal.currentAmount}), Validated currentAmount: ${validatedGoal.currentAmount}`);
+    
+    return validatedGoal;
+  });
+  
+  console.log('Validated goals with default values applied:');
+  validatedGoals.forEach(goal => {
+    console.log(`${goal.title}: currentAmount=${goal.currentAmount}, targetAmount=${goal.targetAmount}, isCompleted=${goal.isCompleted}`);
+  });
+  
+  // Calculate total saved amount
+  const totalSaved = validatedGoals.reduce((sum, goal) => {
+    const newSum = sum + goal.currentAmount;
+    console.log(`Adding to total: ${goal.title} with ${goal.currentAmount}, running sum: ${newSum}`);
+    return newSum;
+  }, 0);
+  
+  // Calculate total target amount
+  const totalTarget = validatedGoals.reduce((sum, goal) => sum + goal.targetAmount, 0);
+  
+  const completedGoals = validatedGoals.filter(goal => goal.isCompleted).length;
+  const inProgressGoals = validatedGoals.length - completedGoals;
   
   // Calculate average savings rate (amount saved per day)
   let avgSavingsRate = 0;
-  if (goals.length > 0) {
-    const oldestGoalDate = new Date(Math.min(...goals.map(g => new Date(g.createdAt).getTime())));
+  if (validatedGoals.length > 0) {
+    const oldestGoalDate = new Date(Math.min(...validatedGoals.map(g => new Date(g.createdAt).getTime())));
     const daysSinceOldest = Math.max(1, Math.ceil((Date.now() - oldestGoalDate.getTime()) / (1000 * 60 * 60 * 24)));
     avgSavingsRate = totalSaved / daysSinceOldest;
   }
+  
+  console.log('Savings statistics calculated:', {
+    totalSaved,
+    totalTarget,
+    progress: totalTarget > 0 ? (totalSaved / totalTarget) * 100 : 0,
+    completedGoals,
+    inProgressGoals
+  });
   
   return {
     totalSaved,
@@ -997,6 +1103,38 @@ export const getSavingsStatistics = async () => {
     totalGoals: goals.length,
     avgSavingsRate,
   };
+};
+
+/**
+ * Check for and repair any corrupted savings goals with unrealistically large values
+ * @param goals List of savings goals to check
+ */
+export const checkAndRepairCorruptedGoals = async (goals: SavingsGoal[]): Promise<void> => {
+  const MAX_REASONABLE_VALUE = 1000000000; // 1 billion
+  const corruptedGoals = goals.filter(
+    goal => goal.currentAmount > MAX_REASONABLE_VALUE || goal.targetAmount > MAX_REASONABLE_VALUE
+  );
+  
+  if (corruptedGoals.length > 0) {
+    console.error(`Found ${corruptedGoals.length} corrupted goals with unrealistic values:`);
+    
+    for (const goal of corruptedGoals) {
+      console.error(`Corrupted goal: ${goal.title}, currentAmount: ${goal.currentAmount}, targetAmount: ${goal.targetAmount}`);
+      
+      try {
+        // Reset the corrupted values to 0 or a reasonable default
+        await updateSavingsGoal(goal.id, {
+          currentAmount: 0,
+          targetAmount: goal.targetAmount > MAX_REASONABLE_VALUE ? 5000000 : goal.targetAmount, // Reset to reasonable default
+          isCompleted: false // Reset completion status
+        });
+        
+        console.log(`Successfully repaired corrupted goal: ${goal.title}`);
+      } catch (error) {
+        console.error(`Failed to repair corrupted goal ${goal.title}:`, error);
+      }
+    }
+  }
 };
 
 /**

@@ -18,7 +18,12 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { RootStackParamList } from '../navigation';
-import { loadSavingsGoals, getSavingsStatistics, deleteSavingsGoal } from '../services/savingsService';
+import { 
+  loadSavingsGoals, 
+  getSavingsStatistics, 
+  deleteSavingsGoal, 
+  checkAndRepairCorruptedGoals 
+} from '../services/savingsService';
 import { SavingsGoal, SAVINGS_TIPS } from '../models/SavingsGoal';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -39,6 +44,7 @@ const SavingsScreen: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRepairing, setIsRepairing] = useState(false);
 
   const handleBack = () => {
     if (navigationState.routes.length > 1) {
@@ -52,6 +58,9 @@ const SavingsScreen: React.FC = () => {
       setIsLoading(true);
       const goals = await loadSavingsGoals();
       const stats = await getSavingsStatistics();
+      
+      console.log('SavingsScreen loadData - Raw goals:', JSON.stringify(goals, null, 2).substring(0, 200) + '...');
+      console.log('SavingsScreen loadData - Raw statistics:', JSON.stringify(stats, null, 2));
       
       setSavingsGoals(goals);
       setStatistics(stats);
@@ -108,6 +117,47 @@ const SavingsScreen: React.FC = () => {
         },
       ]
     );
+  };
+  
+  // Function to handle repairing corrupted data
+  const handleRepairData = async () => {
+    try {
+      setIsRepairing(true);
+      const goals = await loadSavingsGoals();
+      
+      // Show alert to confirm
+      Alert.alert(
+        'Repair Savings Data',
+        'This will reset any corrupted savings goal values to 0. Continue?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setIsRepairing(false)
+          },
+          {
+            text: 'Repair',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await checkAndRepairCorruptedGoals(goals);
+                Alert.alert('Success', 'Your savings data has been repaired.');
+                await loadData(); // Reload the data
+              } catch (error) {
+                console.error('Error repairing data:', error);
+                Alert.alert('Error', 'Failed to repair data. Please try again.');
+              } finally {
+                setIsRepairing(false);
+              }
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error loading goals for repair:', error);
+      Alert.alert('Error', 'Failed to load goals for repair. Please try again.');
+      setIsRepairing(false);
+    }
   };
   
   // Format date for display
@@ -243,13 +293,41 @@ const SavingsScreen: React.FC = () => {
           {/* Savings Summary */}
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Total Savings</Text>
-            <Text style={styles.summaryAmount}>R {statistics.totalSaved.toFixed(2)}</Text>
+            <Text style={styles.summaryAmount}>
+              R {(statistics.totalSaved > 1000000000 ? 0 : statistics.totalSaved).toFixed(2)}
+              {statistics.totalSaved > 1000000000 && (
+                <Text style={{fontSize: 14, color: colors.error}}> (Error: Value reset - please update your goals)</Text>
+              )}
+            </Text>
             <View style={styles.summaryDetails}>
               <Text style={styles.summaryTarget}>
-                of R {statistics.totalTarget.toFixed(2)} target ({statistics.savingsProgress.toFixed(0)}%)
+                of R {(statistics.totalTarget > 1000000000 ? 0 : statistics.totalTarget).toFixed(2)} target 
+                ({(statistics.totalTarget > 0 && statistics.totalTarget <= 1000000000) ? 
+                  (Math.min(statistics.savingsProgress, 100)).toFixed(0) : '0'}%)
               </Text>
             </View>
           </View>
+          
+          {/* Display a warning if we detected unrealistically large values */}
+          {(statistics.totalSaved > 1000000000 || statistics.totalTarget > 1000000000) && (
+            <View style={styles.warningContainer}>
+              <Text style={styles.warningText}>
+                We detected an unrealistically large value in your savings data. The display has been reset to 0.
+                Please edit your savings goals to correct this.
+              </Text>
+              <TouchableOpacity
+                style={styles.repairButton}
+                onPress={handleRepairData}
+                disabled={isRepairing}
+              >
+                {isRepairing ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <Text style={styles.repairButtonText}>Repair Data</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
           
           {/* Tabs */}
           <View style={styles.tabContainer}>
@@ -558,6 +636,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     padding: spacing.xs,
     ...shadows.sm,
+  },
+  warningContainer: {
+    backgroundColor: colors.error,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  warningText: {
+    fontSize: textStyles.body1.fontSize,
+    color: colors.white,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  repairButton: {
+    backgroundColor: colors.white,
+    padding: spacing.sm,
+    borderRadius: borderRadius.sm,
+    alignSelf: 'center',
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.lg,
+  },
+  repairButtonText: {
+    color: colors.error,
+    fontWeight: 'bold',
   },
 });
 

@@ -236,7 +236,29 @@ class FinancialIntegrationService {
 
       const totalBudgeted = safeBudgets.reduce((sum, b) => sum + (b?.amount || 0), 0);
       const totalSpent = safeExpenses.reduce((sum, e) => sum + (e?.amount || 0), 0);
-      const totalSaved = safeSavingsGoals.reduce((sum, g) => sum + (g?.currentAmount || 0), 0);
+      
+      // Log raw details for debugging
+      console.log('Savings goals for total calculation:', safeSavingsGoals.map(g => ({
+        id: g.id,
+        title: g.title,
+        currentAmount: g.currentAmount,
+        targetAmount: g.targetAmount,
+        isCompleted: g.isCompleted
+      })));
+      
+      // Ensure all savings goals have valid numerical values
+      const validatedGoals = safeSavingsGoals.map(goal => ({
+        ...goal,
+        currentAmount: typeof goal.currentAmount === 'number' && !isNaN(goal.currentAmount) ? goal.currentAmount : 0,
+        targetAmount: typeof goal.targetAmount === 'number' && !isNaN(goal.targetAmount) ? goal.targetAmount : 0,
+        isCompleted: !!goal.isCompleted
+      }));
+      
+      // Calculate total saved amount - include all goals (both active and completed)
+      const totalSaved = validatedGoals.reduce((sum, goal) => {
+        console.log(`Adding ${goal.title || 'Unnamed goal'} with amount: ${goal.currentAmount}`);
+        return sum + goal.currentAmount;
+      }, 0);
 
       console.log('Calculated totals:', { totalBudgeted, totalSpent, totalSaved });
 
@@ -247,7 +269,7 @@ class FinancialIntegrationService {
         savingsContribution: b?.savingsAllocation || 0
       }));
 
-      const savingsProgress = safeSavingsGoals.map(g => ({
+      const savingsProgress = validatedGoals.map(g => ({
         id: g?.id || '',
         title: g?.title || 'Unnamed Goal',
         progress: g?.targetAmount ? ((g?.currentAmount || 0) / g.targetAmount) * 100 : 0,

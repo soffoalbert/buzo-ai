@@ -31,6 +31,7 @@ import { getUserProfile } from '../services/authService';
 import { loadExpenses } from '../services/expenseService';
 import { financialIntegrationService } from '../services/financialIntegrationService';
 import { Expense } from '../models/Expense';
+import { formatCurrency, formatCurrencyAbbreviated } from '../utils/helpers';
 
 const { width } = Dimensions.get('window');
 
@@ -562,16 +563,20 @@ const HomeScreen: React.FC = () => {
               <View style={styles.overviewContainer}>
                 <View style={styles.overviewItem}>
                   <Text style={styles.overviewLabel}>Total Budget</Text>
-                  <Text style={styles.overviewAmount}>R {integrationData.totalBudgeted.toFixed(2)}</Text>
+                  <Text style={styles.overviewAmount}>
+                    {formatCurrencyAbbreviated(integrationData.totalBudgeted)}
+                  </Text>
                 </View>
                 <View style={styles.overviewItem}>
                   <Text style={styles.overviewLabel}>Total Spent</Text>
-                  <Text style={styles.overviewAmount}>R {integrationData.totalSpent.toFixed(2)}</Text>
+                  <Text style={styles.overviewAmount}>
+                    {formatCurrencyAbbreviated(integrationData.totalSpent)}
+                  </Text>
                 </View>
                 <View style={styles.overviewItem}>
                   <Text style={styles.overviewLabel}>Total Saved</Text>
                   <Text style={[styles.overviewAmount, { color: colors.success }]}>
-                    R {integrationData.totalSaved.toFixed(2)}
+                    {formatCurrencyAbbreviated(integrationData.totalSaved)}
                   </Text>
                 </View>
               </View>
@@ -645,10 +650,10 @@ const HomeScreen: React.FC = () => {
                     </View>
                     <View style={styles.budgetProgressLabels}>
                       <Text style={styles.budgetProgressLabel}>
-                        Spent: R {(budgetData.spent || 0).toFixed(2)}
+                        Spent: {formatCurrencyAbbreviated(budgetData.spent || 0)}
                       </Text>
                       <Text style={styles.budgetProgressLabel}>
-                        Remaining: R {(budgetData.remaining || 0).toFixed(2)}
+                        Remaining: {formatCurrencyAbbreviated(budgetData.remaining || 0)}
                       </Text>
                     </View>
                   </View>
@@ -658,7 +663,7 @@ const HomeScreen: React.FC = () => {
                       <View style={styles.budgetCategoryHeader}>
                         <Text style={styles.budgetCategoryName}>{category.name}</Text>
                         <Text style={styles.budgetCategoryAmount}>
-                          R {(category.spent || 0).toFixed(2)} / R {(category.amount || 0).toFixed(2)}
+                          {formatCurrencyAbbreviated(category.spent || 0)} / {formatCurrencyAbbreviated(category.amount || 0)}
                         </Text>
                       </View>
                       <View style={styles.budgetCategoryProgressBar}>
@@ -698,7 +703,7 @@ const HomeScreen: React.FC = () => {
                   <View style={styles.savingsGoalInfo}>
                     <Text style={styles.savingsGoalTitle}>{savingsData.name}</Text>
                     <Text style={styles.savingsGoalAmount}>
-                      R {(savingsData.current || 0).toFixed(2)} / R {(savingsData.goal || 0).toFixed(2)}
+                      {formatCurrencyAbbreviated(savingsData.current || 0)} / {formatCurrencyAbbreviated(savingsData.goal || 0)}
                     </Text>
                     <View style={styles.savingsProgressBar}>
                       <View 
@@ -1111,10 +1116,11 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   overviewAmount: {
-    fontSize: textStyles.h4.fontSize,
-    fontWeight: textStyles.h4.fontWeight as any,
-    lineHeight: textStyles.h4.lineHeight,
+    ...textStyles.h4,
     color: colors.text,
+    marginTop: 4,
+    fontSize: 18,
+    flexShrink: 1,
   },
 });
 

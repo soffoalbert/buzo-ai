@@ -139,4 +139,35 @@ export const calculateDaysLeft = (targetDate: string): number => {
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   
   return Math.max(0, diffDays);
+};
+
+/**
+ * Formats a currency value to be more readable, especially for large numbers.
+ * Large numbers will be abbreviated (K for thousands, M for millions, etc.)
+ * 
+ * @param value The number to format
+ * @param currency The currency symbol (defaults to 'R')
+ * @param decimals The number of decimal places to show
+ * @returns Formatted currency string
+ */
+export const formatCurrencyAbbreviated = (value: number, currency: string = 'R', decimals: number = 2): string => {
+  // Handle special cases
+  if (value === null || value === undefined || isNaN(value)) {
+    return `${currency} 0.00`;
+  }
+  
+  // For large numbers, use abbreviations
+  if (value >= 1000000) {
+    // Format as millions (M)
+    return `${currency} ${(value / 1000000).toFixed(1)}M`;
+  } else if (value >= 10000) {
+    // Format as thousands (K) with 1 decimal for numbers over 10K
+    return `${currency} ${(value / 1000).toFixed(1)}K`;
+  } else if (value >= 1000) {
+    // Format as thousands for numbers between 1K and 10K
+    return `${currency} ${(value / 1000).toFixed(decimals)}K`;
+  }
+  
+  // For smaller numbers, use standard formatting
+  return `${currency} ${value.toFixed(decimals)}`;
 }; 
