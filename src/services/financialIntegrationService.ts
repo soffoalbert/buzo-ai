@@ -262,12 +262,69 @@ class FinancialIntegrationService {
 
       console.log('Calculated totals:', { totalBudgeted, totalSpent, totalSaved });
 
-      const budgetUtilization = safeBudgets.map(b => ({
-        id: b?.id || '',
-        name: b?.name || 'Unnamed Budget',
-        utilization: b?.amount ? ((b?.spent || 0) / b.amount) * 100 : 0,
-        savingsContribution: b?.savingsAllocation || 0
-      }));
+      const budgetUtilization = safeBudgets.map(b => {
+        // Calculate actual spent amount for this budget
+        const budgetSpent = safeExpenses
+          .filter(e => {
+            // Match expenses to budget by budget ID or category
+            const budgetIdMatch = e.budgetId && e.budgetId === b.id;
+            const categoryIdMatch = e.category && e.category === b.category;
+            const categoryNameMatch = e.categoryName && b.name && 
+              e.categoryName.toLowerCase() === b.name.toLowerCase();
+            
+            const isMatch = budgetIdMatch || categoryIdMatch || categoryNameMatch;
+            
+            if (isMatch) {
+              console.log(`✅ Expense matched to budget "${b.name}":`, {
+                expense_id: e.id,
+                expense_category: e.category,
+                expense_categoryName: e.categoryName,
+                expense_budgetId: e.budgetId,
+                budget_id: b.id,
+                budget_category: b.category,
+                budget_name: b.name,
+                match_type: budgetIdMatch ? 'budgetId' : (categoryIdMatch ? 'categoryId' : 'categoryName')
+              });
+            }
+            
+            return isMatch;
+          })
+          .reduce((sum, e) => sum + e.amount, 0);
+        
+        // Use the calculated spent amount or fall back to the budget's spent field
+        const actualSpent = budgetSpent > 0 ? budgetSpent : (b?.spent || 0);
+        
+        console.log(`Budget "${b.name}" (${b.id}): Amount=${b.amount}, Spent=${actualSpent}, Calculated=${budgetSpent}, Original=${b.spent || 0}`);
+        
+        return {
+          id: b?.id || '',
+          name: b?.name || 'Unnamed Budget',
+          amount: b?.amount || 0,
+          spent: actualSpent,
+          utilization: b?.amount ? (actualSpent / b.amount) * 100 : 0,
+          savingsContribution: b?.savingsAllocation || 0
+        };
+      });
+
+      // Log expenses that didn't match any budget for debugging
+      safeExpenses.forEach(e => {
+        const matchingBudget = safeBudgets.find(b => 
+          (e.budgetId && e.budgetId === b.id) || 
+          (e.category && e.category === b.category) ||
+          (e.categoryName && b.name && e.categoryName.toLowerCase() === b.name.toLowerCase())
+        );
+        
+        if (!matchingBudget) {
+          console.log(`⚠️ Expense not matched to any budget:`, {
+            expense_id: e.id,
+            expense_title: e.title,
+            expense_amount: e.amount,
+            expense_category: e.category,
+            expense_categoryName: e.categoryName,
+            expense_budgetId: e.budgetId
+          });
+        }
+      });
 
       const savingsProgress = validatedGoals.map(g => ({
         id: g?.id || '',

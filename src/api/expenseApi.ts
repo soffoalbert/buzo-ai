@@ -62,7 +62,10 @@ export const fetchExpenses = async (): Promise<Expense[]> => {
  * @returns Promise resolving to the created expense
  */
 export const createExpense = async (
-  expense: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>
+  expense: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'> & {
+    budgetId?: string;
+    categoryName?: string;
+  }
 ): Promise<Expense> => {
   try {
     const now = new Date().toISOString();
@@ -108,6 +111,11 @@ export const createExpense = async (
       }
     }
     
+    // Store categoryName and budgetId in local variables, but don't send to database
+    const categoryName = expense.categoryName;
+    const budgetId = expense.budgetId;
+    
+    // Create a database-compatible object without the fields that don't exist in the schema
     const newExpense = {
       id: expenseId,
       title: expense.title,
@@ -122,6 +130,8 @@ export const createExpense = async (
       created_at: now,
       updated_at: now,
     };
+    
+    console.log('Creating expense with data:', { ...newExpense, budgetId, categoryName });
     
     try {
       const { data, error } = await supabase
@@ -175,13 +185,15 @@ export const createExpense = async (
         throw new Error('No data returned from expense creation');
       }
       
-      // Convert from Supabase format to app format
+      // Convert from Supabase format to app format and include our additional fields
       return {
         id: data.id,
         title: data.title,
         amount: Number(data.amount),
         date: new Date(data.date).toISOString(),
         category: data.category,
+        categoryName: categoryName, // Add back our application-level field
+        budgetId: budgetId, // Add back our application-level field
         description: data.description || undefined,
         receiptImage: data.receipt_image_path || undefined,
         paymentMethod: data.payment_method || undefined,

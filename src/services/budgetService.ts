@@ -171,9 +171,11 @@ export const loadBudgets = async (): Promise<Budget[]> => {
 
       // If online, fetch from Supabase using getUserBudgets
       const budgetService = new BudgetService();
+      console.log(`Fetching budgets from Supabase for user ${user.id}`);
       const budgets = await budgetService.getUserBudgets(user.id);
       
       // Save to local storage for offline access
+      console.log(`Saving ${budgets.length} budgets to local storage for offline access`);
       await saveBudgetsLocally(budgets);
       
       return budgets;
@@ -546,4 +548,125 @@ export const initNetworkListeners = () => {
   });
   
   return unsubscribe;
+};
+
+/**
+ * Get all budget categories with spending information
+ * @returns Promise resolving to array of budget categories with additional fields
+ */
+export const getBudgetCategories = async (): Promise<(BudgetCategory & { 
+  limit: number; 
+  alerts?: string[]; 
+})[]> => {
+  try {
+    // Load budget categories
+    const categories = await loadBudgetCategories();
+    
+    // Load budgets for spending information
+    const budgets = await loadBudgets();
+    
+    // Enhance categories with spending and limit information
+    return categories.map(category => {
+      // Find all budgets for this category
+      const categoryBudgets = budgets.filter(budget => 
+        budget.category === category.id || 
+        budget.category.toLowerCase() === category.name.toLowerCase()
+      );
+      
+      // Calculate total budget limit for the category
+      const limit = categoryBudgets.reduce((total, budget) => total + budget.amount, 0);
+      
+      // Add any alerts that have been sent (default to empty array)
+      const alerts = categoryBudgets.reduce((allAlerts, budget) => {
+        if (budget.alerts) {
+          return [...allAlerts, ...budget.alerts];
+        }
+        return allAlerts;
+      }, [] as string[]);
+      
+      return {
+        ...category,
+        limit: limit || 0,
+        alerts: [...new Set(alerts)] // Remove duplicates
+      };
+    });
+  } catch (error) {
+    console.error('Error getting budget categories with spending:', error);
+    return [];
+  }
+};
+
+/**
+ * Get current spending for a specific category
+ * @param categoryId The budget category ID
+ * @returns Promise resolving to the total spent amount for the category
+ */
+export const getCategorySpending = async (categoryId: string): Promise<number> => {
+  try {
+    // Load budgets
+    const budgets = await loadBudgets();
+    
+    // Find all budgets for this category
+    const categoryBudgets = budgets.filter(budget => 
+      budget.category === categoryId
+    );
+    
+    // Sum up the spent amounts
+    return categoryBudgets.reduce((total, budget) => total + (budget.spent || 0), 0);
+  } catch (error) {
+    console.error(`Error getting spending for category ${categoryId}:`, error);
+    return 0;
+  }
+};
+
+/**
+ * Get a specific budget category by ID
+ * @param categoryId The budget category ID
+ * @returns Promise resolving to the budget category or null if not found
+ */
+export const getBudgetCategory = async (categoryId: string): Promise<BudgetCategory | null> => {
+  try {
+    const categories = await loadBudgetCategories();
+    return categories.find(cat => cat.id === categoryId) || null;
+  } catch (error) {
+    console.error(`Error getting budget category ${categoryId}:`, error);
+    return null;
+  }
+};
+
+/**
+ * Update a budget category
+ * @param categoryId The category ID to update
+ * @param categoryData Updated category data
+ * @returns Promise resolving to the updated category
+ */
+export const updateBudgetCategory = async (
+  categoryId: string,
+  categoryData: Partial<BudgetCategory & { alerts?: string[] }>
+): Promise<BudgetCategory> => {
+  try {
+    const categories = await loadBudgetCategories();
+    const index = categories.findIndex(cat => cat.id === categoryId);
+    
+    if (index === -1) {
+      throw new Error(`Budget category with ID ${categoryId} not found`);
+    }
+    
+    // Create updated category
+    const updatedCategory = {
+      ...categories[index],
+      ...categoryData,
+    };
+    
+    // Replace in array
+    categories[index] = updatedCategory;
+    
+    // Save to storage
+    await saveBudgetCategories(categories);
+    
+    return updatedCategory;
+  } catch (error) {
+    console.error(`Error updating budget category ${categoryId}:`, error);
+    throw error;
+  }
 }; 

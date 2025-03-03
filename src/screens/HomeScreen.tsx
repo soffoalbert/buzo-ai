@@ -494,11 +494,11 @@ const HomeScreen: React.FC = () => {
           total: rawResponse.totalBudgeted,
           spent: rawResponse.totalSpent || 0,
           remaining: rawResponse.totalBudgeted - (rawResponse.totalSpent || 0),
-          categories: budgetData.map(budget => ({
-            name: budget.name,
-            amount: rawResponse.totalBudgeted! * (budget.utilization / 100),
-            color: budget.color || getRandomColor(),
-            spent: (rawResponse.totalSpent || 0) * (budget.utilization / 100)
+          categories: (rawResponse.budgetUtilization || []).map(budget => ({
+            name: budget.name || 'Unnamed Budget',
+            amount: budget.amount || 0,
+            color: getRandomColor(),
+            spent: budget.spent || 0
           }))
         };
         setBudgetData(newBudgetState);

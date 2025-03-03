@@ -19,7 +19,10 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { RootStackParamList } from '../navigation';
 import { Budget } from '../models/Budget';
-import { loadBudgets, getBudgetStatistics } from '../services/budgetService';
+import { getBudgetStatistics } from '../services/budgetService';
+import { budgetService } from '../services/budgetService';
+import { supabase } from '../api/supabaseClient';
+import syncQueueService from '../services/syncQueueService';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -46,16 +49,52 @@ const BudgetScreen: React.FC = () => {
   const fetchBudgets = async () => {
     try {
       setIsLoading(true);
-      const loadedBudgets = await loadBudgets();
-      setBudgets(loadedBudgets);
       
-      // Get budget statistics
-      const stats = await getBudgetStatistics();
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        console.error('User not authenticated');
+        Alert.alert('Error', 'You need to be logged in to view budgets.');
+        setIsLoading(false);
+        return;
+      }
+      
+      // First, explicitly synchronize budgets to avoid duplicates
+      console.log('Synchronizing budgets before fetching them...');
+      await syncQueueService.synchronizeBudgets();
+      
+      // Now get the budgets directly from Supabase
+      const loadedBudgets = await budgetService.getUserBudgets(user.id);
+      
+      // Deduplicate budgets by ID before setting state
+      const uniqueBudgetsMap = new Map();
+      loadedBudgets.forEach(budget => {
+        if (budget.id) {
+          uniqueBudgetsMap.set(budget.id, budget);
+        }
+      });
+      
+      const uniqueBudgets = Array.from(uniqueBudgetsMap.values());
+      
+      // Log if we found and removed duplicates
+      if (uniqueBudgets.length < loadedBudgets.length) {
+        console.warn(`Removed ${loadedBudgets.length - uniqueBudgets.length} duplicate budgets`);
+      }
+      
+      setBudgets(uniqueBudgets);
+      
+      // Calculate statistics directly from the deduplicated budgets
+      const totalBudgeted = uniqueBudgets.reduce((sum, budget) => sum + budget.amount, 0);
+      const totalSpent = uniqueBudgets.reduce((sum, budget) => sum + (budget.spent || 0), 0);
+      const remainingBudget = totalBudgeted - totalSpent;
+      const spendingPercentage = totalBudgeted > 0 ? (totalSpent / totalBudgeted) * 100 : 0;
+      
       setStatistics({
-        totalBudgeted: stats.totalBudgeted,
-        totalSpent: stats.totalSpent,
-        remainingBudget: stats.remainingBudget,
-        spendingPercentage: stats.spendingPercentage,
+        totalBudgeted,
+        totalSpent,
+        remainingBudget,
+        spendingPercentage,
       });
     } catch (error) {
       console.error('Error loading budgets:', error);

@@ -31,20 +31,8 @@ import { isMockDataEnabled, setMockDataEnabled, generateAndSaveMockExpenses } fr
 import notificationService from '../services/notifications';
 import PremiumFeatureGate from '../components/PremiumFeatureGate';
 import subscriptionService, { PremiumFeature } from '../services/subscriptionService';
-
-// Define the categories
-const EXPENSE_CATEGORIES = [
-  { id: 'groceries', name: 'Groceries', icon: 'cart-outline', color: colors.secondary },
-  { id: 'transport', name: 'Transport', icon: 'car-outline', color: colors.accent },
-  { id: 'dining', name: 'Dining', icon: 'restaurant-outline', color: '#FF9800' },
-  { id: 'utilities', name: 'Utilities', icon: 'flash-outline', color: colors.error },
-  { id: 'housing', name: 'Housing', icon: 'home-outline', color: colors.primary },
-  { id: 'entertainment', name: 'Entertainment', icon: 'film-outline', color: colors.info },
-  { id: 'health', name: 'Health', icon: 'fitness-outline', color: '#6366F1' },
-  { id: 'education', name: 'Education', icon: 'school-outline', color: '#8B5CF6' },
-  { id: 'shopping', name: 'Shopping', icon: 'bag-outline', color: '#EC4899' },
-  { id: 'other', name: 'Other', icon: 'ellipsis-horizontal-outline', color: '#9CA3AF' },
-];
+import { BudgetCategory } from '../models/Budget';
+import { loadBudgetCategories } from '../services/budgetService';
 
 // Define the payment methods
 const PAYMENT_METHODS = [
@@ -91,6 +79,24 @@ const ExpenseScreen: React.FC = () => {
   const [scanLimitReached, setScanLimitReached] = useState(false);
   const [remainingScans, setRemainingScans] = useState<number | null>(null);
   
+  // Add state for budget categories
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
+
+  // Load budget categories when component mounts
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const categories = await loadBudgetCategories();
+        setBudgetCategories(categories);
+        console.log('Loaded budget categories:', categories.length);
+      } catch (error) {
+        console.error('Error loading budget categories:', error);
+      }
+    };
+    
+    loadCategories();
+  }, []);
+  
   // Add useEffect to handle receipt data if provided
   useEffect(() => {
     if (route.params?.receiptData && route.params?.receiptImage) {
@@ -100,7 +106,23 @@ const ExpenseScreen: React.FC = () => {
       
       setTitle(expenseData.title);
       setAmount(expenseData.amount.toString());
-      setCategory(expenseData.category.toLowerCase());
+      
+      // Map the receipt category to a budget category if possible
+      if (expenseData.category) {
+        const lowerCaseCategory = expenseData.category.toLowerCase();
+        // Try to find a matching budget category by name (case insensitive)
+        const matchingCategory = budgetCategories.find(cat => 
+          cat.name.toLowerCase() === lowerCaseCategory
+        );
+        
+        if (matchingCategory) {
+          setCategory(matchingCategory.id);
+        } else {
+          // If no match found, try to find a similar category or use "Other"
+          const otherCategory = budgetCategories.find(cat => cat.name === 'Other');
+          setCategory(otherCategory?.id || '');
+        }
+      }
       
       // Ensure we create a proper Date object if a date is provided
       if (expenseData.date) {
@@ -248,7 +270,24 @@ const ExpenseScreen: React.FC = () => {
       
       setTitle(expenseData.title);
       setAmount(expenseData.amount.toString());
-      setCategory(expenseData.category.toLowerCase());
+      
+      // Map the receipt category to a budget category if possible
+      if (expenseData.category) {
+        const lowerCaseCategory = expenseData.category.toLowerCase();
+        // Try to find a matching budget category by name (case insensitive)
+        const matchingCategory = budgetCategories.find(cat => 
+          cat.name.toLowerCase() === lowerCaseCategory
+        );
+        
+        if (matchingCategory) {
+          setCategory(matchingCategory.id);
+        } else {
+          // If no match found, try to find a similar category or use "Other"
+          const otherCategory = budgetCategories.find(cat => cat.name === 'Other');
+          setCategory(otherCategory?.id || '');
+        }
+      }
+      
       if (expenseData.date) {
         setDate(new Date(expenseData.date));
       }
@@ -287,15 +326,25 @@ const ExpenseScreen: React.FC = () => {
     setIsLoading(true);
     
     try {
+      // Find the selected budget category to include the proper name
+      const selectedCategory = budgetCategories.find(cat => cat.id === category);
+      
       const expenseData = {
         title,
         amount: parseFloat(amount),
         date: date.toISOString().split('T')[0],
-        category,
+        category, // This is the budget category ID
+        categoryName: selectedCategory?.name, // Add the category name for better integration
         description: description.trim() || undefined,
         paymentMethod: paymentMethod || undefined,
         receiptImage: receiptImage || undefined,
+        // Set the budgetId explicitly to link this expense to a budget
+        budgetId: category, // Using the category ID as the budget ID
+        // Add user_id if available from the profile
+        user_id: undefined // Will be populated by the expense service
       };
+      
+      console.log('Creating expense with data:', JSON.stringify(expenseData, null, 2));
       
       // Create the expense
       await createExpense(expenseData);
@@ -636,7 +685,7 @@ const ExpenseScreen: React.FC = () => {
             )}
             
             <View style={styles.categoriesContainer}>
-              {EXPENSE_CATEGORIES.map((cat) => (
+              {budgetCategories.map((cat) => (
                 <TouchableOpacity
                   key={cat.id}
                   style={[

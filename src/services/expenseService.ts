@@ -9,6 +9,7 @@ import { processAllSyncItems } from './syncQueueService';
 import NetInfo from '@react-native-community/netinfo';
 import * as expenseApi from '../api/expenseApi';
 import { checkSupabaseConnection } from '../api/supabaseClient';
+import { budgetService } from './budgetService';
 
 // Define SyncOperation enum locally to avoid circular dependencies
 export enum SyncOperation {
@@ -140,10 +141,12 @@ export const createExpense = async (
     amount: number;
     date: string;
     category: string;
+    categoryName?: string;
     description?: string;
     paymentMethod?: string;
     receiptImage?: string;
     tags?: string[];
+    budgetId?: string;
   },
   updateBudget = true
 ): Promise<Expense> => {
@@ -168,162 +171,143 @@ export const createExpense = async (
     // Generate a new UUID for the expense
     const expenseId = generateUUID();
     
+    // If online, create in Supabase using the API
+    let newExpense: Expense;
+    
     if (online) {
-      // If online, create in Supabase using the API
       try {
-        const newExpense = await expenseApi.createExpense(normalizedData);
+        newExpense = await expenseApi.createExpense(normalizedData);
         
         // Update local storage
         const currentExpenses = await loadExpenses();
         await saveExpenses([...currentExpenses, newExpense]);
-        
-        // Update budget spending if requested and category is provided
-        if (updateBudget && newExpense.category) {
-          try {
-            // Find budget by category instead of using category as ID
-            const budgets = await loadBudgets();
-            const matchingBudget = budgets.find(budget => 
-              budget.category.toLowerCase() === newExpense.category.toLowerCase()
-            );
-            
-            if (matchingBudget) {
-              await updateBudgetSpending(matchingBudget.id, newExpense.amount);
-            } else {
-              console.warn(`No budget found for category: ${newExpense.category}`);
-            }
-          } catch (error) {
-            console.warn('Could not update budget spending:', error);
-          }
-        }
-        
-        // Transform to Supabase format for sync queue
-        const supabaseFormat = {
-          id: newExpense.id,
-          title: newExpense.title,
-          amount: newExpense.amount,
-          date: new Date(newExpense.date).toISOString(),
-          category: newExpense.category,
-          description: newExpense.description || null,
-          payment_method: newExpense.paymentMethod || null,
-          receipt_image_path: newExpense.receiptImage || null,
-          tags: newExpense.tags || null,
-          created_at: new Date(newExpense.createdAt).toISOString(),
-          updated_at: new Date(newExpense.updatedAt).toISOString(),
-          user_id: userId // Add user_id to satisfy RLS policy
+      } catch (apiError: any) {
+        console.error('API error creating expense:', apiError);
+        // Fall back to local creation if API fails
+        const now = new Date().toISOString();
+        newExpense = {
+          id: expenseId,
+          title: normalizedData.title,
+          amount: normalizedData.amount,
+          date: normalizedData.date,
+          category: normalizedData.category,
+          categoryName: normalizedData.categoryName,
+          budgetId: normalizedData.budgetId,
+          description: normalizedData.description,
+          paymentMethod: normalizedData.paymentMethod,
+          receiptImage: normalizedData.receiptImage,
+          tags: normalizedData.tags,
+          createdAt: now,
+          updatedAt: now,
+          user_id: userId
         };
         
-        // Queue for sync when back online
-        await addToSyncQueue({
-          id: newExpense.id,
-          type: 'create',
-          entity: 'expense',
-          table: 'expenses',
-          data: supabaseFormat,
-        }, 5); // Higher priority for expenses
-        
-        return newExpense;
-      } catch (apiError: any) {
-        // Check if this is a duplicate key error
-        if (apiError.code === '23505' || (apiError.message && apiError.message.includes('duplicate key'))) {
-          console.log('Expense already exists in Supabase, fetching existing record');
-          
-          // Try to extract the ID from the error message if possible
-          let existingId = '';
-          const idMatch = /id: ([a-f0-9-]+)/i.exec(apiError.message);
-          if (idMatch && idMatch[1]) {
-            existingId = idMatch[1];
-          }
-          
-          // If we have an ID, try to fetch the existing expense
-          if (existingId) {
-            try {
-              const existingExpense = await expenseApi.getExpenseById(existingId);
-              if (existingExpense) {
-                // Update local storage with the existing expense
-                const currentExpenses = await loadExpenses();
-                const updatedExpenses = currentExpenses.filter(e => e.id !== existingId);
-                await saveExpenses([...updatedExpenses, existingExpense]);
-                return existingExpense;
-              }
-            } catch (fetchError) {
-              console.error('Error fetching existing expense:', fetchError);
-            }
-          }
-          
-          // If we couldn't fetch the existing expense, create a new one with a different ID
-          console.log('Creating expense with a new ID to avoid conflict');
-          const newData = {
-            ...normalizedData,
-            id: `new_${generateUUID()}` // Use a different ID
-          };
-          return await createExpense(newData, updateBudget);
-        }
-        
-        // If it's not a duplicate key error, rethrow
-        throw apiError;
+        // Save to local storage
+        const currentExpenses = await loadExpenses();
+        await saveExpenses([...currentExpenses, newExpense]);
       }
     } else {
       // If offline, create locally and queue for sync
       console.log('Offline mode: Creating expense locally');
       
       const now = new Date().toISOString();
-      const newExpense: Expense = {
-        id: `local_${expenseId}`, // Use a prefix to identify locally created expenses
+      newExpense = {
+        id: expenseId,
+        title: normalizedData.title,
+        amount: normalizedData.amount,
+        date: normalizedData.date,
+        category: normalizedData.category,
+        categoryName: normalizedData.categoryName,
+        budgetId: normalizedData.budgetId,
+        description: normalizedData.description,
+        paymentMethod: normalizedData.paymentMethod,
+        receiptImage: normalizedData.receiptImage,
+        tags: normalizedData.tags,
         createdAt: now,
         updatedAt: now,
-        ...normalizedData,
+        user_id: userId
       };
       
-      // Save locally
+      // Save to local storage
       const currentExpenses = await loadExpenses();
       await saveExpenses([...currentExpenses, newExpense]);
-      
-      // Transform to Supabase format for sync queue
-      const supabaseFormat = {
-        id: newExpense.id,
-        title: newExpense.title,
-        amount: newExpense.amount,
-        date: new Date(newExpense.date).toISOString(),
-        category: newExpense.category,
-        description: newExpense.description || null,
-        payment_method: newExpense.paymentMethod || null,
-        receipt_image_path: newExpense.receiptImage || null,
-        tags: newExpense.tags || null,
-        created_at: new Date(newExpense.createdAt).toISOString(),
-        updated_at: new Date(newExpense.updatedAt).toISOString(),
-        user_id: userId // Add user_id to satisfy RLS policy
-      };
-      
-      // Queue for sync when back online
-      await addToSyncQueue({
-        id: newExpense.id,
-        type: 'create',
-        entity: 'expense',
-        table: 'expenses',
-        data: supabaseFormat,
-      }, 5); // Higher priority for expenses
-      
-      // Update budget spending if requested and category is provided
-      if (updateBudget && newExpense.category) {
-        try {
-          // Find budget by category instead of using category as ID
-          const budgets = await loadBudgets();
+    }
+    
+    // Update budget spending if requested and budgetId or category is provided
+    if (updateBudget) {
+      try {
+        // Load all budgets
+        const budgets = await loadBudgets();
+        let budgetIdToUpdate: string | undefined;
+        
+        // First try using budgetId if provided
+        if (normalizedData.budgetId) {
+          budgetIdToUpdate = normalizedData.budgetId;
+          console.log(`Using provided budgetId: ${budgetIdToUpdate} to update budget spending`);
+        } 
+        // If no budgetId provided, try to match by category ID
+        else if (normalizedData.category) {
+          // Try to find a budget with this category ID
           const matchingBudget = budgets.find(budget => 
-            budget.category.toLowerCase() === newExpense.category.toLowerCase()
+            budget.category === normalizedData.category
           );
           
           if (matchingBudget) {
-            await updateBudgetSpending(matchingBudget.id, newExpense.amount);
-          } else {
-            console.warn(`No budget found for category: ${newExpense.category}`);
+            budgetIdToUpdate = matchingBudget.id;
+            console.log(`Found matching budget by category ID: ${normalizedData.category}, budget ID: ${budgetIdToUpdate}`);
           }
-        } catch (error) {
-          console.warn('Could not update budget spending:', error);
+          // If no direct match, try to match by category name
+          else if (normalizedData.categoryName) {
+            const matchingByName = budgets.find(budget => 
+              budget.name.toLowerCase() === normalizedData.categoryName?.toLowerCase()
+            );
+            
+            if (matchingByName) {
+              budgetIdToUpdate = matchingByName.id;
+              console.log(`Found matching budget by category name: ${normalizedData.categoryName}, budget ID: ${budgetIdToUpdate}`);
+            }
+          }
         }
+        
+        // If we found a budget to update, do it
+        if (budgetIdToUpdate) {
+          console.log(`Updating budget ${budgetIdToUpdate} with expense amount ${normalizedData.amount}`);
+          try {
+            // Use the BudgetService directly instead of the function
+            const budgetServiceInstance = new budgetService.constructor();
+            await budgetServiceInstance.updateBudgetSpending(budgetIdToUpdate, normalizedData.amount);
+            console.log(`Successfully updated budget spending for budget: ${budgetIdToUpdate}`);
+            
+            // Also link the expense to the budget
+            await budgetServiceInstance.linkExpenseToBudget(budgetIdToUpdate, newExpense.id);
+            console.log(`Successfully linked expense ${newExpense.id} to budget ${budgetIdToUpdate}`);
+          } catch (budgetUpdateError) {
+            // Let's try the alternative approach of directly updating the budget
+            console.warn(`Failed to use budgetService methods: ${budgetUpdateError}`);
+            
+            // Find the budget to update directly
+            const budget = budgets.find(b => b.id === budgetIdToUpdate);
+            if (budget) {
+              // Update the budget directly
+              budget.spent = (budget.spent || 0) + normalizedData.amount;
+              budget.remainingAmount = budget.amount - budget.spent - (budget.savingsAllocation || 0);
+              budget.linkedExpenses = [...(budget.linkedExpenses || []), newExpense.id];
+              
+              // Save the updated budget back
+              await updateBudget(budgetIdToUpdate, budget);
+              console.log(`Successfully updated budget ${budgetIdToUpdate} directly`);
+            }
+          }
+        } else {
+          console.warn(`No budget found for category: ${normalizedData.category} or budgetId: ${normalizedData.budgetId}`);
+        }
+      } catch (error) {
+        console.warn('Could not update budget spending:', error);
       }
-      
-      return newExpense;
     }
+    
+    // Return the new expense
+    return newExpense;
   } catch (error) {
     console.error('Error creating expense:', error);
     throw error;

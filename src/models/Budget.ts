@@ -15,6 +15,7 @@ export interface Budget {
   linkedSavingsGoals?: string[]; // Array of savings goal IDs this budget contributes to
   autoSavePercentage?: number; // Percentage of budget to automatically allocate to savings
   remainingAmount?: number; // Amount left in budget (amount - spent - savingsAllocation)
+  alerts?: string[]; // Array of alert thresholds that have been sent (e.g., '50', '75', '90', '100')
 }
 
 export interface BudgetCategory {

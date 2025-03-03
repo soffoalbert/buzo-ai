@@ -4,6 +4,7 @@ export interface Expense {
   amount: number;
   date: string;
   category: string;
+  categoryName?: string; // The display name of the category from the budget
   description?: string;
   receiptImage?: string; // Base64 encoded image or URI
   location?: {

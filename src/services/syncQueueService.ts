@@ -327,11 +327,28 @@ const processSyncItem = async (item: SyncQueueItem): Promise<boolean> => {
           // The data should contain the complete budget object
           const budget = item.data;
           
+          // Check if this budget already exists in Supabase
+          if (budget.id) {
+            try {
+              // Try to fetch the budget by ID
+              const existingBudget = await budgetApi.getBudgetById(budget.id);
+              if (existingBudget) {
+                console.log(`Budget ${budget.id} already exists in Supabase, skipping create`);
+                // Item processed successfully (we'll consider this a success since the budget exists)
+                return true;
+              }
+            } catch (err) {
+              // If we get here, the budget doesn't exist, so we'll create it
+              console.log(`Budget ${budget.id} not found in Supabase, creating...`);
+            }
+          }
+          
           // Remove local ID and use Supabase to generate a new one
           // Note: user_id will be added by the budgetApi.createBudget function
           const { id, createdAt, updatedAt, ...budgetData } = budget;
           
           await budgetApi.createBudget(budgetData);
+          console.log(`Budget ${budget.id || 'new'} created successfully`);
           return true;
         } catch (error) {
           console.error('Error syncing CREATE_BUDGET:', error);
@@ -716,6 +733,17 @@ export const synchronizeBudgets = async (): Promise<void> => {
         const remoteBudget = remoteBudgetsMap.get(localBudget.id);
         
         if (!remoteBudget) {
+          // Check if this budget already exists in the sync queue before adding
+          const existingQueue = await getSyncQueue();
+          const alreadyInQueue = existingQueue.some(
+            item => item.type === 'CREATE_BUDGET' && item.data?.id === localBudget.id
+          );
+          
+          if (alreadyInQueue) {
+            console.log(`Budget ${localBudget.id} is already in sync queue, skipping duplicate`);
+            continue;
+          }
+          
           // Budget exists locally but not remotely - create it
           // Make sure the budget has a user_id
           if (!localBudget.user_id) {
@@ -762,10 +790,40 @@ export const synchronizeBudgets = async (): Promise<void> => {
       const localBudgetIds = new Set(localBudgets.map(b => b.id));
       const newRemoteBudgets = remoteBudgets.filter(b => !localBudgetIds.has(b.id));
       
-      if (newRemoteBudgets.length > 0) {
-        // Save the new remote budgets locally
-        const allBudgets = [...localBudgets, ...newRemoteBudgets];
-        await AsyncStorage.setItem('buzo_budgets', JSON.stringify(allBudgets));
+      // Check if we need to merge budgets (either new remote budgets exist or we need to update local budgets)
+      const needsMerging = newRemoteBudgets.length > 0 || 
+        remoteBudgets.some(remoteBudget => {
+          const localBudget = localBudgets.find(b => b.id === remoteBudget.id);
+          return localBudget && new Date(remoteBudget.updatedAt).getTime() > new Date(localBudget.updatedAt).getTime();
+        });
+      
+      if (needsMerging) {
+        // Merge local and remote budgets to avoid duplicates
+        // First, deduplicate the local budgets by ID
+        const localBudgetsMap = new Map();
+        for (const budget of localBudgets) {
+          if (budget.id) {
+            localBudgetsMap.set(budget.id, budget);
+          }
+        }
+        const uniqueLocalBudgets = Array.from(localBudgetsMap.values());
+        
+        // Now merge with remote budgets
+        const mergedBudgetsMap = new Map();
+        
+        // First add all deduplicated local budgets
+        uniqueLocalBudgets.forEach(budget => mergedBudgetsMap.set(budget.id, budget));
+        
+        // Then add all remote budgets (overwriting local ones)
+        remoteBudgets.forEach(budget => mergedBudgetsMap.set(budget.id, budget));
+        
+        // Convert map back to array
+        const mergedBudgets = Array.from(mergedBudgetsMap.values());
+        
+        console.log(`Merged budgets: Local=${uniqueLocalBudgets.length}, Remote=${remoteBudgets.length}, Final=${mergedBudgets.length}`);
+        
+        // Save the merged budgets locally
+        await AsyncStorage.setItem('buzo_budgets', JSON.stringify(mergedBudgets));
       }
       
     } catch (error) {
