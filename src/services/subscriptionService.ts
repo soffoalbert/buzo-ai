@@ -4,9 +4,16 @@ import { loadUserProfile, updateUserProfile } from './userService';
 import { generateUUID } from '../utils/helpers';
 import { Alert } from 'react-native';
 import { hasActiveSubscription, getSubscriptionExpiryDate } from './receiptValidationService';
+import Constants from 'expo-constants';
 
 // Storage keys
 const SUBSCRIPTION_STORAGE_KEY = 'buzo_subscription_info';
+
+// Check if we're running in Expo or development mode
+const IS_EXPO = Constants.expoConfig !== undefined;
+const IS_DEVELOPMENT = Constants.expoConfig?.extra?.env === 'development' || 
+                       Constants.expoConfig?.extra?.env === 'local' || 
+                       __DEV__;
 
 /**
  * Enum of all premium-gated features in the app
@@ -59,6 +66,12 @@ export const getUserSubscription = async (): Promise<SubscriptionInfo | null> =>
  */
 export const hasPremiumAccess = async (): Promise<boolean> => {
   try {
+    // When running in Expo, automatically grant premium access for testing
+    if (IS_EXPO || IS_DEVELOPMENT) {
+      console.log('🔓 Running in Expo/development mode: Premium access automatically granted');
+      return true;
+    }
+    
     // First, check server-side validations for active subscriptions
     const hasServerValidatedSubscription = await hasActiveSubscription();
     
@@ -201,53 +214,58 @@ export const getPremiumFeatures = (): { title: string; description: string; icon
 };
 
 /**
- * Check if a particular premium feature is available to the user
- * @param feature The premium feature to check
- * @returns True if the feature is available, false otherwise
+ * Check if the user has access to a specific premium feature
+ * @param feature The premium feature to check access for
+ * @returns True if the user has access to the feature, false otherwise
  */
 export const hasFeatureAccess = async (feature: PremiumFeature): Promise<boolean> => {
   try {
-    const isPremium = await hasPremiumAccess();
-
-    // Special cases for features with limited free access
-    if (!isPremium) {
-      switch (feature) {
-        case PremiumFeature.RECEIPT_SCANNING:
-          // Check if user has reached monthly scan limit
-          const scanCount = await getMonthlyReceiptScanCount();
-          return scanCount < FREE_PLAN_LIMITS.MAX_RECEIPT_SCANS_PER_MONTH;
-
-        case PremiumFeature.BANK_STATEMENT_ANALYSIS:
-          // Check if user has reached monthly bank statement limit
-          const statementCount = await getMonthlyBankStatementCount();
-          return statementCount < FREE_PLAN_LIMITS.MAX_BANK_STATEMENTS_PER_MONTH;
-
-        case PremiumFeature.UNLIMITED_SAVINGS_GOALS:
-          // Free users can have a limited number of savings goals
-          const goalsCount = await getSavingsGoalsCount();
-          return goalsCount < FREE_PLAN_LIMITS.MAX_SAVINGS_GOALS;
-
-        case PremiumFeature.ADVANCED_BUDGET_TOOLS:
-          // Free users can have a limited number of budget categories
-          const budgetsCount = await getBudgetCategoriesCount();
-          return budgetsCount < FREE_PLAN_LIMITS.MAX_BUDGETS;
-
-        // Completely premium features
-        case PremiumFeature.PERSONALIZED_COACHING:
-        case PremiumFeature.DETAILED_SPENDING_ANALYTICS:
-        case PremiumFeature.PRIORITY_SUPPORT:
-        case PremiumFeature.AD_FREE_EXPERIENCE:
-        case PremiumFeature.CUSTOM_CATEGORIES:
-        case PremiumFeature.DATA_EXPORT:
-          return false;
-
-        default:
-          return false;
-      }
+    // When running in Expo, automatically grant access to all features
+    if (IS_EXPO || IS_DEVELOPMENT) {
+      return true;
     }
-
-    // Premium users have access to all features
-    return true;
+    
+    const isPremium = await hasPremiumAccess();
+    
+    // If the user has premium, they have access to all features
+    if (isPremium) {
+      return true;
+    }
+    
+    // Free users have access to basic features with limitations
+    switch (feature) {
+      case PremiumFeature.UNLIMITED_SAVINGS_GOALS:
+        // Free users are limited to a certain number of savings goals
+        const goalCount = await getSavingsGoalsCount();
+        return goalCount < FREE_PLAN_LIMITS.MAX_SAVINGS_GOALS;
+        
+      case PremiumFeature.ADVANCED_BUDGET_TOOLS:
+        // Free users are limited to a certain number of budget categories
+        const budgetCount = await getBudgetCategoriesCount();
+        return budgetCount < FREE_PLAN_LIMITS.MAX_BUDGETS;
+        
+      case PremiumFeature.RECEIPT_SCANNING:
+        // Free users are limited to a certain number of scans per month
+        const scanCount = await getMonthlyReceiptScanCount();
+        return scanCount < FREE_PLAN_LIMITS.MAX_RECEIPT_SCANS_PER_MONTH;
+        
+      case PremiumFeature.BANK_STATEMENT_ANALYSIS:
+        // Free users are limited to a certain number of bank statement analyses per month
+        const statementCount = await getMonthlyBankStatementCount();
+        return statementCount < FREE_PLAN_LIMITS.MAX_BANK_STATEMENTS_PER_MONTH;
+        
+      // The following features are premium-only
+      case PremiumFeature.PERSONALIZED_COACHING:
+      case PremiumFeature.DETAILED_SPENDING_ANALYTICS:
+      case PremiumFeature.PRIORITY_SUPPORT:
+      case PremiumFeature.AD_FREE_EXPERIENCE:
+      case PremiumFeature.CUSTOM_CATEGORIES:
+      case PremiumFeature.DATA_EXPORT:
+        return false;
+        
+      default:
+        return false;
+    }
   } catch (error) {
     console.error('Error checking feature access:', error);
     return false;
@@ -255,119 +273,34 @@ export const hasFeatureAccess = async (feature: PremiumFeature): Promise<boolean
 };
 
 /**
- * Get user's remaining receipt scans for the month
- * @returns The number of scans remaining
- */
-export const getRemainingReceiptScans = async (): Promise<number> => {
-  try {
-    const isPremium = await hasPremiumAccess();
-    
-    // Premium users have unlimited scans
-    if (isPremium) {
-      return Infinity;
-    }
-    
-    // For free users, check usage against limit
-    const scanCount = await getMonthlyReceiptScanCount();
-    return Math.max(0, FREE_PLAN_LIMITS.MAX_RECEIPT_SCANS_PER_MONTH - scanCount);
-  } catch (error) {
-    console.error('Error getting remaining receipt scans:', error);
-    return 0;
-  }
-};
-
-/**
- * Get the count of receipt scans for the current month
- * @returns The number of scans used this month
- */
-export const getMonthlyReceiptScanCount = async (): Promise<number> => {
-  try {
-    // In a real app, this would query the database for actual usage
-    // For now, we'll retrieve from local storage as a placeholder
-    const scanCountStr = await AsyncStorage.getItem('monthly_receipt_scan_count');
-    
-    if (!scanCountStr) {
-      return 0;
-    }
-    
-    const scanData = JSON.parse(scanCountStr);
-    
-    // Check if the stored month matches current month
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
-    
-    if (scanData.month !== currentMonth) {
-      // New month, reset count
-      await AsyncStorage.setItem('monthly_receipt_scan_count', JSON.stringify({
-        month: currentMonth,
-        count: 0
-      }));
-      return 0;
-    }
-    
-    return scanData.count;
-  } catch (error) {
-    console.error('Error getting monthly receipt scan count:', error);
-    return 0;
-  }
-};
-
-/**
- * Increment the receipt scan count for the current month
- * @returns True if successful, false otherwise
- */
-export const incrementReceiptScanCount = async (): Promise<boolean> => {
-  try {
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
-    
-    // Get current count
-    const scanCountStr = await AsyncStorage.getItem('monthly_receipt_scan_count');
-    let scanData = { month: currentMonth, count: 0 };
-    
-    if (scanCountStr) {
-      const existingData = JSON.parse(scanCountStr);
-      
-      // If same month, increment; otherwise create new record
-      if (existingData.month === currentMonth) {
-        scanData = {
-          month: currentMonth,
-          count: existingData.count + 1
-        };
-      }
-    } else {
-      scanData = {
-        month: currentMonth,
-        count: 1
-      };
-    }
-    
-    // Save updated count
-    await AsyncStorage.setItem('monthly_receipt_scan_count', JSON.stringify(scanData));
-    
-    return true;
-  } catch (error) {
-    console.error('Error incrementing receipt scan count:', error);
-    return false;
-  }
-};
-
-/**
- * Check if a specific feature limit has been reached
+ * Check if a feature limit has been reached (for free tier users)
  * @param feature The feature to check
- * @returns True if limit reached, false otherwise
+ * @returns True if the limit has been reached, false otherwise
  */
 export const isFeatureLimitReached = async (feature: PremiumFeature): Promise<boolean> => {
   try {
+    // In Expo or development mode, never show feature limits
+    if (IS_EXPO || IS_DEVELOPMENT) {
+      return false;
+    }
+    
     const isPremium = await hasPremiumAccess();
     
-    // Premium users never reach limits
+    // Premium users have no limits
     if (isPremium) {
       return false;
     }
     
-    // Check limits for specific features
+    // Check limits for free tier users
     switch (feature) {
+      case PremiumFeature.UNLIMITED_SAVINGS_GOALS:
+        const goalCount = await getSavingsGoalsCount();
+        return goalCount >= FREE_PLAN_LIMITS.MAX_SAVINGS_GOALS;
+        
+      case PremiumFeature.ADVANCED_BUDGET_TOOLS:
+        const budgetCount = await getBudgetCategoriesCount();
+        return budgetCount >= FREE_PLAN_LIMITS.MAX_BUDGETS;
+        
       case PremiumFeature.RECEIPT_SCANNING:
         const scanCount = await getMonthlyReceiptScanCount();
         return scanCount >= FREE_PLAN_LIMITS.MAX_RECEIPT_SCANS_PER_MONTH;
@@ -376,20 +309,22 @@ export const isFeatureLimitReached = async (feature: PremiumFeature): Promise<bo
         const statementCount = await getMonthlyBankStatementCount();
         return statementCount >= FREE_PLAN_LIMITS.MAX_BANK_STATEMENTS_PER_MONTH;
         
-      case PremiumFeature.UNLIMITED_SAVINGS_GOALS:
-        const goalsCount = await getSavingsGoalsCount();
-        return goalsCount >= FREE_PLAN_LIMITS.MAX_SAVINGS_GOALS;
-        
-      case PremiumFeature.ADVANCED_BUDGET_TOOLS:
-        const budgetsCount = await getBudgetCategoriesCount();
-        return budgetsCount >= FREE_PLAN_LIMITS.MAX_BUDGETS;
+      // For premium-only features, the limit is always reached for free users
+      case PremiumFeature.PERSONALIZED_COACHING:
+      case PremiumFeature.DETAILED_SPENDING_ANALYTICS:
+      case PremiumFeature.PRIORITY_SUPPORT:
+      case PremiumFeature.AD_FREE_EXPERIENCE:
+      case PremiumFeature.CUSTOM_CATEGORIES:
+      case PremiumFeature.DATA_EXPORT:
+        return true;
         
       default:
-        return true; // Default to limit reached for fully premium features
+        return true;
     }
   } catch (error) {
     console.error('Error checking feature limit:', error);
-    return true; // Default to limit reached on error
+    // Default to not limiting in case of an error
+    return false;
   }
 };
 
@@ -504,7 +439,6 @@ export default {
   cancelPremiumSubscription,
   getPremiumFeatures,
   hasFeatureAccess,
-  getRemainingReceiptScans,
   isFeatureLimitReached,
   showPremiumUpgradeModal,
   PremiumFeature,

@@ -1,5 +1,12 @@
 import { hasPremiumAccess } from '../services/subscriptionService';
 import { Alert } from 'react-native';
+import Constants from 'expo-constants';
+
+// Check if we're running in Expo or development mode
+const IS_EXPO = Constants.expoConfig !== undefined;
+const IS_DEVELOPMENT = Constants.expoConfig?.extra?.env === 'development' || 
+                       Constants.expoConfig?.extra?.env === 'local' || 
+                       __DEV__;
 
 /**
  * Premium feature types
@@ -62,6 +69,12 @@ export const getPremiumFeatureName = (featureType: PremiumFeatureType): string =
  * @returns A promise that resolves to true if the user has access, false otherwise
  */
 export const hasAccessToFeature = async (featureType: PremiumFeatureType): Promise<boolean> => {
+  // When running in Expo, automatically grant access to all features
+  if (IS_EXPO || IS_DEVELOPMENT) {
+    console.log(`🔓 Expo/Dev mode: Access granted to premium feature "${getPremiumFeatureName(featureType)}"`);
+    return true;
+  }
+  
   // If it's not a premium feature, everyone has access
   if (!isPremiumFeature(featureType)) {
     return true;
@@ -80,6 +93,12 @@ export const showPremiumFeatureUpsell = (
   featureType: PremiumFeatureType,
   navigation: any
 ): void => {
+  // Don't show upsell alerts in Expo/development mode
+  if (IS_EXPO || IS_DEVELOPMENT) {
+    console.log('🔓 Expo/Dev mode: Premium upsell suppressed, granting access');
+    return;
+  }
+  
   const featureName = getPremiumFeatureName(featureType);
   
   Alert.alert(
@@ -108,6 +127,13 @@ export const accessPremiumFeature = async (
   navigation: any,
   onAccess: () => void
 ): Promise<void> => {
+  // In Expo or development mode, always grant access to premium features
+  if (IS_EXPO || IS_DEVELOPMENT) {
+    console.log(`🔓 Expo/Dev mode: Access granted to premium feature "${getPremiumFeatureName(featureType)}"`);
+    onAccess();
+    return;
+  }
+  
   const hasAccess = await hasAccessToFeature(featureType);
   
   if (hasAccess) {
