@@ -25,6 +25,12 @@ import { RootStackParamList } from '../navigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as LocalAuthentication from 'expo-local-authentication';
+import * as Haptics from 'expo-haptics';
+import { supabase } from '../api/supabaseClient';
+import { authService } from '../services/authService';
+import { languageService } from '../services/languageService';
+import Constants from 'expo-constants';
+import { setTestIapMode, isTestEnvironment } from '../services/subscriptionService';
 
 // Import services and utilities
 import { logoutUser } from '../services/authService';
@@ -64,6 +70,7 @@ type UserPreferences = {
   };
   developerSettings: {
     disableEmailVerification: boolean;
+    testIapEnabled: boolean;
   };
 };
 
@@ -89,7 +96,8 @@ const DEFAULT_PREFERENCES: UserPreferences = {
     twoFactorAuth: false,
   },
   developerSettings: {
-    disableEmailVerification: false
+    disableEmailVerification: false,
+    testIapEnabled: false,
   }
 };
 
@@ -138,12 +146,36 @@ const SettingsScreen: React.FC = () => {
       setIsLoading(true);
       setError(null);
       
-      // In a real app, this would fetch from your backend
-      const userPrefs = await getUserPreferences();
+      // Load from AsyncStorage
+      const storedPreferences = await AsyncStorage.getItem('user_preferences');
+      const disableEmailVerification = await AsyncStorage.getItem('DISABLE_EMAIL_VERIFICATION') === 'true';
+      const testIapEnabled = await AsyncStorage.getItem('buzo_test_iap_enabled') === 'true';
       
-      if (userPrefs) {
-        setPreferences(userPrefs);
+      // Only update preferences if found in storage
+      if (storedPreferences) {
+        const parsedPreferences = JSON.parse(storedPreferences);
+        setPreferences({
+          ...parsedPreferences,
+          // Always check the latest developer settings
+          developerSettings: {
+            disableEmailVerification,
+            testIapEnabled,
+          }
+        });
+      } else {
+        // Initialize with defaults but set developer settings
+        setPreferences(prev => ({
+          ...prev,
+          developerSettings: {
+            disableEmailVerification,
+            testIapEnabled,
+          }
+        }));
       }
+      
+      // Determine if we're running in a dev/test environment
+      const isTestingEnv = await isTestEnvironment();
+      setShowDeveloperOptions(isTestingEnv);
       
       // Start animations
       Animated.parallel([
@@ -501,6 +533,31 @@ const SettingsScreen: React.FC = () => {
     lastTapTime.current = now;
   };
   
+  // Function to toggle test IAP mode
+  const handleToggleTestIapMode = async (value: boolean) => {
+    try {
+      // Update local state
+      setPreferences({
+        ...preferences,
+        developerSettings: {
+          ...preferences.developerSettings,
+          testIapEnabled: value
+        }
+      });
+      
+      // Call service function to enable/disable test mode
+      await setTestIapMode(value);
+      
+      Alert.alert(
+        'Setting Updated',
+        `TestFlight IAP testing mode is now ${value ? 'enabled' : 'disabled'}. You can now ${value ? 'use' : 'no longer use'} test payments in the app.`
+      );
+    } catch (error) {
+      console.error('Failed to update test IAP mode:', error);
+      Alert.alert('Error', 'Failed to update setting');
+    }
+  };
+  
   // Render a setting item with a switch
   const renderSwitchItem = (
     icon: string, 
@@ -781,68 +838,104 @@ const SettingsScreen: React.FC = () => {
               )}
             </View>
             
-            {/* Developer Section */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Developer</Text>
-              {renderButtonItem(
-                'cloud-offline-outline',
-                'Offline Mode Testing',
-                () => navigation.navigate('OfflineTest'),
-                'Test offline functionality and data synchronization'
-              )}
-              
-              {/* Only show the end-to-end testing option if developer mode is enabled */}
-              {showDeveloperOptions && (
-                <>
-                  {renderButtonItem(
-                    'code-working',
-                    'End-to-End Testing',
-                    handleOpenTestingScreen,
-                    'Run comprehensive tests for all app features'
-                  )}
-                  
-                  {/* Email verification toggle */}
-                  <View style={styles.settingItem}>
-                    <View style={styles.settingTextContainer}>
-                      <View style={styles.settingTitleRow}>
-                        <Ionicons name="mail-outline" size={22} color={colors.primary} style={styles.settingIcon} />
-                        <Text style={styles.settingTitle}>Disable Email Verification</Text>
-                      </View>
-                      <Text style={styles.settingDescription}>
-                        Toggle email verification requirement for local development
-                      </Text>
+            {/* Developer Section (conditional) */}
+            {showDeveloperOptions && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Developer Settings</Text>
+                {renderButtonItem(
+                  'code-slash-outline',
+                  'Testing Hub',
+                  handleOpenTestingScreen,
+                  'Run comprehensive tests for all app features'
+                )}
+                
+                {/* Email verification toggle */}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingTextContainer}>
+                    <View style={styles.settingTitleRow}>
+                      <Ionicons name="mail-outline" size={22} color={colors.primary} style={styles.settingIcon} />
+                      <Text style={styles.settingTitle}>Disable Email Verification</Text>
                     </View>
-                    <Switch
-                      value={preferences.developerSettings.disableEmailVerification}
-                      onValueChange={async (value) => {
-                        // Update local state
-                        setPreferences({
-                          ...preferences,
-                          developerSettings: {
-                            ...preferences.developerSettings,
-                            disableEmailVerification: value
-                          }
-                        });
-                        
-                        // Save to AsyncStorage
-                        try {
-                          await AsyncStorage.setItem('DISABLE_EMAIL_VERIFICATION', value ? 'true' : 'false');
-                          Alert.alert(
-                            'Setting Updated',
-                            `Email verification is now ${value ? 'disabled' : 'enabled'}. Restart the app for changes to take effect.`
-                          );
-                        } catch (error) {
-                          console.error('Failed to save email verification setting:', error);
-                          Alert.alert('Error', 'Failed to save setting');
-                        }
-                      }}
-                      trackColor={{ false: colors.lightGray, true: colors.primaryLight }}
-                      thumbColor={colors.primary}
-                    />
+                    <Text style={styles.settingDescription}>
+                      Toggle email verification requirement for local development
+                    </Text>
                   </View>
-                </>
-              )}
-            </View>
+                  <Switch
+                    value={preferences.developerSettings.disableEmailVerification}
+                    onValueChange={async (value) => {
+                      // Update local state
+                      setPreferences({
+                        ...preferences,
+                        developerSettings: {
+                          ...preferences.developerSettings,
+                          disableEmailVerification: value
+                        }
+                      });
+                      
+                      // Save to AsyncStorage
+                      try {
+                        await AsyncStorage.setItem('DISABLE_EMAIL_VERIFICATION', value ? 'true' : 'false');
+                        Alert.alert(
+                          'Setting Updated',
+                          `Email verification is now ${value ? 'disabled' : 'enabled'}. Restart the app for changes to take effect.`
+                        );
+                      } catch (error) {
+                        console.error('Failed to save email verification setting:', error);
+                        Alert.alert('Error', 'Failed to save setting');
+                      }
+                    }}
+                    trackColor={{ false: colors.lightGray, true: colors.primaryLight }}
+                    thumbColor={colors.primary}
+                  />
+                </View>
+                
+                {/* Test In-App Purchases toggle */}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingTextContainer}>
+                    <View style={styles.settingTitleRow}>
+                      <Ionicons name="card-outline" size={22} color={colors.primary} style={styles.settingIcon} />
+                      <Text style={styles.settingTitle}>Enable Test Payments</Text>
+                    </View>
+                    <Text style={styles.settingDescription}>
+                      Use test payment methods in TestFlight and simulator builds
+                    </Text>
+                  </View>
+                  <Switch
+                    value={preferences.developerSettings.testIapEnabled}
+                    onValueChange={handleToggleTestIapMode}
+                    trackColor={{ false: colors.lightGray, true: colors.primaryLight }}
+                    thumbColor={colors.primary}
+                  />
+                </View>
+                
+                {/* Test IAP Guide Button */}
+                {preferences.developerSettings.testIapEnabled && (
+                  <TouchableOpacity 
+                    style={styles.testIapGuideButton}
+                    onPress={() => {
+                      Alert.alert(
+                        'Test Payment Instructions',
+                        'To make test payments:\n\n' +
+                        '• In TestFlight: Use your sandbox Apple ID\n' +
+                        '• In Simulator: Payments will auto-succeed\n' +
+                        '• On Android: Use test cards with prefix 4111\n\n' +
+                        'These payments won\'t charge your actual payment methods.',
+                        [
+                          { text: 'OK' },
+                          { 
+                            text: 'Open Subscription', 
+                            onPress: () => navigation.navigate('SubscriptionScreen')
+                          }
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="information-circle-outline" size={20} color={colors.white} />
+                    <Text style={styles.testIapGuideButtonText}>Test Payment Guide</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
             
             {/* Legal Section */}
             <View style={styles.section}>
@@ -1118,6 +1211,22 @@ const styles = StyleSheet.create({
   },
   settingIcon: {
     marginRight: spacing.md,
+  },
+  testIapGuideButton: {
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.lg,
+  },
+  testIapGuideButtonText: {
+    color: colors.white,
+    fontWeight: '600',
+    marginLeft: spacing.xs,
   },
 });
 

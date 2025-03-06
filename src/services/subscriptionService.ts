@@ -2,18 +2,58 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, SubscriptionTier, SubscriptionInfo, SubscriptionTransaction } from '../models/User';
 import { loadUserProfile, updateUserProfile } from './userService';
 import { generateUUID } from '../utils/helpers';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { hasActiveSubscription, getSubscriptionExpiryDate } from './receiptValidationService';
 import Constants from 'expo-constants';
 
 // Storage keys
 const SUBSCRIPTION_STORAGE_KEY = 'buzo_subscription_info';
+const TEST_IAP_ENABLED_KEY = 'buzo_test_iap_enabled';
 
-// Check if we're running in Expo or development mode
+// Environment detection
 const IS_EXPO = Constants.expoConfig !== undefined;
 const IS_DEVELOPMENT = Constants.expoConfig?.extra?.env === 'development' || 
                        Constants.expoConfig?.extra?.env === 'local' || 
                        __DEV__;
+                       
+// TestFlight detection (iOS only)
+const IS_TESTFLIGHT = Platform.OS === 'ios' && 
+                      Constants.appOwnership !== 'standalone' &&
+                      Constants.releaseChannel === 'default';
+
+/**
+ * Determines if we're in a development or testing environment
+ * @returns True if in a development or testing environment, false if in production
+ */
+export const isTestEnvironment = async (): Promise<boolean> => {
+  try {
+    // First check if test IAP mode is explicitly enabled
+    const testIapEnabled = await AsyncStorage.getItem(TEST_IAP_ENABLED_KEY);
+    if (testIapEnabled === 'true') {
+      return true;
+    }
+    
+    // Then check environment variables
+    return IS_EXPO || IS_DEVELOPMENT || IS_TESTFLIGHT;
+  } catch (error) {
+    console.warn('Error checking test environment:', error);
+    // Default to false (production) in case of errors
+    return false;
+  }
+};
+
+/**
+ * Enable or disable test in-app purchase mode
+ * @param enabled Whether test mode should be enabled
+ */
+export const setTestIapMode = async (enabled: boolean): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(TEST_IAP_ENABLED_KEY, enabled ? 'true' : 'false');
+    console.log(`Test IAP mode ${enabled ? 'enabled' : 'disabled'}`);
+  } catch (error) {
+    console.error('Error setting test IAP mode:', error);
+  }
+};
 
 /**
  * Enum of all premium-gated features in the app
@@ -66,9 +106,12 @@ export const getUserSubscription = async (): Promise<SubscriptionInfo | null> =>
  */
 export const hasPremiumAccess = async (): Promise<boolean> => {
   try {
-    // When running in Expo, automatically grant premium access for testing
-    if (IS_EXPO || IS_DEVELOPMENT) {
-      console.log('🔓 Running in Expo/development mode: Premium access automatically granted');
+    // Check if we're in a test environment
+    const isTestMode = await isTestEnvironment();
+    
+    // When running in test environment, grant premium access if explicitly enabled
+    if (isTestMode) {
+      console.log('🔓 Running in test environment: Premium access automatically granted');
       return true;
     }
     
@@ -220,8 +263,9 @@ export const getPremiumFeatures = (): { title: string; description: string; icon
  */
 export const hasFeatureAccess = async (feature: PremiumFeature): Promise<boolean> => {
   try {
-    // When running in Expo, automatically grant access to all features
-    if (IS_EXPO || IS_DEVELOPMENT) {
+    // When running in test environment, automatically grant access to all features
+    const isTestMode = await isTestEnvironment();
+    if (isTestMode) {
       return true;
     }
     
@@ -279,8 +323,9 @@ export const hasFeatureAccess = async (feature: PremiumFeature): Promise<boolean
  */
 export const isFeatureLimitReached = async (feature: PremiumFeature): Promise<boolean> => {
   try {
-    // In Expo or development mode, never show feature limits
-    if (IS_EXPO || IS_DEVELOPMENT) {
+    // In test environments, never show feature limits
+    const isTestMode = await isTestEnvironment();
+    if (isTestMode) {
       return false;
     }
     

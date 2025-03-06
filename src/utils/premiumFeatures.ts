@@ -1,4 +1,4 @@
-import { hasPremiumAccess } from '../services/subscriptionService';
+import { hasPremiumAccess, isTestEnvironment } from '../services/subscriptionService';
 import { Alert } from 'react-native';
 import Constants from 'expo-constants';
 
@@ -69,9 +69,12 @@ export const getPremiumFeatureName = (featureType: PremiumFeatureType): string =
  * @returns A promise that resolves to true if the user has access, false otherwise
  */
 export const hasAccessToFeature = async (featureType: PremiumFeatureType): Promise<boolean> => {
-  // When running in Expo, automatically grant access to all features
-  if (IS_EXPO || IS_DEVELOPMENT) {
-    console.log(`🔓 Expo/Dev mode: Access granted to premium feature "${getPremiumFeatureName(featureType)}"`);
+  // Check if we're in a test environment
+  const isTestMode = await isTestEnvironment();
+  
+  // When running in test environment, automatically grant access to all features
+  if (isTestMode) {
+    console.log(`🔓 Test mode: Access granted to premium feature "${getPremiumFeatureName(featureType)}"`);
     return true;
   }
   
@@ -89,13 +92,14 @@ export const hasAccessToFeature = async (featureType: PremiumFeatureType): Promi
  * @param featureType The type of feature
  * @param navigation The navigation object to navigate to the subscription screen
  */
-export const showPremiumFeatureUpsell = (
+export const showPremiumFeatureUpsell = async (
   featureType: PremiumFeatureType,
   navigation: any
-): void => {
-  // Don't show upsell alerts in Expo/development mode
-  if (IS_EXPO || IS_DEVELOPMENT) {
-    console.log('🔓 Expo/Dev mode: Premium upsell suppressed, granting access');
+): Promise<void> => {
+  // Don't show upsell alerts in test environments
+  const isTestMode = await isTestEnvironment();
+  if (isTestMode) {
+    console.log('🔓 Test mode: Premium upsell suppressed, granting access');
     return;
   }
   
@@ -127,9 +131,12 @@ export const accessPremiumFeature = async (
   navigation: any,
   onAccess: () => void
 ): Promise<void> => {
-  // In Expo or development mode, always grant access to premium features
-  if (IS_EXPO || IS_DEVELOPMENT) {
-    console.log(`🔓 Expo/Dev mode: Access granted to premium feature "${getPremiumFeatureName(featureType)}"`);
+  // Check if we're in a test environment
+  const isTestMode = await isTestEnvironment();
+  
+  // In test environments, always grant access to premium features
+  if (isTestMode) {
+    console.log(`🔓 Test mode: Access granted to premium feature "${getPremiumFeatureName(featureType)}"`);
     onAccess();
     return;
   }
@@ -139,6 +146,6 @@ export const accessPremiumFeature = async (
   if (hasAccess) {
     onAccess();
   } else {
-    showPremiumFeatureUpsell(featureType, navigation);
+    await showPremiumFeatureUpsell(featureType, navigation);
   }
 }; 
