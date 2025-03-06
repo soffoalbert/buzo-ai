@@ -1,0 +1,49 @@
+diff --git a/ios/Pods/Headers/Public/RCT-Folly/folly/Optional.h b/ios/Pods/Headers/Public/RCT-Folly/folly/Optional.h
+index 12345678..87654321 100644
+--- a/ios/Pods/Headers/Public/RCT-Folly/folly/Optional.h
++++ b/ios/Pods/Headers/Public/RCT-Folly/folly/Optional.h
+@@ -664,7 +664,9 @@ FOLLY_NAMESPACE_STD_END
+ 
+ // Enable the use of folly::Optional with `co_await`
+ // Inspired by https://github.com/toby-allsopp/coroutine_monad
+-#if FOLLY_HAS_COROUTINES
++#if FOLLY_HAS_COROUTINES && __has_include(<folly/experimental/coro/Coroutine.h>)
++#define FOLLY_OPTIONAL_HAS_COROUTINE_HEADER 1
+ #include <folly/experimental/coro/Coroutine.h>
+ 
+ namespace folly {
+@@ -673,6 +675,7 @@ template <typename Value>
+ struct OptionalPromise;
+ 
+ template <typename Value>
++#if FOLLY_OPTIONAL_HAS_COROUTINE_HEADER
+ struct OptionalPromiseReturn {
+   struct Awaiter {
+     folly::Optional<Value> opt;
+@@ -723,6 +726,7 @@ struct OptionalPromise {
+     return folly::coro::coroutine_handle<OptionalPromise>::from_promise(*this);
+   }
+ };
++#endif // FOLLY_OPTIONAL_HAS_COROUTINE_HEADER
+ } // namespace detail
+ 
+ template <typename T>
+@@ -730,6 +734,7 @@ struct awaiter;
+ 
+ template <typename T>
+ struct awaiter<folly::Optional<T>> {
++#if FOLLY_OPTIONAL_HAS_COROUTINE_HEADER
+   using OptionalT = folly::Optional<T>;
+ 
+   explicit awaiter(OptionalT&& opt) : opt_(std::move(opt)) {}
+@@ -744,8 +749,10 @@ struct awaiter<folly::Optional<T>> {
+ 
+  private:
+   OptionalT opt_;
++#endif // FOLLY_OPTIONAL_HAS_COROUTINE_HEADER
+ };
+ } // namespace folly
++#endif // FOLLY_HAS_COROUTINES && __has_include
+ 
+ // Enable the use of folly::Optional with `co_await` on folly::coro::Task
+ // and folly::coro::AsyncGenerator. 

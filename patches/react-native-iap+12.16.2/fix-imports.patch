@@ -1,0 +1,10 @@
+import Foundation
+import StoreKit
+#if canImport(React)
+import React
+#else
+// Try importing React-Core directly if React is not available
+import React_Core
+#endif
+
+// Add direct import for RCTKeyWindow if needed

@@ -1,0 +1,107 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+# https://docs.fastlane.tools/actions
+#
+# For a list of all available plugins, check out
+# https://docs.fastlane.tools/plugins/available-plugins
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+
+desc "Debug beta build for iOS (with automatic signing)"
+lane :ios_debug_beta do
+  Dir.chdir("../ios") do
+    sh "fastlane debug_beta"
+  end
+end
+
+desc "Debug build for iOS (test only)"
+lane :ios_debug do
+  Dir.chdir("../ios") do
+    sh "fastlane debug_build"
+  end
+end
+
+desc "Deploy iOS app to TestFlight"
+lane :ios_beta do
+  Dir.chdir("../ios") do
+    sh "fastlane beta"
+  end
+end
+
+desc "Deploy iOS app to App Store"
+lane :ios_release do
+  Dir.chdir("../ios") do
+    sh "fastlane release"
+  end
+end
+
+desc "Build iOS AdHoc for internal testing"
+lane :ios_adhoc do
+  Dir.chdir("../ios") do
+    sh "fastlane adhoc"
+  end
+end
+
+desc "Deploy Android app to internal testing"
+lane :android_internal do
+  Dir.chdir("../android") do
+    sh "fastlane internal"
+  end
+end
+
+desc "Deploy Android app to production"
+lane :android_production do
+  Dir.chdir("../android") do
+    sh "fastlane production"
+  end
+end
+
+desc "Increment iOS version"
+lane :increment_ios_version do |options|
+  version = options[:version]
+  if version.nil?
+    UI.user_error!("You must provide a version parameter (e.g., fastlane increment_ios_version version:1.0.0)")
+  end
+  
+  Dir.chdir("../ios") do
+    sh "fastlane increment_version version:#{version}"
+  end
+end
+
+desc "Increment Android version"
+lane :increment_android_version do |options|
+  version = options[:version]
+  if version.nil?
+    UI.user_error!("You must provide a version parameter (e.g., fastlane increment_android_version version:1.0.0)")
+  end
+  
+  Dir.chdir("../android") do
+    sh "fastlane increment_version version:#{version}"
+  end
+end
+
+desc "Deploy to both iOS and Android beta/internal"
+lane :beta_all do
+  ios_beta
+  android_internal
+end
+
+desc "Deploy to both iOS and Android production"
+lane :release_all do
+  ios_release
+  android_production
+end
+
+desc "Increment version for both iOS and Android"
+lane :increment_version_all do |options|
+  version = options[:version]
+  if version.nil?
+    UI.user_error!("You must provide a version parameter (e.g., fastlane increment_version_all version:1.0.0)")
+  end
+  
+  increment_ios_version(version: version)
+  increment_android_version(version: version)
+end 

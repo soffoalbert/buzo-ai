@@ -1,0 +1,399 @@
+require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
+require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
+require 'json'
+require 'fileutils'
+
+podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
+
+ENV['RCT_NEW_ARCH_ENABLED'] = podfile_properties['newArchEnabled'] == 'true' ? '1' : '0'
+ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] = podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
+
+platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
+install! 'cocoapods',
+  :deterministic_uuids => false
+
+prepare_react_native_project!
+
+# Add the pre_install hook
+pre_install do |installer|
+  Pod::Installer::Xcode::TargetValidator.send(:define_method, :verify_no_static_framework_transitive_dependencies) {}
+  
+  # Disable specific problematic targets before installation if needed
+  installer.pod_targets.each do |pod_target|
+    if ['React-jsinspector', 'React-jsinspector-modern'].include?(pod_target.name)
+      def pod_target.should_build?
+        # Return true to attempt building with C++20
+        return true
+      end
+    end
+  end
+end
+
+target 'BuzoAI' do
+  use_expo_modules!
+
+  if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
+    config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
+  else
+    config_command = [
+      'node',
+      '--no-warnings',
+      '--eval',
+      'require(require.resolve(\'expo-modules-autolinking\', { paths: [require.resolve(\'expo/package.json\')] }))(process.argv.slice(1))',
+      'react-native-config',
+      '--json',
+      '--platform',
+      'ios'
+    ]
+  end
+
+  config = use_native_modules!(config_command)
+
+  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
+  use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :hermes_enabled => false,
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/..",
+    :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
+    :fabric_enabled => false
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false,
+      :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true'
+    )
+
+    # This is necessary for Xcode 14, because it signs resource bundles by default
+    # when building for devices.
+    installer.target_installation_results.pod_target_installation_results
+      .each do |pod_name, target_installation_result|
+      target_installation_result.resource_bundle_targets.each do |resource_bundle_target|
+        resource_bundle_target.build_configurations.each do |config|
+          config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+        end
+      end
+    end
+
+    # Fix for bundles
+    installer.pods_project.targets.each do |target|
+      if target.respond_to?(:product_type) && target.product_type == "com.apple.product-type.bundle"
+        target.build_configurations.each do |config|
+          config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+        end
+      end
+    end
+
+    # Fix for iOS 17 privacy manifest requirements
+    FileUtils.mkdir_p("#{Pod::Config.instance.installation_root}/Pods/Headers/Public/EXConstants-EXConstants")
+    FileUtils.touch("#{Pod::Config.instance.installation_root}/Pods/Headers/Public/EXConstants-EXConstants/module.modulemap")
+    
+    # Create directories and empty module maps for any other potentially missing ones
+    installer.pods_project.targets.each do |target|
+      module_map_dir = "#{Pod::Config.instance.installation_root}/Pods/Headers/Public/#{target.name}"
+      module_map_file = "#{module_map_dir}/module.modulemap"
+      
+      if !Dir.exist?(module_map_dir)
+        FileUtils.mkdir_p(module_map_dir)
+      end
+      
+      if !File.exist?(module_map_file) && !target.name.end_with?('_privacy')
+        FileUtils.touch(module_map_file)
+        puts "Created empty module.modulemap for #{target.name}"
+      end
+    end
+    
+    # Fix privacy targets
+    installer.pods_project.targets.each do |target|
+      if target.name.end_with?('_privacy')
+        puts "Disabling privacy target: #{target.name}"
+        
+        # Clear all build phases
+        target.build_phases.clear
+        
+        # Disable the target completely
+        target.build_configurations.each do |config|
+          config.build_settings['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = 'SKIP_THIS_TARGET'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = 'SKIP_THIS_TARGET=1'
+          config.build_settings['EXCLUDED_ARCHS'] = 'arm64 x86_64'
+          config.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] = '*.*'
+          config.build_settings['SKIP_INSTALL'] = 'YES'
+          config.build_settings['DEAD_CODE_STRIPPING'] = 'YES'
+          config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = "#{target.name}"
+          config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+          config.build_settings['APPLICATION_EXTENSION_API_ONLY'] = 'NO'
+        end
+      end
+      
+      # Handle problematic C++20 targets
+      if ['React-jsinspector', 'React-jsinspector-modern'].include?(target.name)
+        puts "Special handling for C++20 target: #{target.name}"
+        
+        # Add empty files to replace problematic ones if needed
+        problematic_files = [
+          'RuntimeTargetConsole.cpp'
+        ]
+        
+        target.source_build_phase.files_references.each do |file_ref|
+          if file_ref.respond_to?(:real_path) && problematic_files.any? { |pf| file_ref.real_path.to_s.include?(pf) }
+            puts "Found problematic file: #{file_ref.real_path}"
+            
+            # Method 1: Set the file to be excluded from build
+            target.build_configurations.each do |config|
+              config.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] ||= ''
+              config.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] += " #{File.basename(file_ref.real_path.to_s)}"
+            end
+          end
+        end
+      end
+    end
+    
+    # Apply other necessary changes to all targets
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        # Apply Xcode 15 recommended settings for privacy manifests
+        if config.build_settings['PRODUCT_BUNDLE_IDENTIFIER']&.end_with?('-privacy')
+          config.build_settings['EXCLUDED_ARCHS'] = 'arm64 x86_64'
+          config.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] = '*.*' 
+          config.build_settings['SKIP_INSTALL'] = 'YES'
+        end
+        
+        # Fix for hermes on physical devices
+        config.build_settings["EXCLUDED_ARCHS[sdk=iphonesimulator*]"] = "arm64"
+      end
+    end
+    
+    # For all targets
+    installer.generated_projects.each do |project|
+      project.targets.each do |target|
+        target.build_configurations.each do |config|
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+        end
+      end
+    end
+
+    # Set the correct C++ standard for all pods
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+        config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+        
+        # Set C++20 for specific targets that require it
+        if ['React-jsinspector', 'React-jsinspector-modern'].include?(target.name)
+          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
+          puts "Setting C++20 standard for target: #{target.name}"
+        end
+      end
+    end
+
+    # Fix module map issues for Expo modules
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        if target.name.start_with?('Expo') || target.name.start_with?('EX')
+          config.build_settings['DEFINES_MODULE'] = 'YES'
+          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+          
+          # Add header search paths for Expo modules
+          if target.name == 'ExpoModulesCore'
+            config.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+            config.build_settings['HEADER_SEARCH_PATHS'] += ' "${PODS_ROOT}/Headers/Public/ExpoModulesCore/ExpoModulesCore"'
+            config.build_settings['SWIFT_INCLUDE_PATHS'] ||= '$(inherited)'
+            config.build_settings['SWIFT_INCLUDE_PATHS'] += ' "${PODS_ROOT}/Headers/Public/ExpoModulesCore"'
+          else
+            config.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+            config.build_settings['HEADER_SEARCH_PATHS'] += ' "${PODS_ROOT}/Headers/Public/#{target.name}"'
+            config.build_settings['SWIFT_INCLUDE_PATHS'] ||= '$(inherited)'
+            config.build_settings['SWIFT_INCLUDE_PATHS'] += ' "${PODS_ROOT}/Headers/Public/#{target.name}"'
+          end
+        elsif ['RNIap', 'React-Codegen', 'lottie-ios', 'lottie-react-native'].include?(target.name)
+          config.build_settings['DEFINES_MODULE'] = 'YES'
+          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+          config.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+          config.build_settings['HEADER_SEARCH_PATHS'] += ' "${PODS_ROOT}/Headers/Public/#{target.name}"'
+          config.build_settings['SWIFT_INCLUDE_PATHS'] ||= '$(inherited)'
+          config.build_settings['SWIFT_INCLUDE_PATHS'] += ' "${PODS_ROOT}/Headers/Public/#{target.name}"'
+          
+          # Fix for RNIap specifically
+          if target.name == 'RNIap'
+            # Add additional search paths for React-Core headers
+            config.build_settings['HEADER_SEARCH_PATHS'] += ' "${PODS_ROOT}/Headers/Public/React-Core"'
+            config.build_settings['SWIFT_INCLUDE_PATHS'] += ' "${PODS_ROOT}/Headers/Public/React-Core"'
+            
+            # Modify the module import name if needed
+            config.build_settings['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = '$(inherited) RNIAPDEBUG'
+          end
+        end
+      end
+    end
+
+    # Create a custom module map file for React-Core
+    puts "Copied custom React-Core module map from patches"
+    FileUtils.mkdir_p("#{Pod::Config.instance.installation_root}/Pods/Headers/Public/React-Core")
+    custom_module_map_content = <<~MODULE_MAP
+    module "React_Core" {
+        umbrella header "React/React-Core.h"
+        export *
+        module * { export * }
+    }
+    MODULE_MAP
+    File.write("#{Pod::Config.instance.installation_root}/Pods/Headers/Public/React-Core/module.modulemap", custom_module_map_content)
+    puts "Copied custom React-Core module map from patches"
+
+    # Check if DerivedData exists and copy module maps over
+    derived_data_path = nil
+    
+    # Skip trying to find the path from build settings and go straight to the fallback
+    # Fallback to a search in the default location
+    puts "Attempting to find DerivedData in Library..."
+    derived_data_dir = File.expand_path("~/Library/Developer/Xcode/DerivedData")
+    if Dir.exist?(derived_data_dir)
+      Dir.foreach(derived_data_dir) do |entry|
+        next if entry == '.' || entry == '..'
+        if entry.start_with?('BuzoAI-')
+          derived_data_path = File.join(derived_data_dir, entry)
+          break
+        end
+      end
+    end
+
+    if derived_data_path
+      puts "Derived data path found: #{derived_data_path}"
+      products_dir = File.join(derived_data_path, "Build/Products")
+      
+      # Find all debug-iphonesimulator directories
+      if Dir.exist?(products_dir)
+        Dir.foreach(products_dir) do |config_dir|
+          next if config_dir == '.' || config_dir == '..'
+          if config_dir.include?('Debug-iphonesimulator')
+            debug_dir = File.join(products_dir, config_dir)
+            
+            # For each target, copy over the module map
+            installer.pods_project.targets.each do |target|
+              pod_module_map_path = "#{Pod::Config.instance.installation_root}/Pods/Headers/Public/#{target.name}/module.modulemap"
+              if File.exist?(pod_module_map_path)
+                target_dir = File.join(debug_dir, target.name)
+                FileUtils.mkdir_p(target_dir)
+                target_module_map = File.join(target_dir, "#{target.name}.modulemap")
+                
+                # Copy the module map
+                FileUtils.cp(pod_module_map_path, target_module_map)
+                puts "Copied module map for #{target.name} to #{target_module_map}"
+              end
+            end
+          end
+        end
+      else
+        puts "Products directory not found: #{products_dir}"
+      end
+    else
+      puts "Could not find derived data path"
+    end
+
+    # Fix React-Core module map for Swift imports
+    installer.pods_project.targets.each do |target|
+      if target.name == 'React-Core'
+        # Make sure React-Core is properly exposed to Swift
+        target.build_configurations.each do |config|
+          config.build_settings['DEFINES_MODULE'] = 'YES'
+          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+          
+          # Create proper module map for React-Core
+          module_map_dir = "#{Pod::Config.instance.installation_root}/Pods/Headers/Public/React-Core"
+          module_map_file = "#{module_map_dir}/module.modulemap"
+          
+          if !File.exist?(module_map_file)
+            FileUtils.mkdir_p(module_map_dir)
+            File.open(module_map_file, 'w') do |f|
+              f.puts 'module React_Core {'
+              f.puts '  umbrella header "React-Core.h"'
+              f.puts '  export *'
+              f.puts '  module * { export * }'
+              f.puts '}'
+            end
+            puts "Created React-Core module map for Swift imports"
+          end
+          
+          # Copy our custom module map if it exists
+          custom_module_map = "#{Pod::Config.instance.installation_root}/modulemap_patches/React-Core.modulemap"
+          if File.exist?(custom_module_map)
+            FileUtils.cp(custom_module_map, module_map_file)
+            puts "Copied custom React-Core module map from patches"
+          end
+        end
+      end
+      
+      # Additional handling for React-Fabric and Codegen
+      if target.name == 'React-Fabric' || target.name == 'React-Codegen'
+        target.build_configurations.each do |config|
+          config.build_settings['DEFINES_MODULE'] = 'YES'
+          # Ensure header visibility
+          config.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+          config.build_settings['HEADER_SEARCH_PATHS'] += ' "${PODS_ROOT}/Headers/Public/React-Fabric" "${PODS_ROOT}/Headers/Public/React-Codegen" "${PODS_ROOT}/Headers/Public/React"'
+        end
+      end
+    end
+
+    # Fix module map issues - specifically for EXConstants
+    installer.pods_project.targets.each do |target|
+      target.build_phases.each do |build_phase|
+        if build_phase.respond_to?(:name) && build_phase.name.to_s.include?("Copy ModuleMap")
+          if build_phase.shell_script.include?("Headers/Public")
+            # Make the destination directory for the module map
+            new_script = "mkdir -p \"${PODS_ROOT}/Headers/Public/${PRODUCT_MODULE_NAME}\"\n"
+            # Create an empty module.modulemap file if one doesn't exist
+            new_script += "if [ ! -f \"${PODS_ROOT}/Headers/Public/${PRODUCT_MODULE_NAME}/module.modulemap\" ]; then\n"
+            new_script += "  echo \"module ${PRODUCT_MODULE_NAME} { export * }\" > \"${PODS_ROOT}/Headers/Public/${PRODUCT_MODULE_NAME}/module.modulemap\"\n"
+            new_script += "fi\n"
+            # Copy the module map file
+            new_script += build_phase.shell_script
+            build_phase.shell_script = new_script
+          end
+        end
+        
+        # Fix React-Fabric codegen issues
+        if build_phase.respond_to?(:name) && build_phase.name.to_s.include?("Generate Specs") && target.name == 'React-Fabric'
+          # Ensure the codegen script runs properly
+          codegen_script = build_phase.shell_script
+          if codegen_script.include?("script/generate-specs.sh")
+            # Ensure the script is properly run with node
+            new_script = "#!/bin/bash\n"
+            new_script += "export NODE_BINARY=\"$(which node)\"\n"
+            new_script += "export REACT_NATIVE_DIR=\"#{installer.sandbox.pod_dir('React-Core').parent}\"\n"
+            new_script += "if [ -z \"$NODE_BINARY\" ]; then\n"
+            new_script += "  echo \"error: Could not find node. Make sure it is in your PATH.\"\n"
+            new_script += "  exit 1\n"
+            new_script += codegen_script
+            build_phase.shell_script = new_script
+            puts "Fixed React-Fabric codegen script"
+          end
+        end
+      end
+    end
+
+    # Fix hermes-engine script path issues (keep this in case you re-enable Hermes later)
+    installer.pods_project.targets.each do |target|
+      if target.name == 'hermes-engine'
+        target.build_phases.each do |build_phase|
+          if build_phase.respond_to?(:shell_script) && build_phase.shell_script.include?('/scripts/xcode/with-environment.sh')
+            # Get the React Native path
+            react_native_path = installer.sandbox.pod_dir('React-Core').to_s
+            react_native_path = File.dirname(react_native_path)
+            
+            # Replace the script contents entirely
+            build_phase.shell_script = %(
+#!/bin/bash
+# Use actual path instead of /scripts/xcode/with-environment.sh
+"#{react_native_path}/scripts/xcode/with-environment.sh" "#{installer.sandbox.pod_dir('hermes-engine').to_s}/destroot/bin/hermesc" "-Og" "-ometa" "-emit-binary" "-out" "${CONFIGURATION_BUILD_DIR}/hermes.framework/
+hermes.bc" "${PODS_TARGET_SRCROOT}/lib/commonjs/hermes/hermes-bytecode.js"
+)
+          end
+        end
+      end
+    end
+  end
+end 

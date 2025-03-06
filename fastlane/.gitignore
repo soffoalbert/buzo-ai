@@ -1,0 +1,36 @@
+# Fastlane specific
+report.xml
+Preview.html
+screenshots
+test_output
+
+# Deliver temporary files
+fastlane/Preview.html
+fastlane/screenshots
+
+# Deliver & Cert files
+*.cer
+*.mobileprovision
+*.p12
+*.p8
+*.certSigningRequest
+*.der
+
+# Keys and credentials
+*.json
+.env
+
+# Fastlane logs and cache
+/fastlane/report.xml
+/fastlane/Error*.png
+/fastlane/test_output
+.fastlane_env
+
+# Bundle specific
+vendor/
+.bundle/
+
+# Temporary files
+*.swp
+*~
+.DS_Store 

@@ -936,11 +936,7 @@ const HomeScreen: React.FC = () => {
                 renderEmptyState(
                   "bar-chart-outline", 
                   "No spending data yet", 
-                  "Track your expenses to see your weekly spending patterns here.",
-                  {
-                    label: "Show Demo Data",
-                    onPress: addSampleExpenseForWeek
-                  }
+                  "Track your expenses to see your weekly spending patterns here."
                 )
               )}
             </View>

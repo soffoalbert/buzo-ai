@@ -350,6 +350,8 @@ export const getExpenseById = async (id: string): Promise<Expense | null> => {
  */
 export const getExpenseStatistics = async (startDate?: string, endDate?: string) => {
   try {
+    console.log('[API] getExpenseStatistics called with:', { startDate, endDate });
+    
     let query = supabase.from('expenses').select('*');
     
     if (startDate) {
@@ -360,14 +362,18 @@ export const getExpenseStatistics = async (startDate?: string, endDate?: string)
       query = query.lte('date', endDate);
     }
     
+    console.log('[API] Executing Supabase query for expenses');
     const { data: expenses, error } = await query;
     
     if (error) {
-      console.error('Error fetching expense statistics:', error);
+      console.error('[API] Error fetching expense statistics:', error);
       throw error;
     }
     
+    console.log(`[API] Retrieved ${expenses?.length || 0} expenses from Supabase`);
+    
     if (!expenses || expenses.length === 0) {
+      console.log('[API] No expenses found, returning empty stats');
       return {
         totalAmount: 0,
         expenseCount: 0,
@@ -376,6 +382,14 @@ export const getExpenseStatistics = async (startDate?: string, endDate?: string)
         dateBreakdown: {},
       };
     }
+    
+    // Log expense date range for troubleshooting
+    const dates = expenses.map(e => e.date).sort();
+    console.log('[API] Expense date range:', {
+      first: dates[0],
+      last: dates[dates.length - 1],
+      count: dates.length
+    });
     
     // Calculate total amount
     const totalAmount = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
@@ -395,13 +409,37 @@ export const getExpenseStatistics = async (startDate?: string, endDate?: string)
     
     // Calculate date breakdown
     const dateBreakdown = expenses.reduce((acc, expense) => {
-      const date = new Date(expense.date).toISOString().split('T')[0];
-      if (!acc[date]) {
-        acc[date] = 0;
+      // Ensure we're working with a valid date
+      if (!expense.date) {
+        console.warn('[API] Expense missing date:', expense.id);
+        return acc;
       }
-      acc[date] += Number(expense.amount);
+      
+      // Normalize date to YYYY-MM-DD format
+      let dateStr;
+      try {
+        // Handle both string and Date objects
+        dateStr = typeof expense.date === 'string'
+          ? expense.date.split('T')[0] // Ensure we use just the date part
+          : new Date(expense.date).toISOString().split('T')[0];
+          
+        console.log(`[API] Processing expense: ID=${expense.id}, Date=${dateStr}, Amount=${expense.amount}`);
+      } catch (err) {
+        console.error('[API] Error parsing date:', expense.date, err);
+        return acc;
+      }
+      
+      // Accumulate expense amounts by date
+      if (!acc[dateStr]) {
+        acc[dateStr] = 0;
+      }
+      acc[dateStr] += Number(expense.amount) || 0;
+      
       return acc;
     }, {} as Record<string, number>);
+    
+    // Log the dateBreakdown for troubleshooting
+    console.log('[API] Date breakdown:', JSON.stringify(dateBreakdown));
     
     return {
       totalAmount,
@@ -411,7 +449,7 @@ export const getExpenseStatistics = async (startDate?: string, endDate?: string)
       dateBreakdown,
     };
   } catch (error) {
-    console.error('Error in getExpenseStatistics:', error);
+    console.error('[API] Error in getExpenseStatistics:', error);
     throw error;
   }
 };

@@ -16,6 +16,7 @@ import {
   ProgressChart,
   ContributionGraph,
 } from 'react-native-chart-kit';
+import { formatCurrency, formatCurrencyAbbreviated } from '../utils/helpers';
 
 export type ChartType = 'line' | 'bar' | 'pie' | 'progress' | 'contribution';
 
@@ -99,6 +100,13 @@ const Chart: React.FC<ChartProps> = ({
   decimalPlaces = 2,
   hideLegend = false,
 }) => {
+  // Default currency formatter that uses abbreviated values for large numbers
+  const defaultCurrencyFormatter = (value: string) => {
+    const numValue = Number(value);
+    if (isNaN(numValue)) return value;
+    return formatCurrencyAbbreviated(numValue);
+  };
+
   // Common chart configuration
   const chartConfig = {
     backgroundColor,
@@ -118,7 +126,8 @@ const Chart: React.FC<ChartProps> = ({
     propsForLabels: {
       fontSize: 12,
     },
-    formatYLabel: formatYLabel || ((value) => value),
+    // Use provided formatter or default to currency formatter if yAxisSuffix is 'R' or currency prefix is used
+    formatYLabel: formatYLabel || ((yAxisSuffix === 'R' || yAxisPrefix === 'R') ? defaultCurrencyFormatter : (value) => value),
     formatXLabel: formatXLabel || ((value) => value),
   };
   
@@ -130,127 +139,180 @@ const Chart: React.FC<ChartProps> = ({
       : styles.chart;
       
     // Add debugging logs
-    console.log(`Chart.tsx - Rendering ${type} chart with data:`, 
-      type === 'line' 
-        ? { 
-            labels: (data as ChartData).labels,
-            dataPoints: (data as ChartData).datasets[0].data,
-            hasData: (data as ChartData).datasets[0].data.some(value => value > 0)
-          } 
-        : 'Non-line chart data');
-      
-    switch (type) {
-      case 'line':
-        return (
-          <LineChart
-            data={data as ChartData}
-            width={width}
-            height={height}
-            chartConfig={{
-              ...chartConfig,
-              strokeWidth: 3,
-              propsForDots: {
-                r: '5',
-                strokeWidth: '2',
-                stroke: '#4F46E5',
-              },
-              fillShadowGradientFrom: '#4F46E5',
-              fillShadowGradientTo: 'rgba(79, 70, 229, 0.1)',
-              fillShadowGradientOpacity: 0.5,
-              useShadowColorFromDataset: false,
-            }}
-            bezier
-            style={chartStylesForAndroid}
-            withInnerLines={showGrid}
-            withOuterLines={showGrid}
-            withDots={showValues}
-            withShadow={false}
-            yAxisSuffix={yAxisSuffix}
-            yAxisInterval={1}
-            fromZero
-            hidePointsAtIndex={showValues ? [] : Array.from({ length: (data as ChartData).labels.length }, (_, i) => i)}
-            segments={5}
-            withHorizontalLabels={true}
-            withVerticalLabels={true}
-            withHorizontalLines={showGrid}
-            withVerticalLines={false}
-            yAxisLabel={yAxisPrefix}
-            verticalLabelRotation={30}
-            xLabelsOffset={-10}
-          />
-        );
-      case 'bar':
-        return (
-          <BarChart
-            data={data as ChartData}
-            width={width}
-            height={height}
-            chartConfig={{
-              ...chartConfig,
-              barPercentage: 0.7,
-              fillShadowGradientFrom: '#4F46E5',
-              fillShadowGradientTo: 'rgba(79, 70, 229, 0.1)',
-              fillShadowGradientOpacity: 1,
-              useShadowColorFromDataset: false,
-            }}
-            style={[styles.chart, chartStyle]}
-            withInnerLines={showGrid}
-            withHorizontalLabels={true}
-            showBarTops={showValues}
-            fromZero
-            showValuesOnTopOfBars={showValues}
-            withHorizontalLines={showGrid}
-            segments={5}
-            yAxisSuffix={yAxisSuffix}
-            yAxisLabel={yAxisPrefix}
-            verticalLabelRotation={30}
-            xLabelsOffset={-10}
-          />
-        );
-      case 'pie':
-        return (
-          <PieChart
-            data={data as PieChartData[]}
-            width={width}
-            height={height}
-            chartConfig={chartConfig}
-            accessor="value"
-            backgroundColor="transparent"
-            paddingLeft="15"
-            absolute
-            hasLegend={showLegend && !hideLegend}
-            style={chartStylesForAndroid}
-          />
-        );
-      case 'progress':
-        return (
-          <ProgressChart
-            data={data as ProgressChartData}
-            width={width}
-            height={height}
-            chartConfig={chartConfig}
-            style={[styles.chart, chartStyle]}
-            strokeWidth={16}
-            radius={32}
-            hideLegend={hideLegend || !showLegend}
-          />
-        );
-      case 'contribution':
-        return (
-          <ContributionGraph
-            values={data as ContributionData[]}
-            width={width}
-            height={height}
-            chartConfig={chartConfig}
-            style={[styles.chart, chartStyle]}
-            numDays={105}
-            endDate={new Date()}
-            squareSize={16}
-            gutterSize={2}
-          />
-        );
-      default:
-        return <Text>Unsupported chart type</Text>;
+    console.log(`Chart.tsx - Rendering ${type} chart with data:`, data);
+    
+    // Guard against undefined or null data
+    if (!data) {
+      console.error('Chart data is undefined or null');
+      return (
+        <View style={[styles.emptyChartContainer, { width, height }]}>
+          <Text style={styles.emptyChartText}>No data available</Text>
+        </View>
+      );
+    }
+    
+    // Check for empty pie chart data
+    if (type === 'pie' && Array.isArray(data) && data.length === 0) {
+      return (
+        <View style={[styles.emptyChartContainer, { width, height }]}>
+          <Text style={styles.emptyChartText}>No data available</Text>
+        </View>
+      );
+    }
+    
+    // Check for empty line/bar chart data
+    if ((type === 'line' || type === 'bar') && 
+        data && 
+        (data as ChartData).datasets && 
+        (data as ChartData).datasets[0] && 
+        ((data as ChartData).datasets[0].data.length === 0 ||
+         (data as ChartData).datasets[0].data.every(value => value === 0))) {
+      return (
+        <View style={[styles.emptyChartContainer, { width, height }]}>
+          <Text style={styles.emptyChartText}>No data available</Text>
+        </View>
+      );
+    }
+    
+    try {
+      switch (type) {
+        case 'line':
+          return (
+            <LineChart
+              data={data as ChartData}
+              width={width}
+              height={height}
+              chartConfig={{
+                ...chartConfig,
+                strokeWidth: 3,
+                propsForDots: {
+                  r: '5',
+                  strokeWidth: '2',
+                  stroke: '#4F46E5',
+                },
+                fillShadowGradientFrom: '#4F46E5',
+                fillShadowGradientTo: 'rgba(79, 70, 229, 0.1)',
+                fillShadowGradientOpacity: 0.5,
+                useShadowColorFromDataset: false,
+              }}
+              bezier
+              style={chartStylesForAndroid}
+              withInnerLines={showGrid}
+              withOuterLines={showGrid}
+              withDots={showValues}
+              withShadow={false}
+              yAxisSuffix={yAxisSuffix}
+              yAxisInterval={1}
+              fromZero
+              hidePointsAtIndex={showValues ? [] : Array.from({ length: (data as ChartData).labels?.length || 0 }, (_, i) => i)}
+              segments={5}
+              withHorizontalLabels={true}
+              withVerticalLabels={true}
+              withHorizontalLines={showGrid}
+              withVerticalLines={false}
+              yAxisLabel={yAxisPrefix}
+              verticalLabelRotation={30}
+              xLabelsOffset={-10}
+            />
+          );
+          
+        case 'bar':
+          return (
+            <BarChart
+              data={data as ChartData}
+              width={width}
+              height={height}
+              chartConfig={{
+                ...chartConfig,
+                barPercentage: 0.7,
+                fillShadowGradientFrom: '#4F46E5',
+                fillShadowGradientTo: 'rgba(79, 70, 229, 0.1)',
+                fillShadowGradientOpacity: 1,
+                useShadowColorFromDataset: false,
+              }}
+              style={[styles.chart, chartStyle]}
+              withInnerLines={showGrid}
+              withHorizontalLabels={true}
+              showBarTops={showValues}
+              fromZero
+              showValuesOnTopOfBars={showValues}
+              withHorizontalLines={showGrid}
+              segments={5}
+              yAxisSuffix={yAxisSuffix}
+              yAxisLabel={yAxisPrefix}
+              verticalLabelRotation={30}
+              xLabelsOffset={-10}
+            />
+          );
+          
+        case 'pie':
+          // Ensure we have valid pie chart data
+          if (!Array.isArray(data) || data.length === 0) {
+            return (
+              <View style={[styles.emptyChartContainer, { width, height }]}>
+                <Text style={styles.emptyChartText}>No category data available</Text>
+              </View>
+            );
+          }
+          return (
+            <PieChart
+              data={data as PieChartData[]}
+              width={width}
+              height={height}
+              chartConfig={chartConfig}
+              accessor="value"
+              backgroundColor="transparent"
+              paddingLeft="15"
+              absolute
+              hasLegend={showLegend && !hideLegend}
+              style={chartStylesForAndroid}
+            />
+          );
+          
+        case 'progress':
+          return (
+            <ProgressChart
+              data={data as ProgressChartData}
+              width={width}
+              height={height}
+              chartConfig={chartConfig}
+              style={[styles.chart, chartStyle]}
+              strokeWidth={16}
+              radius={32}
+              hideLegend={hideLegend || !showLegend}
+            />
+          );
+          
+        case 'contribution':
+          return (
+            <ContributionGraph
+              values={data as ContributionData[]}
+              width={width}
+              height={height}
+              chartConfig={chartConfig}
+              style={[styles.chart, chartStyle]}
+              numDays={105}
+              endDate={new Date()}
+              squareSize={16}
+              gutterSize={2}
+            />
+          );
+          
+        default:
+          return (
+            <View style={[styles.emptyChartContainer, { width, height }]}>
+              <Text style={styles.emptyChartText}>Unsupported chart type</Text>
+            </View>
+          );
+      }
+    } catch (error) {
+      console.error('Error rendering chart:', error);
+      return (
+        <View style={[styles.emptyChartContainer, { width, height }]}>
+          <Text style={styles.emptyChartText}>Error rendering chart</Text>
+          <Text style={styles.errorText}>{error.message}</Text>
+        </View>
+      );
     }
   };
   
@@ -325,6 +387,24 @@ const styles = StyleSheet.create({
   chart: {
     borderRadius: 12,
     paddingRight: 0,
+  },
+  emptyChartContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
+  },
+  emptyChartText: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 5,
   },
 });
 

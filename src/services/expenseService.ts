@@ -758,24 +758,50 @@ export const getExpenseStatistics = async (
   endDate?: string
 ): Promise<ExpenseStatistics> => {
   try {
+    console.log('[SERVICE] getExpenseStatistics called with:', { startDate, endDate });
+    
     // Check if we're online and can connect to Supabase
     const online = await checkSupabaseConnection();
+    console.log('[SERVICE] Online status:', online);
     
     if (online) {
       // If online, try to get statistics from Supabase using the API
       try {
+        console.log('[SERVICE] Fetching statistics from API');
         const stats = await expenseApi.getExpenseStatistics(startDate, endDate);
+        console.log('[SERVICE] Received stats from API:', {
+          totalAmount: stats.totalAmount,
+          categories: Object.keys(stats.categoryBreakdown || {}).length,
+          dates: Object.keys(stats.dateBreakdown || {}).length
+        });
+        
+        // Log date breakdown before transformation
+        console.log('[SERVICE] Raw date breakdown from API:', JSON.stringify(stats.dateBreakdown));
         
         // Transform the API response to match our ExpenseStatistics model
         // This is a simplified version - you may need to adapt it based on what expenseApi.getExpenseStatistics returns
+        const dailyExpenses = Object.entries(stats.dateBreakdown || {}).map(([date, amount]) => {
+          // Ensure date is properly formatted as YYYY-MM-DD
+          const formattedDate = date.includes('T') 
+            ? date.split('T')[0] // Extract date part if in ISO format
+            : date; // Keep as is if already in YYYY-MM-DD format
+          
+          const numAmount = Number(amount);
+          console.log(`[SERVICE] Transforming date data: ${date} -> ${formattedDate}, amount: ${amount} -> ${numAmount}`);
+          
+          return {
+            date: formattedDate,
+            amount: numAmount, // Explicitly convert to number
+            count: 0, // We don't have this information from the API
+          };
+        });
+        
+        console.log('[SERVICE] Transformed dailyExpenses:', JSON.stringify(dailyExpenses));
+        
         return {
           totalAmount: stats.totalAmount,
           categoryBreakdown: stats.categoryBreakdown,
-          dailyExpenses: Object.entries(stats.dateBreakdown || {}).map(([date, amount]) => ({
-            date,
-            amount: Number(amount), // Explicitly convert to number
-            count: 0, // We don't have this information from the API
-          })),
+          dailyExpenses,
           monthlyComparison: [], // Need to calculate this from dateBreakdown
           weeklyComparison: [], // Need to calculate this from dateBreakdown
           paymentMethodBreakdown: {}, // Not available from the API
@@ -784,47 +810,32 @@ export const getExpenseStatistics = async (
           expenseCount: stats.expenseCount,
         };
       } catch (error) {
-        console.error('Error getting expense statistics from API:', error);
-        // Fall back to calculating from local expenses
+        console.error('[SERVICE] Error fetching from API, falling back to local data:', error);
+        // If API call fails, fall back to local data
       }
     }
     
-    // Calculate statistics from local expenses
-    let expenses = await loadExpenses();
+    // If offline or API call failed, use locally stored data
+    console.log('[SERVICE] Using locally stored expenses data');
+    const expenses = await loadExpenses();
     
-    // Filter by date range if provided
-    if (startDate || endDate) {
-      expenses = expenses.filter(expense => {
-        // Ensure we're working with a valid date object
-        let expenseDate;
-        try {
-          // Handle both timestamp and ISO string formats
-          if (typeof expense.date === 'number') {
-            expenseDate = new Date(expense.date);
-          } else {
-            expenseDate = new Date(expense.date);
-          }
-          
-          // Check if the date is valid
-          if (isNaN(expenseDate.getTime())) {
-            console.warn(`Invalid date format for expense: ${expense.id}, date: ${expense.date}`);
-            return false;
-          }
-          
-          // Apply date filters
-          if (startDate && expenseDate < new Date(startDate)) {
-            return false;
-          }
-          if (endDate && expenseDate > new Date(endDate)) {
-            return false;
-          }
-          return true;
-        } catch (error) {
-          console.error(`Error parsing date for expense: ${expense.id}`, error);
-          return false;
-        }
-      });
+    if (!expenses || expenses.length === 0) {
+      console.log('[SERVICE] No local expenses found, returning empty stats');
+      return {
+        totalAmount: 0,
+        categoryBreakdown: {},
+        dailyExpenses: [],
+        monthlyComparison: [],
+        weeklyComparison: [],
+      };
     }
+    
+    // Log the date range of local expenses
+    console.log('[SERVICE] Local expenses date range:', {
+      first: expenses[0]?.date,
+      last: expenses[expenses.length - 1]?.date,
+      count: expenses.length
+    });
     
     // Calculate total amount
     const totalAmount = expenses.reduce((sum, expense) => sum + expense.amount, 0);
@@ -917,18 +928,14 @@ export const getExpenseStatistics = async (
       expenseCount: expenses.length,
     };
   } catch (error) {
-    console.error('Error getting expense statistics:', error);
-    // Return empty statistics
+    console.error('[SERVICE] Error in getExpenseStatistics:', error);
+    // Return empty data structure in case of error
     return {
       totalAmount: 0,
       categoryBreakdown: {},
       dailyExpenses: [],
       monthlyComparison: [],
       weeklyComparison: [],
-      paymentMethodBreakdown: {},
-      averageAmount: 0,
-      expenseFrequency: 0,
-      expenseCount: 0,
     };
   }
 };

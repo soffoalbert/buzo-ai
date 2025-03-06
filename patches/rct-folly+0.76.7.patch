@@ -1,0 +1,15 @@
+diff --git a/node_modules/react-native/third-party-podspecs/RCT-Folly.podspec b/node_modules/react-native/third-party-podspecs/RCT-Folly.podspec
+index 12345678..87654321 100644
+--- a/node_modules/react-native/third-party-podspecs/RCT-Folly.podspec
++++ b/node_modules/react-native/third-party-podspecs/RCT-Folly.podspec
+@@ -46,6 +46,10 @@ Pod::Spec.new do |spec|
+     'folly/portability/SysUio.cpp',
+   ]
+ 
++  spec.prepare_command = <<-CMD
++    sed -i.bak -e 's/#if FOLLY_HAS_COROUTINES/#if FOLLY_HAS_COROUTINES \&\& __has_include(<folly\/experimental\/coro\/Coroutine.h>)\\n#define FOLLY_OPTIONAL_HAS_COROUTINE_HEADER 1/g' folly/Optional.h
++  CMD
++
+   # workaround for https://github.com/facebook/react-native/issues/14326
+   spec.preserve_paths = 'folly/*.h',
+                         'folly/container/*.h', 

@@ -352,23 +352,12 @@ const BudgetScreen: React.FC = () => {
         )}
         <Text style={styles.headerTitle}>Budgets</Text>
         <View style={styles.headerRight}>
-          <TouchableOpacity onPress={handleMenuPress} style={styles.menuButton}>
-            <Ionicons name="ellipsis-vertical" size={24} color={colors.primary} />
-          </TouchableOpacity>
           <TouchableOpacity 
             style={styles.headerButton}
             onPress={navigateToAddBudget}
           >
             <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
           </TouchableOpacity>
-          {showMenu && (
-            <View style={styles.menuContainer}>
-              <TouchableOpacity onPress={handleResetSync} style={styles.menuItem}>
-                <Ionicons name="refresh" size={18} color={colors.textPrimary} />
-                <Text style={styles.menuItemText}>Reset Sync Status</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
       </View>
       

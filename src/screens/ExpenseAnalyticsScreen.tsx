@@ -17,45 +17,45 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { format, subDays, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval } from 'date-fns';
+import { format, subDays, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval, getDaysInMonth } from 'date-fns';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+// @ts-ignore
+import { LineChart } from 'react-native-chart-kit';
 
 // Components
 import Chart from '../components/Chart';
 
 // Services
-import { getExpenseStatistics, filterExpenses } from '../services/expenseService';
+import { getExpenseStatistics, filterExpenses, updateExpense } from '../services/expenseService';
 import { isMockDataEnabled, setMockDataEnabled, resetMockData } from '../services/mockDataService';
 import { hasPremiumAccess } from '../services/subscriptionService';
+import { loadBudgetCategories, getBudgetCategory } from '../services/budgetService';
+import { accessPremiumFeature, PremiumFeatureType } from '../utils/premiumFeatures';
+import { RootStackParamList } from '../navigation';
+import { BudgetCategory } from '../models/Budget';
+import { AlertType, ChartType, PaymentMethod, TimeFrame } from '../utils/types';
+import { TIME_PERIODS, EXPENSE_CATEGORIES } from '../utils/constants';
+import AppLoader from '../components/AppLoader';
+import { isUserPremium } from '../utils/premium';
 
 // Utils and types
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { Expense, ExpenseStatistics } from '../models/Expense';
 import { formatCurrency } from '../utils/helpers';
-import { accessPremiumFeature, PremiumFeatureType } from '../utils/premiumFeatures';
-import { RootStackParamList } from '../navigation';
-
-// Define the time periods for filtering
-const TIME_PERIODS = [
-  { id: 'week', label: 'Week', days: 7 },
-  { id: 'month', label: 'Month', days: 30 },
-  { id: '3months', label: '3 Months', days: 90 },
-  { id: '6months', label: '6 Months', days: 180 },
-  { id: 'year', label: 'Year', days: 365 },
-];
 
 // Define the expense categories with colors
-const EXPENSE_CATEGORIES = [
-  { id: 'groceries', name: 'Groceries', icon: 'cart-outline', color: colors.secondary },
-  { id: 'transport', name: 'Transport', icon: 'car-outline', color: colors.accent },
-  { id: 'dining', name: 'Dining', icon: 'restaurant-outline', color: '#FF9800' },
-  { id: 'utilities', name: 'Utilities', icon: 'flash-outline', color: colors.error },
-  { id: 'housing', name: 'Housing', icon: 'home-outline', color: colors.primary },
-  { id: 'entertainment', name: 'Entertainment', icon: 'film-outline', color: colors.info },
-  { id: 'health', name: 'Health', icon: 'fitness-outline', color: '#6366F1' },
-  { id: 'education', name: 'Education', icon: 'school-outline', color: '#8B5CF6' },
-  { id: 'shopping', name: 'Shopping', icon: 'bag-outline', color: '#EC4899' },
-  { id: 'other', name: 'Other', icon: 'ellipsis-horizontal-outline', color: '#9CA3AF' },
-];
+// const EXPENSE_CATEGORIES = [
+//   { id: 'groceries', name: 'Groceries', icon: 'cart-outline', color: colors.secondary },
+//   { id: 'transport', name: 'Transport', icon: 'car-outline', color: colors.accent },
+//   { id: 'dining', name: 'Dining', icon: 'restaurant-outline', color: '#FF9800' },
+//   { id: 'utilities', name: 'Utilities', icon: 'flash-outline', color: colors.error },
+//   { id: 'housing', name: 'Housing', icon: 'home-outline', color: colors.primary },
+//   { id: 'entertainment', name: 'Entertainment', icon: 'film-outline', color: colors.info },
+//   { id: 'health', name: 'Health', icon: 'fitness-outline', color: '#6366F1' },
+//   { id: 'education', name: 'Education', icon: 'school-outline', color: '#8B5CF6' },
+//   { id: 'shopping', name: 'Shopping', icon: 'bag-outline', color: '#EC4899' },
+//   { id: 'other', name: 'Other', icon: 'ellipsis-horizontal-outline', color: '#9CA3AF' },
+// ];
 
 const ExpenseAnalyticsScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -76,6 +76,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
   });
   const [mockDataEnabled, setMockDataEnabled] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
 
   // Check if user has premium access
   useEffect(() => {
@@ -95,6 +96,21 @@ const ExpenseAnalyticsScreen: React.FC = () => {
     };
     
     checkMockDataStatus();
+  }, []);
+
+  // Load the budget categories from database/storage
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const categories = await loadBudgetCategories();
+        setBudgetCategories(categories);
+        console.log('Loaded budget categories:', categories);
+      } catch (error) {
+        console.error('Error loading budget categories:', error);
+      }
+    };
+    
+    fetchCategories();
   }, []);
 
   // Toggle mock data
@@ -134,6 +150,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
   // Load data based on selected period
   const loadData = useCallback(async () => {
     try {
+      console.log('[SCREEN] loadData: Starting data load');
       setIsLoading(true);
       
       // Calculate date range based on selected period
@@ -141,11 +158,20 @@ const ExpenseAnalyticsScreen: React.FC = () => {
       const periodDays = TIME_PERIODS.find(p => p.id === selectedPeriod)?.days || 30;
       const startDate = subDays(endDate, periodDays);
       
+      console.log(`[SCREEN] loadData: Fetching data for date range ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+      
       // Get expense statistics for the selected period
       const stats = await getExpenseStatistics(
         startDate.toISOString().split('T')[0],
         endDate.toISOString().split('T')[0]
       );
+      
+      console.log('[SCREEN] loadData: Received statistics with daily expenses count:', stats?.dailyExpenses?.length || 0);
+      
+      // Log daily expenses for debugging
+      if (stats?.dailyExpenses) {
+        console.log('[SCREEN] loadData: Daily expenses data:', JSON.stringify(stats.dailyExpenses));
+      }
       
       setStatistics(stats);
       
@@ -155,6 +181,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
         endDate: endDate.toISOString().split('T')[0],
       });
       
+      console.log(`[SCREEN] loadData: Fetched ${filteredExpenses.length} individual expenses`);
       setExpenses(filteredExpenses);
       
       // For premium users, calculate additional analytics
@@ -268,101 +295,228 @@ const ExpenseAnalyticsScreen: React.FC = () => {
 
   // Handle refresh
   const onRefresh = () => {
+    console.log('[SCREEN] onRefresh: Manual refresh triggered');
     setIsRefreshing(true);
     loadData();
   };
 
   // Prepare data for charts
   const prepareCategoryData = () => {
-    if (!statistics || !statistics.categoryBreakdown) return [];
+    // Early return with an empty array if statistics is null/undefined or categoryBreakdown is missing
+    if (!statistics || !statistics.categoryBreakdown) {
+      console.log('prepareCategoryData: No statistics or categoryBreakdown data');
+      return [];
+    }
     
-    return Object.entries(statistics.categoryBreakdown).map(([category, amount]) => {
-      const categoryInfo = EXPENSE_CATEGORIES.find(c => c.id === category) || 
-                          { name: category, color: '#9CA3AF' };
+    // Check if the categoryBreakdown object is empty
+    if (Object.keys(statistics.categoryBreakdown).length === 0) {
+      console.log('prepareCategoryData: Empty categoryBreakdown');
+      return [];
+    }
+    
+    // Create category data for the pie chart
+    try {
+      return Object.entries(statistics.categoryBreakdown).map(([category, amount]) => {
+        // Get the actual category info from loaded budget categories
+        const categoryInfo = budgetCategories.find(c => c.id === category);
+        
+        // Use human-readable name and a proper color from the database
+        return {
+          name: categoryInfo ? `${categoryInfo.name}` : getCategoryName(category),
+          value: amount,
+          color: categoryInfo ? categoryInfo.color : getCategoryColor(category),
+          legendFontColor: '#7F7F7F',
+          legendFontSize: 12,
+        };
+      });
+    } catch (error) {
+      console.error('Error preparing category data:', error);
+      return [];
+    }
+  };
+
+  // Helper function to generate consistent colors for unknown categories
+  const getRandomColor = (seed: string) => {
+    // Simple hash function to generate a consistent color based on the category ID
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+      hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    const colors = [
+      '#4F46E5', // Indigo
+      '#10B981', // Emerald
+      '#F59E0B', // Amber
+      '#EF4444', // Red
+      '#8B5CF6', // Purple
+      '#EC4899', // Pink
+      '#06B6D4', // Cyan
+      '#3B82F6', // Blue
+    ];
+    
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  // Prepare monthly data for the bar chart
+  const prepareMonthlyData = () => {
+    try {
+      // Default empty chart data
+      const emptyData = {
+        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+        datasets: [{ data: [0, 0, 0, 0, 0, 0] }],
+      };
+      
+      if (!statistics || !statistics.monthlyComparison || statistics.monthlyComparison.length === 0) {
+        console.log('prepareMonthlyData: No statistics or monthly data, returning empty data');
+        return emptyData;
+      }
+      
+      // Sort monthly data by date
+      const sortedData = [...statistics.monthlyComparison].sort((a, b) => 
+        a.month.localeCompare(b.month)
+      );
+      
+      // Limit to most recent 6 months for readability
+      const recentData = sortedData.slice(-6);
+      
+      // Format month labels (e.g., "Jan", "Feb")
+      const labels = recentData.map(item => {
+        const [year, month] = item.month.split('-');
+        return format(new Date(parseInt(year), parseInt(month) - 1, 1), 'MMM');
+      });
+      
+      const data = recentData.map(item => item.amount || 0);
+      
+      // Ensure we have valid data structures
+      if (!labels.length || !data.length) {
+        console.warn('prepareMonthlyData: Generated empty labels or data arrays, using default data');
+        return emptyData;
+      }
       
       return {
-        name: categoryInfo.name,
-        value: amount,
-        color: categoryInfo.color,
-        legendFontColor: '#7F7F7F',
-        legendFontSize: 12,
+        labels,
+        datasets: [{ 
+          data,
+          color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`, // Indigo color
+        }],
       };
-    });
-  };
-
-  const prepareMonthlyData = () => {
-    if (!statistics || !statistics.monthlyComparison) {
+    } catch (error) {
+      console.error('Error preparing monthly data:', error);
       return {
-        labels: [],
-        datasets: [{ data: [] }],
+        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+        datasets: [{ 
+          data: [0, 0, 0, 0, 0, 0],
+          color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`, // Indigo color
+        }],
       };
     }
-    
-    // Sort monthly data by date
-    const sortedData = [...statistics.monthlyComparison].sort((a, b) => 
-      a.month.localeCompare(b.month)
-    );
-    
-    // Format month labels (e.g., "Jan", "Feb")
-    const labels = sortedData.map(item => {
-      const [year, month] = item.month.split('-');
-      return format(new Date(parseInt(year), parseInt(month) - 1, 1), 'MMM');
-    });
-    
-    const data = sortedData.map(item => item.amount);
-    
-    return {
-      labels,
-      datasets: [{ 
-        data,
-        color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`, // Indigo color
-      }],
-    };
   };
 
+  // Prepare data for daily expenses chart - updated to match weekly spending chart format
   const prepareDailyData = () => {
-    if (!statistics || !statistics.dailyExpenses) {
+    try {
+      // Get the last 7 days for the chart
+      const last7Days: string[] = [];
+      const today = new Date();
+      
+      for (let i = 6; i >= 0; i--) {
+        const date = subDays(today, i);
+        const dateString = format(date, 'yyyy-MM-dd');
+        last7Days.push(dateString);
+      }
+      
+      // Create a map to hold the sum of expenses for each date
+      const dateMap: Record<string, number> = {};
+      last7Days.forEach(date => {
+        dateMap[date] = 0;
+      });
+      
+      // Calculate the sum for each date in the daily expenses
+      if (statistics && statistics.dailyExpenses && statistics.dailyExpenses.length > 0) {
+        statistics.dailyExpenses.forEach(expense => {
+          try {
+            // Handle different date formats - could be a string, ISO date, or timestamp
+            let expenseDate: string;
+            
+            if (typeof expense.date === 'string') {
+              // If it's already a string, ensure it's in the right format
+              if (expense.date.includes('T')) {
+                // ISO format with time
+                expenseDate = format(new Date(expense.date), 'yyyy-MM-dd');
+              } else if (expense.date.length === 10 && expense.date.includes('-')) {
+                // Already in YYYY-MM-DD format
+                expenseDate = expense.date;
+              } else {
+                // Some other string format
+                expenseDate = format(new Date(expense.date), 'yyyy-MM-dd');
+              }
+            } else {
+              // Handle as Date object or timestamp
+              expenseDate = format(new Date(expense.date), 'yyyy-MM-dd');
+            }
+            
+            // Check if this date is in our 7-day window
+            if (dateMap.hasOwnProperty(expenseDate)) {
+              dateMap[expenseDate] += expense.amount;
+            }
+          } catch (err) {
+            console.error(`Error processing expense date: ${expense.date}`, err);
+          }
+        });
+      }
+      
+      // Format the data for the chart - using day of week (Mon, Tue, etc.)
+      const dailyData = Object.entries(dateMap)
+        .map(([date, amount]) => {
+          // Format the date to show only day of week
+          const parsedDate = parseISO(date);
+          const formattedDate = format(parsedDate, 'EEE'); // Shows only day of week (Mon, Tue, etc.)
+          
+          return {
+            date,
+            amount: Math.round(amount), // Round to whole numbers for cleaner Y-axis
+            formattedDate,
+          };
+        })
+        .sort((a, b) => a.date.localeCompare(b.date)); // Sort by date
+      
+      // Format data for LineChart component
       return {
-        labels: [],
-        datasets: [{ data: [] }],
+        labels: dailyData.map(item => item.formattedDate),
+        datasets: [
+          {
+            data: dailyData.map(item => item.amount),
+            color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`,
+            strokeWidth: 2
+          }
+        ],
+      };
+    } catch (error) {
+      console.error('Error preparing daily data:', error);
+      // Return empty data with days of week as labels
+      return {
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        datasets: [
+          {
+            data: [0, 0, 0, 0, 0, 0, 0],
+            color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`,
+            strokeWidth: 2
+          }
+        ],
       };
     }
-    
-    // Sort daily data by date
-    const sortedData = [...statistics.dailyExpenses].sort((a, b) => 
-      a.date.localeCompare(b.date)
-    );
-    
-    // Limit to last 7 days for readability
-    const recentData = sortedData.slice(-7);
-    
-    // Format date labels (e.g., "Mon", "Tue")
-    const labels = recentData.map(item => 
-      format(parseISO(item.date), 'EEE')
-    );
-    
-    const data = recentData.map(item => item.amount);
-    
-    return {
-      labels,
-      datasets: [{ 
-        data,
-        color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`, // Indigo color
-        strokeWidth: 2,
-      }],
-    };
   };
 
-  // Get category color
-  const getCategoryColor = (categoryId: string) => {
-    const category = EXPENSE_CATEGORIES.find(c => c.id === categoryId);
-    return category ? category.color : '#9CA3AF';
-  };
-
-  // Get category name
+  // Helper function to get category name
   const getCategoryName = (categoryId: string) => {
-    const category = EXPENSE_CATEGORIES.find(c => c.id === categoryId);
-    return category ? category.name : categoryId;
+    const category = EXPENSE_CATEGORIES.find(cat => cat.id === categoryId);
+    return category ? category.name : 'Other';
+  };
+
+  // Helper function to get category color
+  const getCategoryColor = (categoryId: string) => {
+    const category = EXPENSE_CATEGORIES.find(cat => cat.id === categoryId);
+    return category ? category.color : getRandomColor(categoryId);
   };
 
   // Format percentage change with + or - sign
@@ -373,18 +527,8 @@ const ExpenseAnalyticsScreen: React.FC = () => {
 
   // Handle period selection
   const handlePeriodSelect = (period: string) => {
-    // Check if detailed analytics is a premium feature for longer time periods
-    if ((period === '3months' || period === '6months' || period === 'year') && !isPremium) {
-      accessPremiumFeature(
-        PremiumFeatureType.DETAILED_ANALYTICS,
-        navigation,
-        () => {
-          setSelectedPeriod(period);
-        }
-      );
-    } else {
-      setSelectedPeriod(period);
-    }
+    setSelectedPeriod(period);
+    calculatePeriodComparison(period);
   };
 
   // Render premium badge
@@ -415,21 +559,27 @@ const ExpenseAnalyticsScreen: React.FC = () => {
   const isCategoryDataEmpty = () => {
     return !statistics || 
            !statistics.categoryBreakdown || 
-           Object.keys(statistics.categoryBreakdown).length === 0;
+           Object.keys(statistics.categoryBreakdown).length === 0 ||
+           Object.values(statistics.categoryBreakdown).every(amount => amount === 0);
   };
 
   // Check if monthly data is empty
   const isMonthlyDataEmpty = () => {
     return !statistics || 
            !statistics.monthlyComparison || 
-           statistics.monthlyComparison.length === 0;
+           statistics.monthlyComparison.length === 0 ||
+           statistics.monthlyComparison.every(item => item.amount === 0);
   };
 
   // Check if daily data is empty
   const isDailyDataEmpty = () => {
-    return !statistics || 
-           !statistics.dailyExpenses || 
-           statistics.dailyExpenses.length === 0;
+    const empty = !statistics || 
+      !statistics.dailyExpenses ||
+      statistics.dailyExpenses.length === 0 ||
+      statistics.dailyExpenses.every(item => item.amount === 0);
+    
+    console.log(`[SCREEN] isDailyDataEmpty: Daily data is ${empty ? 'empty' : 'not empty'}, dailyExpenses length: ${statistics?.dailyExpenses?.length || 0}`);
+    return empty;
   };
 
   // Check if insights data is empty
@@ -467,39 +617,25 @@ const ExpenseAnalyticsScreen: React.FC = () => {
             contentContainerStyle={styles.periodSelectorContent}
             bounces={false}
           >
-            {TIME_PERIODS.map(period => {
-              const isSelected = selectedPeriod === period.id;
-              const isPremiumOption = (period.id === '3months' || period.id === '6months' || period.id === 'year');
-              const isLocked = isPremiumOption && !isPremium;
-              
-              return (
-                <TouchableOpacity
-                  key={period.id}
+            {TIME_PERIODS.map((p: { id: string; label: string }) => (
+              <TouchableOpacity
+                key={p.id}
+                style={[
+                  styles.periodButton,
+                  selectedPeriod === p.id && styles.periodButtonActive
+                ]}
+                onPress={() => handlePeriodSelect(p.id)}
+              >
+                <Text 
                   style={[
-                    styles.periodButton,
-                    isSelected && styles.selectedPeriodButton,
-                    isLocked && styles.lockedPeriodButton
+                    styles.periodButtonText, 
+                    selectedPeriod === p.id && styles.periodButtonTextActive
                   ]}
-                  onPress={() => handlePeriodSelect(period.id)}
-                  activeOpacity={0.7}
                 >
-                  <Text 
-                    style={[
-                      styles.periodButtonText,
-                      isSelected && styles.selectedPeriodButtonText,
-                      isLocked && styles.lockedPeriodButtonText
-                    ]}
-                  >
-                    {period.label}
-                  </Text>
-                  {isLocked && (
-                    <View style={styles.lockIconContainer}>
-                      <Ionicons name="lock-closed" size={10} color={colors.textSecondary} />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+                  {p.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </ScrollView>
         </View>
       </View>
@@ -660,7 +796,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
                     data={prepareMonthlyData()}
                     width={Dimensions.get('window').width - 64}
                     height={220}
-                    yAxisSuffix="R"
+                    yAxisPrefix="R"
                     showGrid={true}
                     showValues={false}
                     containerStyle={{ marginVertical: 0, backgroundColor: 'transparent', elevation: 0 }}
@@ -673,33 +809,46 @@ const ExpenseAnalyticsScreen: React.FC = () => {
               )}
             </View>
             
-            {/* Daily Spending (Last 7 Days) */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Daily Spending (Last 7 Days)</Text>
+            {/* Daily Expenses Chart - With title and y-axis */}
+            <View style={styles.chartCard}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Daily Expenses - Last 7 Days</Text>
+              </View>
               
               {isDailyDataEmpty() ? (
                 renderEmptyState(
-                  "No Daily Data Yet",
-                  "Track your daily expenses to visualize your spending patterns throughout the week. This helps you understand your day-to-day habits.",
-                  "calendar-outline"
+                  'No Data',
+                  'Start tracking your expenses to see trends here.',
+                  'bar-chart-outline'
                 )
               ) : (
-                <View style={[styles.chartContainer, Platform.OS === 'android' ? { borderWidth: 0, elevation: 0 } : {}]}>
-                  <Chart
-                    type="line"
-                    data={prepareDailyData()}
-                    width={Dimensions.get('window').width - 64}
-                    height={220}
-                    yAxisSuffix="R"
-                    showGrid={true}
-                    showValues={true}
-                    containerStyle={{ marginVertical: 0, backgroundColor: 'transparent', elevation: 0 }}
-                    backgroundColor="#ffffff"
-                    backgroundGradientFrom="#ffffff"
-                    backgroundGradientTo="#ffffff"
-                    decimalPlaces={0}
-                  />
-                </View>
+                <LineChart
+                  data={prepareDailyData()}
+                  width={Dimensions.get('window').width - spacing.lg * 2 - 10}
+                  height={180}
+                  chartConfig={{
+                    backgroundColor: colors.white,
+                    backgroundGradientFrom: colors.white,
+                    backgroundGradientTo: colors.white,
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(79, 70, 229, ${opacity})`,
+                    labelColor: () => colors.textSecondary,
+                    style: {
+                      borderRadius: 16,
+                      paddingRight: 15,
+                      paddingLeft: 10,
+                    },
+                    propsForDots: {
+                      r: '4',
+                      strokeWidth: '2',
+                      stroke: colors.primary,
+                    },
+                  }}
+                  bezier
+                  style={styles.chart}
+                  withInnerLines={false}
+                  withOuterLines={false}
+                />
               )}
             </View>
             
@@ -925,14 +1074,9 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  selectedPeriodButton: {
+  periodButtonActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 3,
   },
   periodButtonText: {
     fontSize: 13,
@@ -940,9 +1084,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
   },
-  selectedPeriodButtonText: {
+  periodButtonTextActive: {
     color: colors.white,
-    fontWeight: '700',
+    fontWeight: 'bold',
   },
   scrollView: {
     flex: 1,
@@ -1340,6 +1484,115 @@ const styles = StyleSheet.create({
     fontSize: textStyles.body2.fontSize,
     color: colors.text,
     lineHeight: 20,
+  },
+  dailyHighlightContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    backgroundColor: colors.background + '50',
+    borderRadius: borderRadius.md,
+  },
+  dailyHighlightLabel: {
+    fontSize: textStyles.body2.fontSize,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  dailyHighlightValue: {
+    fontSize: textStyles.body2.fontSize,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  todaySummaryContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    marginVertical: spacing.md,
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  todaySummaryText: {
+    flex: 1,
+    marginLeft: spacing.sm,
+    fontSize: textStyles.body2.fontSize,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  chartTooltipContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.xs,
+    marginTop: spacing.sm,
+    backgroundColor: colors.card + '20',
+    borderRadius: borderRadius.sm,
+    alignSelf: 'center',
+  },
+  chartTooltipText: {
+    marginLeft: spacing.xs,
+    fontSize: textStyles.caption.fontSize,
+    color: colors.text + '80',
+  },
+  chartDescription: {
+    fontSize: textStyles.body2.fontSize,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  debugButtonsContainer: {
+    flexDirection: 'column',
+    gap: spacing.md,
+    marginVertical: spacing.xl,
+    marginHorizontal: spacing.md,
+    width: '100%',
+    padding: spacing.md,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: borderRadius.md,
+  },
+  debugButton: {
+    backgroundColor: colors.primary,
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  debugButtonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  chartCard: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...shadows.md,
+    marginTop: spacing.md,
+  },
+  chart: {
+    marginVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    alignSelf: 'center',
+    overflow: 'hidden',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
   },
 });
 
