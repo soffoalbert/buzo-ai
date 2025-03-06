@@ -170,4 +170,85 @@ export const formatCurrencyAbbreviated = (value: number, currency: string = 'R',
   
   // For smaller numbers, use standard formatting
   return `${currency} ${value.toFixed(decimals)}`;
+};
+
+/**
+ * Get appropriate icon name for a budget category
+ * @param category The budget category
+ * @returns The icon name to use from Ionicons
+ */
+export const getCategoryIcon = (category: string = ''): string => {
+  // Convert to lowercase for case-insensitive matching
+  const lowerCategory = category.toLowerCase();
+  
+  // Map categories to appropriate icons
+  if (lowerCategory.includes('food') || lowerCategory.includes('grocery') || lowerCategory.includes('restaurant')) {
+    return 'restaurant-outline';
+  }
+  if (lowerCategory.includes('transport') || lowerCategory.includes('car') || lowerCategory.includes('uber')) {
+    return 'car-outline';
+  }
+  if (lowerCategory.includes('house') || lowerCategory.includes('rent') || lowerCategory.includes('mortgage')) {
+    return 'home-outline';
+  }
+  if (lowerCategory.includes('util') || lowerCategory.includes('electric') || lowerCategory.includes('water')) {
+    return 'flash-outline';
+  }
+  if (lowerCategory.includes('entertain') || lowerCategory.includes('fun') || lowerCategory.includes('movie')) {
+    return 'film-outline';
+  }
+  if (lowerCategory.includes('shop') || lowerCategory.includes('cloth') || lowerCategory.includes('fashion')) {
+    return 'shirt-outline';
+  }
+  if (lowerCategory.includes('health') || lowerCategory.includes('medical') || lowerCategory.includes('doctor')) {
+    return 'medical-outline';
+  }
+  if (lowerCategory.includes('educ') || lowerCategory.includes('school') || lowerCategory.includes('tuition')) {
+    return 'school-outline';
+  }
+  if (lowerCategory.includes('sav') || lowerCategory.includes('invest')) {
+    return 'wallet-outline';
+  }
+  if (lowerCategory.includes('subscript') || lowerCategory.includes('member')) {
+    return 'card-outline';
+  }
+  if (lowerCategory.includes('pet') || lowerCategory.includes('animal')) {
+    return 'paw-outline';
+  }
+  if (lowerCategory.includes('child') || lowerCategory.includes('kid') || lowerCategory.includes('baby')) {
+    return 'people-outline';
+  }
+  if (lowerCategory.includes('tech') || lowerCategory.includes('gadget') || lowerCategory.includes('phone')) {
+    return 'hardware-chip-outline';
+  }
+  if (lowerCategory.includes('travel') || lowerCategory.includes('vacation') || lowerCategory.includes('holiday')) {
+    return 'airplane-outline';
+  }
+  if (lowerCategory.includes('gift') || lowerCategory.includes('present') || lowerCategory.includes('donat')) {
+    return 'gift-outline';
+  }
+  
+  // Default icon
+  return 'wallet-outline';
+};
+
+/**
+ * Format a category name for display
+ * @param category The budget category
+ * @returns A formatted category name
+ */
+export const formatCategory = (category: string = ''): string => {
+  if (!category) return 'Uncategorized';
+  
+  // Split words by underscores, hyphens, or camelCase
+  const words = category
+    .replace(/_/g, ' ')
+    .replace(/-/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(' ');
+  
+  // Capitalize each word and join with spaces
+  return words
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }; 

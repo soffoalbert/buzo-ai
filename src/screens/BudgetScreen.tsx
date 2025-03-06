@@ -9,6 +9,8 @@ import {
   RefreshControl,
   Alert,
   ActivityIndicator,
+  AppState,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -16,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect, useNavigationState } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import NetInfo from '@react-native-community/netinfo';
+import * as Progress from 'react-native-progress';
 
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { RootStackParamList } from '../navigation';
@@ -25,6 +28,8 @@ import { budgetService } from '../services/budgetService';
 import { supabase } from '../api/supabaseClient';
 import syncQueueService from '../services/syncQueueService';
 import NetworkManager from '../utils/NetworkManager';
+import { formatCurrency } from '../utils/formatters';
+import { formatCategory, getCategoryIcon } from '../utils/helpers';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -65,35 +70,85 @@ const BudgetScreen: React.FC = () => {
         return;
       }
       
-      let loadedBudgets: Budget[] = [];
+      // Follow the same approach as financialIntegrationService - load data in parallel
+      const [expensesResult, loadedBudgets] = await Promise.all([
+        // Get all expenses with their categories
+        supabase
+          .from('expenses')
+          .select('id, amount, category, savings_contribution')
+          .eq('user_id', user.id),
+          
+        // Get all budgets
+        budgetService.getUserBudgets(user.id).catch((err: Error) => {
+          console.error('Error fetching budgets:', err);
+          return [];
+        }),
+      ]);
       
-      if (!isOffline) {
-        try {
-          console.log('Synchronizing budgets before fetching them...');
-          await syncQueueService.synchronizeBudgets(true);
-          setSyncIssue(false);
-          
-          loadedBudgets = await budgetService.getUserBudgets(user.id);
-        } catch (syncError) {
-          console.error('Sync error:', syncError);
-          setSyncIssue(true);
-          
-          console.log('Falling back to local budgets due to sync error');
-          loadedBudgets = await budgetService.getUserBudgetsOffline(user.id);
-        }
+      // Process expense data
+      let expenseData: any[] = [];
+      if (expensesResult.error) {
+        console.error('Error fetching expenses:', expensesResult.error);
       } else {
-        console.log('Offline mode: Loading budgets from local storage');
-        loadedBudgets = await budgetService.getUserBudgetsOffline(user.id);
-        
-        const syncQueue = await syncQueueService.getSyncQueue();
-        
-        if (syncQueue.length > 0) {
-          setSyncIssue(true);
-        }
+        expenseData = expensesResult.data || [];
+        console.log('Found', expenseData.length, 'expenses');
       }
       
+      // Group expenses by category
+      const expensesByCategory: Record<string, { spent: number, saved: number }> = {};
+      
+      // Process expenses to calculate spending and savings per category
+      if (expenseData && expenseData.length > 0) {
+        expenseData.forEach((expense: any) => {
+          // Skip expenses without a category
+          if (!expense.category) return;
+          
+          // Initialize category record if it doesn't exist
+          if (!expensesByCategory[expense.category]) {
+            expensesByCategory[expense.category] = {
+              spent: 0,
+              saved: 0
+            };
+          }
+          
+          // Add to spent or saved based on savings_contribution flag
+          if (expense.savings_contribution) {
+            expensesByCategory[expense.category].saved += expense.amount;
+          } else {
+            expensesByCategory[expense.category].spent += expense.amount;
+          }
+        });
+        
+        console.log('Expenses grouped by category:', expensesByCategory);
+      }
+      
+      // Update budgets with calculated spent and saved amounts by matching categories
+      const processedBudgets = loadedBudgets.map((budget: Budget) => {
+        // Get expenses for this budget's category
+        const categoryExpenses = expensesByCategory[budget.category] || { spent: 0, saved: 0 };
+        
+        // Return updated budget with spent and saved amounts
+        return {
+          ...budget,
+          spent: categoryExpenses.spent,
+          savingsAllocation: categoryExpenses.saved,
+          remainingAmount: budget.amount - categoryExpenses.spent - categoryExpenses.saved
+        };
+      });
+      
+      console.log('Budgets updated with category expense data:', 
+        processedBudgets.map((b: Budget) => ({ 
+          id: b.id, 
+          name: b.name,
+          category: b.category,
+          spent: b.spent, 
+          saved: b.savingsAllocation 
+        }))
+      );
+      
+      // Filter out duplicates
       const uniqueBudgetsMap = new Map();
-      loadedBudgets.forEach(budget => {
+      processedBudgets.forEach(budget => {
         if (budget.id) {
           uniqueBudgetsMap.set(budget.id, budget);
         }
@@ -101,14 +156,15 @@ const BudgetScreen: React.FC = () => {
       
       const uniqueBudgets = Array.from(uniqueBudgetsMap.values());
       
-      if (uniqueBudgets.length < loadedBudgets.length) {
-        console.warn(`Removed ${loadedBudgets.length - uniqueBudgets.length} duplicate budgets`);
+      if (uniqueBudgets.length < processedBudgets.length) {
+        console.warn(`Removed ${processedBudgets.length - uniqueBudgets.length} duplicate budgets`);
       }
       
       setBudgets(uniqueBudgets);
       
+      // Calculate summary statistics
       const totalBudgeted = uniqueBudgets.reduce((sum, budget) => sum + budget.amount, 0);
-      const totalSpent = uniqueBudgets.reduce((sum, budget) => sum + (budget.spent || 0), 0);
+      const totalSpent = uniqueBudgets.reduce((sum, budget) => sum + budget.spent, 0);
       const remainingBudget = totalBudgeted - totalSpent;
       const spendingPercentage = totalBudgeted > 0 ? (totalSpent / totalBudgeted) * 100 : 0;
       
@@ -118,6 +174,14 @@ const BudgetScreen: React.FC = () => {
         remainingBudget,
         spendingPercentage,
       });
+      
+      // Check for sync issues
+      const syncQueue = await syncQueueService.getSyncQueue();
+      if (syncQueue.length > 0) {
+        setSyncIssue(true);
+      } else {
+        setSyncIssue(false);
+      }
     } catch (error) {
       console.error('Error loading budgets:', error);
       Alert.alert('Error', 'Failed to load budgets. Please try again.');
@@ -129,11 +193,27 @@ const BudgetScreen: React.FC = () => {
 
   useFocusEffect(
     useCallback(() => {
+      console.log('Budget screen focused, refreshing budget data...');
       fetchBudgets();
     }, [isOffline])
   );
 
+  // Set up a listener to refresh data when the app comes back to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') {
+        console.log('App has come to the foreground, refreshing budget data...');
+        fetchBudgets();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   const handleRefresh = async () => {
+    console.log('Manual refresh initiated by user');
     setRefreshing(true);
     try {
       const syncStatus = await syncQueueService.getSyncStatus();
@@ -148,6 +228,8 @@ const BudgetScreen: React.FC = () => {
         await fetchBudgets();
       } else {
         console.log('Online mode: Refreshing with sync');
+        // Force a data reload
+        await syncQueueService.synchronizeBudgets(true);
         await fetchBudgets();
       }
     } catch (error) {
@@ -216,17 +298,38 @@ const BudgetScreen: React.FC = () => {
     }
   };
 
+  const navigateToBudgetDetail = (budgetId: string) => {
+    // Use type assertion to bypass type checking
+    (navigation as any).navigate('BudgetDetail', { budgetId });
+  };
+
   const renderCategoryItem = ({ item }: { item: Budget }) => {
-    const spentPercentage = (item.spent / item.amount) * 100;
-    const savingsPercentage = ((item.savingsAllocation || 0) / item.amount) * 100;
-    const isOverBudget = item.spent + (item.savingsAllocation || 0) > item.amount;
+    // Keep the new calculation logic
+    const budgetAmount = item.amount || 0;
+    const spentAmount = item.spent || 0;
+    const savingsAmount = item.savingsAllocation || 0;
+    const autoSavePercentage = typeof item.autoSavePercentage === 'number' ? item.autoSavePercentage : 0;
+    
+    // Calculate percentages
+    const spentPercentage = budgetAmount > 0 ? (spentAmount / budgetAmount) * 100 : 0;
+    const savingsPercentage = budgetAmount > 0 ? (savingsAmount / budgetAmount) * 100 : 0;
+    const isOverBudget = spentAmount + savingsAmount > budgetAmount;
     const isPendingSync = item.id && item.id.startsWith('local_');
     
+    // Use a safe default if icon is not valid
+    const safeIcon = (item.icon && typeof item.icon === 'string' && 
+                     Ionicons.hasOwnProperty(item.icon)) 
+                     ? item.icon 
+                     : 'wallet-outline';
+    
     return (
-      <TouchableOpacity style={styles.categoryCard}>
+      <TouchableOpacity 
+        style={styles.categoryCard} 
+        onPress={() => navigateToBudgetDetail(item.id)}
+      >
         <View style={styles.categoryHeader}>
           <View style={[styles.categoryIconContainer, { backgroundColor: `${item.color}20` }]}>
-            <Ionicons name={item.icon as any} size={24} color={item.color} />
+            <Ionicons name={safeIcon as any} size={24} color={item.color} />
           </View>
           <View style={styles.categoryInfo}>
             <Text style={styles.categoryName}>
@@ -237,11 +340,11 @@ const BudgetScreen: React.FC = () => {
             </Text>
             <View style={styles.amountContainer}>
               <Text style={styles.categoryAmount}>
-                R {item.spent.toFixed(2)} <Text style={styles.budgetLimit}>/ R {item.amount.toFixed(2)}</Text>
+                R {spentAmount.toFixed(2)} <Text style={styles.budgetLimit}>/ R {budgetAmount.toFixed(2)}</Text>
               </Text>
-              {item.savingsAllocation > 0 && (
+              {savingsAmount > 0 && (
                 <Text style={styles.savingsText}>
-                  (R {item.savingsAllocation.toFixed(2)} saved)
+                  (R {savingsAmount.toFixed(2)} saved)
                 </Text>
               )}
             </View>
@@ -254,6 +357,7 @@ const BudgetScreen: React.FC = () => {
         </View>
         
         <View style={styles.progressBarContainer}>
+          {/* Spent amount progress bar */}
           <View 
             style={[
               styles.progressBar, 
@@ -263,7 +367,8 @@ const BudgetScreen: React.FC = () => {
               }
             ]} 
           />
-          {item.savingsAllocation > 0 && (
+          {/* Savings allocation progress bar (if applicable) */}
+          {savingsAmount > 0 && (
             <View 
               style={[
                 styles.savingsProgressBar, 
@@ -283,18 +388,18 @@ const BudgetScreen: React.FC = () => {
               isOverBudget ? styles.overBudgetText : null
             ]}>
               {isOverBudget 
-                ? `R ${(item.spent + (item.savingsAllocation || 0) - item.amount).toFixed(2)} over budget` 
-                : `R ${(item.amount - item.spent - (item.savingsAllocation || 0)).toFixed(2)} remaining`
+                ? `R ${(spentAmount + savingsAmount - budgetAmount).toFixed(2)} over budget` 
+                : `R ${(budgetAmount - spentAmount - savingsAmount).toFixed(2)} remaining`
               }
             </Text>
-            {item.autoSavePercentage > 0 && (
+            {autoSavePercentage > 0 && (
               <Text style={styles.autoSaveText}>
-                Auto-save: {item.autoSavePercentage}%
+                Auto-save: {autoSavePercentage}%
               </Text>
             )}
           </View>
           <Text style={styles.percentageText}>
-            {((spentPercentage + savingsPercentage)).toFixed(0)}%
+            {Math.round(spentPercentage + savingsPercentage)}%
           </Text>
         </View>
 
@@ -344,19 +449,19 @@ const BudgetScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
       
-      <View style={styles.header}>
+      <View style={styles.headerContainer}>
         {navigationState.routes.length > 1 && (
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
         )}
         <Text style={styles.headerTitle}>Budgets</Text>
-        <View style={styles.headerRight}>
+        <View style={styles.headerLeft}>
           <TouchableOpacity 
-            style={styles.headerButton}
+            style={styles.addButton}
             onPress={navigateToAddBudget}
           >
-            <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
+            <Ionicons name="add-circle-outline" size={24} color={colors.white} />
           </TouchableOpacity>
         </View>
       </View>
@@ -467,129 +572,49 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-  },
-  loadingText: {
-    marginTop: spacing.md,
-    fontSize: textStyles.body1.fontSize,
-    color: colors.textSecondary,
-  },
-  header: {
+  headerContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  backButton: {
-    padding: spacing.xs,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.white,
+    ...shadows.sm,
   },
   headerTitle: {
-    fontSize: textStyles.h2.fontSize,
-    fontWeight: textStyles.h2.fontWeight as any,
-    lineHeight: textStyles.h2.lineHeight,
-    color: textStyles.h2.color,
+    fontSize: textStyles.title.fontSize,
+    fontWeight: textStyles.title.fontWeight as any,
+    color: colors.text,
   },
-  headerRight: {
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  headerButton: {
-    padding: spacing.xs,
+  backButton: {
+    marginRight: spacing.sm,
   },
-  summaryCard: {
-    backgroundColor: colors.white,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.lg,
-    ...shadows.md,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  summaryItem: {
+  addButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
     alignItems: 'center',
-  },
-  summaryLabel: {
-    fontSize: textStyles.caption.fontSize,
-    fontWeight: textStyles.caption.fontWeight as any,
-    lineHeight: textStyles.caption.lineHeight,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
-  },
-  summaryValue: {
-    fontSize: textStyles.subtitle1.fontSize,
-    fontWeight: textStyles.subtitle1.fontWeight as any,
-    lineHeight: textStyles.subtitle1.lineHeight,
-    color: textStyles.subtitle1.color,
-  },
-  positiveAmount: {
-    color: colors.success,
-  },
-  negativeAmount: {
-    color: colors.error,
-  },
-  progressBarContainer: {
-    height: 8,
-    backgroundColor: colors.border,
-    borderRadius: borderRadius.round,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    borderRadius: borderRadius.round,
-  },
-  progressText: {
-    fontSize: textStyles.caption.fontSize,
-    fontWeight: textStyles.caption.fontWeight as any,
-    lineHeight: textStyles.caption.lineHeight,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.card,
-    padding: spacing.xs,
+    justifyContent: 'center',
     ...shadows.sm,
   },
-  tab: {
+  scrollView: {
     flex: 1,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    borderRadius: borderRadius.sm,
   },
-  activeTab: {
-    backgroundColor: colors.white,
-    ...shadows.sm,
-  },
-  tabText: {
-    fontSize: textStyles.subtitle2.fontSize,
-    fontWeight: textStyles.subtitle2.fontWeight as any,
-    color: colors.textSecondary,
-  },
-  activeTabText: {
-    color: colors.primary,
-  },
-  listContainer: {
-    paddingHorizontal: spacing.lg,
+  content: {
     paddingBottom: spacing.xxxl,
   },
   categoryCard: {
     backgroundColor: colors.white,
     borderRadius: borderRadius.md,
-    padding: spacing.md,
+    marginHorizontal: spacing.md,
     marginBottom: spacing.md,
+    padding: spacing.md,
     ...shadows.sm,
   },
   categoryHeader: {
@@ -600,9 +625,9 @@ const styles = StyleSheet.create({
   categoryIconContainer: {
     width: 40,
     height: 40,
-    borderRadius: borderRadius.round,
-    justifyContent: 'center',
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
     marginRight: spacing.sm,
   },
   categoryInfo: {
@@ -614,18 +639,55 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: spacing.xs,
   },
+  amountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   categoryAmount: {
     fontSize: textStyles.body2.fontSize,
     color: colors.text,
   },
   budgetLimit: {
+    fontSize: textStyles.caption.fontSize,
     color: colors.textSecondary,
+  },
+  savingsText: {
+    fontSize: textStyles.caption.fontSize,
+    color: colors.success,
+    marginLeft: spacing.xs,
+  },
+  autoSaveText: {
+    fontSize: textStyles.caption.fontSize,
+    color: colors.textSecondary,
+    marginLeft: spacing.xs,
+  },
+  progressBarContainer: {
+    height: 8,
+    backgroundColor: colors.border,
+    borderRadius: borderRadius.round,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressBar: {
+    height: '100%',
+    borderRadius: borderRadius.round,
+    minWidth: 5,
+  },
+  savingsProgressBar: {
+    position: 'absolute',
+    height: '100%',
+    borderRadius: borderRadius.round,
+    opacity: 0.7,
+    minWidth: 5,
   },
   categoryFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: spacing.xs,
+  },
+  footerLeft: {
+    flexDirection: 'column',
   },
   remainingText: {
     fontSize: textStyles.caption.fontSize,
@@ -639,21 +701,144 @@ const styles = StyleSheet.create({
     fontWeight: textStyles.caption.fontWeight as any,
     color: colors.textSecondary,
   },
+  linkedGoalsContainer: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  linkedGoalsTitle: {
+    fontSize: textStyles.caption.fontSize,
+    fontWeight: 'bold',
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  goalChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  goalChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${colors.primary}15`,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    marginRight: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  goalChipText: {
+    fontSize: 12,
+    color: colors.primary,
+    marginLeft: 4,
+  },
+  pendingSyncTag: {
+    fontSize: 12,
+    color: colors.warning,
+    fontStyle: 'italic',
+  },
+  // Styles for the summary card
+  summaryCard: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    ...shadows.sm,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  summaryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  summaryLabel: {
+    fontSize: textStyles.caption.fontSize,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  summaryValue: {
+    fontSize: textStyles.headline.fontSize,
+    fontWeight: textStyles.headline.fontWeight as any,
+    color: colors.text,
+  },
+  summarySaveValue: {
+    color: colors.success,
+  },
+  summarySpendValue: {
+    color: colors.error,
+  },
+  summaryBar: {
+    height: 8,
+    backgroundColor: colors.border,
+    borderRadius: borderRadius.round,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  summaryBarFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.round,
+  },
+  summaryBarLabel: {
+    fontSize: textStyles.caption.fontSize,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    padding: 4,
+    ...shadows.sm,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderRadius: borderRadius.sm,
+  },
+  activeTab: {
+    backgroundColor: colors.primary,
+  },
+  tabText: {
+    fontSize: textStyles.button.fontSize,
+    fontWeight: textStyles.button.fontWeight as any,
+    color: colors.textSecondary,
+  },
+  activeTabText: {
+    color: colors.white,
+  },
+  listContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxxl,
+  },
   emptyStateContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing.xl,
   },
+  emptyStateImage: {
+    width: 120,
+    height: 120,
+    marginBottom: spacing.md,
+  },
   emptyStateTitle: {
-    fontSize: textStyles.h3.fontSize,
-    fontWeight: textStyles.h3.fontWeight as any,
+    fontSize: textStyles.subtitle1.fontSize,
+    fontWeight: textStyles.subtitle1.fontWeight as any,
     color: colors.text,
-    marginTop: spacing.md,
+    textAlign: 'center',
     marginBottom: spacing.sm,
   },
   emptyStateText: {
-    fontSize: textStyles.body1.fontSize,
+    fontSize: textStyles.body2.fontSize,
     color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: spacing.lg,
@@ -670,83 +855,51 @@ const styles = StyleSheet.create({
     fontSize: textStyles.button.fontSize,
     fontWeight: textStyles.button.fontWeight as any,
   },
-  floatingButton: {
-    position: 'absolute',
-    bottom: spacing.xl,
-    right: spacing.xl,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primary,
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    ...shadows.lg,
+    backgroundColor: colors.background,
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: textStyles.body1.fontSize,
+    color: colors.textSecondary,
   },
   syncIssueButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.warningBg || '#FFF3CD',
+    backgroundColor: colors.warning + '20',
     paddingVertical: 8,
-    paddingHorizontal: spacing.medium,
-    marginHorizontal: spacing.medium,
-    marginBottom: spacing.medium,
-    borderRadius: borderRadius.small,
+    paddingHorizontal: spacing.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: borderRadius.sm,
     borderWidth: 1,
-    borderColor: colors.warning || '#FFE69C',
+    borderColor: colors.warning,
   },
   syncIssueText: {
-    color: colors.warning || '#856404',
-    marginLeft: spacing.small,
+    color: colors.warning,
+    marginLeft: spacing.sm,
     fontSize: 14,
     fontWeight: '500',
-  },
-  menuButton: {
-    padding: spacing.small,
-    marginRight: spacing.small,
-  },
-  menuContainer: {
-    position: 'absolute',
-    top: 45,
-    right: 10,
-    backgroundColor: colors.cardBackground,
-    borderRadius: borderRadius.medium,
-    padding: spacing.small,
-    ...shadows.md,
-    zIndex: 10,
-    minWidth: 180,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.small,
-    paddingHorizontal: spacing.medium,
-  },
-  menuItemText: {
-    marginLeft: spacing.small,
-    color: colors.textPrimary,
-    fontSize: 16,
-  },
-  pendingSyncTag: {
-    fontSize: 12,
-    color: colors.warning || '#856404',
-    fontStyle: 'italic',
   },
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.textSecondary || '#6c757d',
+    backgroundColor: colors.textSecondary,
     paddingVertical: 8,
-    paddingHorizontal: spacing.medium,
-    marginHorizontal: spacing.medium,
-    marginBottom: spacing.medium,
-    borderRadius: borderRadius.small,
+    paddingHorizontal: spacing.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: borderRadius.sm,
   },
   offlineText: {
     color: colors.white,
-    marginLeft: spacing.small,
+    marginLeft: spacing.sm,
     fontSize: 14,
     fontWeight: '500',
   },
 });
 
-export default BudgetScreen; 
+export default BudgetScreen;
