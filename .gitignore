@@ -6,11 +6,19 @@ node_modules/
 ios/
 android/
 
+build-a174
 # Expo
 .expo/
 dist/
 web-build/
 
+*.aab
+*.apk
+*.aar
+*.jar
+*.zip
+*.tar
+*.tar.gz
 # Native
 *.orig.*
 *.jks
