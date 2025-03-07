@@ -28,7 +28,7 @@ import { budgetService } from '../services/budgetService';
 import { supabase } from '../api/supabaseClient';
 import syncQueueService from '../services/syncQueueService';
 import NetworkManager from '../utils/NetworkManager';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, formatCurrencyAbbreviated } from '../utils/helpers';
 import { formatCategory, getCategoryIcon } from '../utils/helpers';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -484,11 +484,11 @@ const BudgetScreen: React.FC = () => {
         <View style={styles.summaryRow}>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryLabel}>Total Budget</Text>
-            <Text style={styles.summaryValue}>R {statistics.totalBudgeted.toFixed(2)}</Text>
+            <Text style={styles.summaryValue}>{formatCurrencyAbbreviated(statistics.totalBudgeted)}</Text>
           </View>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryLabel}>Spent</Text>
-            <Text style={styles.summaryValue}>R {statistics.totalSpent.toFixed(2)}</Text>
+            <Text style={styles.summaryValue}>{formatCurrencyAbbreviated(statistics.totalSpent)}</Text>
           </View>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryLabel}>Remaining</Text>
@@ -496,7 +496,7 @@ const BudgetScreen: React.FC = () => {
               styles.summaryValue,
               statistics.remainingBudget < 0 ? styles.negativeAmount : styles.positiveAmount
             ]}>
-              R {statistics.remainingBudget.toFixed(2)}
+              {formatCurrencyAbbreviated(statistics.remainingBudget)}
             </Text>
           </View>
         </View>
@@ -583,8 +583,8 @@ const styles = StyleSheet.create({
     ...shadows.sm,
   },
   headerTitle: {
-    fontSize: textStyles.h1.fontSize,
-    fontWeight: textStyles.h1.fontWeight as any,
+    fontSize: textStyles.h4.fontSize,
+    fontWeight: textStyles.h4.fontWeight as any,
     color: colors.text,
   },
   headerLeft: {
@@ -761,8 +761,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   summaryValue: {
-    fontSize: textStyles.h1.fontSize,
-    fontWeight: textStyles.h1.fontWeight as any,
+    fontSize: textStyles.h4.fontSize,
+    fontWeight: textStyles.h4.fontWeight as any,
     color: colors.text,
   },
   summarySaveValue: {

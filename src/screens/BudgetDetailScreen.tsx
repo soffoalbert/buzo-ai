@@ -19,6 +19,7 @@ import { RootStackParamList } from '../navigation';
 import { Budget } from '../models/Budget';
 import { budgetService } from '../services/budgetService';
 import { supabase } from '../api/supabaseClient';
+import { formatCurrencyAbbreviated } from 'utils/helpers';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type BudgetDetailRouteProp = RouteProp<RootStackParamList, 'BudgetDetail'>;
@@ -167,11 +168,11 @@ const BudgetDetailScreen: React.FC = () => {
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Spent</Text>
-              <Text style={styles.statValue}>R {budget.spent.toFixed(2)}</Text>
+              <Text style={styles.statValue}>{formatCurrencyAbbreviated(budget.spent)}</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Saved</Text>
-              <Text style={styles.statValue}>R {(budget.savingsAllocation || 0).toFixed(2)}</Text>
+              <Text style={styles.statValue}>{formatCurrencyAbbreviated(budget.savingsAllocation || 0)}</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Remaining</Text>
@@ -179,7 +180,7 @@ const BudgetDetailScreen: React.FC = () => {
                 styles.statValue,
                 isOverBudget ? styles.negativeAmount : styles.positiveAmount
               ]}>
-                R {(budget.amount - budget.spent - (budget.savingsAllocation || 0)).toFixed(2)}
+                {formatCurrencyAbbreviated(budget.amount - budget.spent - (budget.savingsAllocation || 0))}
               </Text>
             </View>
           </View>
