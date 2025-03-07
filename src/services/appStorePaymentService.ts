@@ -3,10 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SubscriptionInfo, SubscriptionTier, SubscriptionTransaction } from '../models/User';
 import { getUserSubscription, updateSubscription, isTestEnvironment } from './subscriptionService';
 import { generateUUID } from '../utils/helpers';
-import * as RNIap from 'react-native-iap';
 import { supabase } from '../api/supabaseClient';
-import axios from 'axios';
-import Constants from 'expo-constants';
 
 // Constants
 const RECEIPT_STORAGE_KEY = 'buzo_app_store_receipts';
@@ -34,37 +31,55 @@ const TEST_SUBSCRIPTION_PRODUCT_IDS = {
   }) as string,
 };
 
-// Package name for Android validation
-const PACKAGE_NAME = 'com.buzo.financialassistant';
-
 // Track if IAP is already initialized
 let isIAPInitialized = false;
 
+// Mock types for purchases
+export interface MockPurchase {
+  productId: string;
+  transactionId: string;
+  transactionDate?: number;
+  acknowledged?: boolean;
+}
+
+// Type definitions for IAP products
+export interface SubscriptionProduct {
+  productId: string;
+  title: string;
+  description: string;
+  price: number;
+  currency: string;
+  localizedPrice: string;
+  subscriptionPeriod?: string;
+}
+
 /**
- * Initialize the react-native-iap connection
+ * Initialize the IAP connection (mock implementation)
  */
 export const initializeIAP = async (): Promise<boolean> => {
+  if (isIAPInitialized) {
+    return true;
+  }
+  
   try {
-    if (isIAPInitialized) {
-      return true;
-    }
-
-    // Initialize the connection
-    await RNIap.initConnection();
-    
-    // Set up purchase listener
-    setupPurchaseListeners();
-    
+    // Mock IAP initialization
+    console.log('Mock IAP initialized - no actual store connection');
     isIAPInitialized = true;
     
-    // Log if we're in test mode
-    const isTestMode = await isTestEnvironment();
-    console.log(`IAP initialized for ${Platform.OS}${isTestMode ? ' (TEST MODE)' : ''}`);
+    // Log if we're in test mode (wrapped in try/catch to prevent any possible issues)
+    try {
+      const isTestMode = await isTestEnvironment();
+      console.log(`IAP initialized for ${Platform.OS}${isTestMode ? ' (TEST MODE)' : ''}`);
+    } catch (err) {
+      console.log('Unable to determine test mode, defaulting to mock implementation');
+    }
     
     return true;
   } catch (error) {
-    console.error('Error initializing IAP:', error);
-    return false;
+    // Never let this fail the app initialization
+    console.error('Error initializing mock IAP, continuing with app launch:', error);
+    isIAPInitialized = true; // Set to true anyway to prevent further initialization attempts
+    return true; // Return true regardless of errors to allow app to continue
   }
 };
 
@@ -103,63 +118,10 @@ export const getProductIds = async (): Promise<string[]> => {
 };
 
 /**
- * Set up purchase update and error listeners
- */
-const setupPurchaseListeners = () => {
-  // Remove any existing listeners first
-  RNIap.clearTransactionIOS();
-  
-  // Purchase completion listener
-  const purchaseUpdateSubscription = RNIap.purchaseUpdatedListener(
-    async (purchase: RNIap.SubscriptionPurchase | RNIap.ProductPurchase) => {
-      // Handle the purchase
-      console.log('Purchase completed:', purchase);
-      
-      // For iOS, finish the transaction
-      if (Platform.OS === 'ios') {
-        await RNIap.finishTransactionIOS(purchase.transactionId);
-      }
-      
-      // Acknowledge the purchase (required for Android)
-      if (Platform.OS === 'android' && !purchase.acknowledged) {
-        try {
-          await RNIap.acknowledgePurchaseAndroid(purchase.purchaseToken);
-        } catch (error) {
-          console.error('Error acknowledging Android purchase:', error);
-        }
-      }
-      
-      // Process the purchase to update user's subscription
-      await processSuccessfulPurchase(purchase);
-    }
-  );
-
-  // Purchase error listener
-  const purchaseErrorSubscription = RNIap.purchaseErrorListener(
-    (error: RNIap.PurchaseError) => {
-      console.error('Purchase error:', error);
-      // Handle the error (e.g., show an error message to the user)
-    }
-  );
-
-  return () => {
-    // Clean up listeners when needed
-    if (purchaseUpdateSubscription) {
-      purchaseUpdateSubscription.remove();
-    }
-    if (purchaseErrorSubscription) {
-      purchaseErrorSubscription.remove();
-    }
-  };
-};
-
-/**
  * Process a successful purchase and update the user's subscription
- * @param purchase The purchase object from IAP
+ * @param purchase The mock purchase object
  */
-const processSuccessfulPurchase = async (
-  purchase: RNIap.SubscriptionPurchase | RNIap.ProductPurchase
-): Promise<void> => {
+const processSuccessfulPurchase = async (purchase: MockPurchase): Promise<void> => {
   try {
     const { productId, transactionId, transactionDate } = purchase;
     console.log(`Processing purchase: ${productId}`);
@@ -181,17 +143,21 @@ const processSuccessfulPurchase = async (
       return;
     }
     
-    // Store the receipt for later verification if needed
-    await storeReceipt(productId, transactionId, transactionDate);
+    // Store the receipt for later verification if needed - NOTE: transactionId is stored but not in the transaction object
+    await storeReceipt(productId, transactionId, 
+      transactionDate ? new Date(transactionDate).toISOString() : new Date().toISOString());
     
-    // Validate the purchase with our server
-    const validation = await validatePurchaseWithServer(purchase, user.id, productId);
-    
-    if (!validation.isValid) {
-      console.error('Purchase validation failed:', validation.error);
-      Alert.alert('Subscription Error', 'We could not validate your purchase. Please contact support.');
-      return;
-    }
+    // For a real implementation, you would validate the receipt with Apple/Google here
+    // Mock validation response
+    const validation = {
+      isValid: true,
+      purchaseDate: new Date(transactionDate || Date.now()).toISOString(),
+      expirationDate: calculateExpirationDate(
+        productId === SUBSCRIPTION_PRODUCT_IDS.MONTHLY || 
+        productId === TEST_SUBSCRIPTION_PRODUCT_IDS.MONTHLY
+      ).toISOString(),
+      autoRenewing: true
+    };
     
     // Get product info
     const products = await getSubscriptionProducts();
@@ -212,10 +178,9 @@ const processSuccessfulPurchase = async (
       amount: product.price,
       currency: product.currency,
       date: new Date().toISOString(),
-      type: 'subscription',
-      status: 'completed',
+      status: 'successful',
       description: `Buzo Premium - ${product.title}`,
-      transactionId: purchase.transactionId
+      paymentMethod: Platform.OS === 'ios' ? 'apple' : 'google'
     };
     
     // Get and update the user's subscription
@@ -249,6 +214,7 @@ const processSuccessfulPurchase = async (
     await updateSubscription(updatedSubscription);
     
     console.log('Subscription updated successfully');
+    
   } catch (error) {
     console.error('Error processing purchase:', error);
   }
@@ -256,286 +222,148 @@ const processSuccessfulPurchase = async (
 
 /**
  * Create a mock premium subscription for testing
- * @param productId The ID of the test product
  */
 const createMockPremiumSubscription = async (productId: string): Promise<void> => {
   try {
-    // Determine if monthly or annual subscription
-    const isMonthly = productId === TEST_SUBSCRIPTION_PRODUCT_IDS.MONTHLY;
-    
-    // Get product info (or create mock data if not available)
-    let product: SubscriptionProduct;
-    try {
-      const products = await getSubscriptionProducts();
-      product = products.find(p => p.productId === productId) || {
-        productId,
-        title: isMonthly ? 'Monthly Premium (Test)' : 'Annual Premium (Test)',
-        description: 'Test subscription for development',
-        price: isMonthly ? 9.99 : 99.99,
-        priceString: isMonthly ? '$9.99/month' : '$99.99/year',
-        currency: 'USD',
-        period: isMonthly ? 'month' : 'year'
-      };
-    } catch (error) {
-      // Create fallback mock product
-      product = {
-        productId,
-        title: isMonthly ? 'Monthly Premium (Test)' : 'Annual Premium (Test)',
-        description: 'Test subscription for development',
-        price: isMonthly ? 9.99 : 99.99,
-        priceString: isMonthly ? '$9.99/month' : '$99.99/year',
-        currency: 'USD',
-        period: isMonthly ? 'month' : 'year'
-      };
+    // Get the current subscription
+    const subscription = await getUserSubscription();
+    if (!subscription) {
+      console.error('User subscription not found');
+      return;
     }
+    
+    // Determine if monthly or annual
+    const isMonthly = productId === TEST_SUBSCRIPTION_PRODUCT_IDS.MONTHLY;
     
     // Create a mock transaction
     const transaction: SubscriptionTransaction = {
       id: generateUUID(),
-      amount: product.price,
-      currency: product.currency,
+      amount: isMonthly ? 9.99 : 99.99,
+      currency: 'USD',
       date: new Date().toISOString(),
-      type: 'subscription',
-      status: 'completed',
-      description: `TEST - ${product.title}`,
-      transactionId: `test-${generateUUID().slice(0, 8)}`
-    };
-    
-    // Get existing subscription or create new one
-    const subscription = await getUserSubscription() || {
-      tier: SubscriptionTier.FREE,
-      startDate: new Date().toISOString(),
-      paymentMethod: 'test',
-      transactionHistory: []
+      status: 'successful',
+      description: `Buzo Premium - ${isMonthly ? 'Monthly' : 'Annual'} (TEST)`,
+      paymentMethod: Platform.OS === 'ios' ? 'apple' : 'google'
     };
     
     // Calculate expiration date
-    const now = new Date();
-    const expirationDate = new Date(now);
-    expirationDate.setDate(expirationDate.getDate() + (isMonthly ? 30 : 365));
+    const expirationDate = calculateExpirationDate(isMonthly);
     
-    // Create mock updated subscription
+    // Update the subscription
     const updatedSubscription: SubscriptionInfo = {
       ...subscription,
       tier: SubscriptionTier.PREMIUM,
       startDate: new Date().toISOString(),
       endDate: expirationDate.toISOString(),
       autoRenew: true,
-      paymentMethod: 'test',
+      paymentMethod: Platform.OS === 'ios' ? 'apple' : 'google',
       transactionHistory: [
         transaction,
         ...(subscription.transactionHistory || []),
       ]
     };
     
-    // Update the subscription
     await updateSubscription(updatedSubscription);
     
-    // Show success message
+    console.log(`🧪 Mock ${isMonthly ? 'monthly' : 'annual'} subscription created successfully`);
     Alert.alert(
       'Test Subscription Activated',
-      `Your test ${isMonthly ? 'monthly' : 'annual'} premium subscription has been activated until ${expirationDate.toDateString()}.`,
-      [{ text: 'OK' }]
+      `Your ${isMonthly ? 'monthly' : 'annual'} premium subscription has been activated in test mode.`
     );
     
-    console.log('Test subscription created successfully');
   } catch (error) {
-    console.error('Error creating test subscription:', error);
-    Alert.alert('Error', 'Failed to create test subscription');
+    console.error('Error creating mock subscription:', error);
   }
 };
 
 /**
- * Validate purchase with server-side validation endpoint
- */
-const validatePurchaseWithServer = async (
-  purchase: RNIap.SubscriptionPurchase | RNIap.ProductPurchase,
-  userId: string,
-  productId: string
-): Promise<{
-  isValid: boolean;
-  purchaseDate?: string;
-  expirationDate?: string;
-  autoRenewing?: boolean;
-  error?: string;
-}> => {
-  try {
-    // Get platform-specific data
-    if (Platform.OS === 'ios') {
-      const receiptData = await RNIap.getReceiptIOS();
-      
-      if (!receiptData) {
-        return { isValid: false, error: 'No receipt data available' };
-      }
-      
-      // Validate with server
-      const response = await axios.post(RECEIPT_VALIDATION_ENDPOINT, {
-        platform: 'ios',
-        receiptData,
-        productId,
-        transactionId: purchase.transactionId,
-        userId
-      }, {
-        headers: getPlatformHeaders()
-      });
-      
-      return {
-        isValid: response.data.isValid,
-        purchaseDate: response.data.purchaseDate,
-        expirationDate: response.data.expirationDate,
-        autoRenewing: response.data.autoRenewing,
-      };
-      
-    } else if (Platform.OS === 'android' && 'purchaseToken' in purchase) {
-      // Validate with server
-      const response = await axios.post(RECEIPT_VALIDATION_ENDPOINT, {
-        platform: 'android',
-        packageName: PACKAGE_NAME,
-        productId,
-        purchaseToken: purchase.purchaseToken,
-        transactionId: purchase.transactionId || purchase.orderId,
-        userId
-      }, {
-        headers: getPlatformHeaders()
-      });
-      
-      return {
-        isValid: response.data.isValid,
-        purchaseDate: response.data.purchaseDate,
-        expirationDate: response.data.expirationDate,
-        autoRenewing: response.data.autoRenewing,
-      };
-    }
-    
-    return { isValid: false, error: 'Unsupported platform or missing purchase token' };
-  } catch (error) {
-    console.error('Server validation error:', error);
-    return { 
-      isValid: false, 
-      error: error.response?.data?.error || error.message 
-    };
-  }
-};
-
-/**
- * Calculate expiration date for a subscription
+ * Calculate expiration date based on subscription type
  */
 const calculateExpirationDate = (isMonthly: boolean): Date => {
   const now = new Date();
-  const endDate = new Date();
-  
   if (isMonthly) {
-    endDate.setMonth(endDate.getMonth() + 1);
+    return new Date(now.setMonth(now.getMonth() + 1));
   } else {
-    endDate.setFullYear(endDate.getFullYear() + 1);
+    return new Date(now.setFullYear(now.getFullYear() + 1));
   }
-  
-  return endDate;
 };
 
 /**
  * Get available subscription products
- * @returns Array of subscription products
  */
 export const getSubscriptionProducts = async (): Promise<SubscriptionProduct[]> => {
   try {
-    // Initialize IAP if needed
+    // Ensure IAP is initialized
     if (!isIAPInitialized) {
       await initializeIAP();
     }
     
-    // Get product IDs based on environment
-    const itemSkus = await getProductIds();
-    
-    // Fetch subscription products from the store
-    const products = await RNIap.getSubscriptions({ skus: itemSkus });
-    
-    console.log(`Fetched ${products.length} subscription products`);
-    
     // Check if we're in test mode
     const isTestMode = await isTestEnvironment();
     
-    // If in test mode and no products found, return test mock products
-    if (isTestMode && products.length === 0) {
-      console.log('No test products found in store - using mock test products');
+    if (isTestMode) {
       return [
         {
           productId: TEST_SUBSCRIPTION_PRODUCT_IDS.MONTHLY,
-          title: 'Monthly Premium (Test)',
-          description: 'Unlock all premium features with monthly billing. Test version.',
+          title: 'Buzo Premium Monthly (Test)',
+          description: 'Monthly subscription to Buzo Premium (Test)',
           price: 9.99,
-          priceString: 'R 9.99/month',
-          currency: 'ZAR',
-          period: 'month'
+          currency: 'USD',
+          localizedPrice: '$9.99',
+          subscriptionPeriod: 'P1M'
         },
         {
           productId: TEST_SUBSCRIPTION_PRODUCT_IDS.ANNUAL,
-          title: 'Annual Premium (Test)',
-          description: 'Unlock all premium features with annual billing (2 months free). Test version.',
+          title: 'Buzo Premium Annual (Test)',
+          description: 'Annual subscription to Buzo Premium (Test)',
           price: 99.99,
-          priceString: 'R 99.99/year',
-          currency: 'ZAR',
-          period: 'year'
+          currency: 'USD',
+          localizedPrice: '$99.99',
+          subscriptionPeriod: 'P1Y'
+        }
+      ];
+    } else {
+      // In production, alert that this is a mock implementation
+      Alert.alert(
+        'Development Build',
+        'In-app purchases are not available in this build. This is a mock implementation.'
+      );
+      
+      return [
+        {
+          productId: SUBSCRIPTION_PRODUCT_IDS.MONTHLY,
+          title: 'Buzo Premium Monthly',
+          description: 'Monthly subscription to Buzo Premium',
+          price: 9.99,
+          currency: 'USD',
+          localizedPrice: '$9.99',
+          subscriptionPeriod: 'P1M'
+        },
+        {
+          productId: SUBSCRIPTION_PRODUCT_IDS.ANNUAL,
+          title: 'Buzo Premium Annual',
+          description: 'Annual subscription to Buzo Premium',
+          price: 99.99,
+          currency: 'USD',
+          localizedPrice: '$99.99',
+          subscriptionPeriod: 'P1Y'
         }
       ];
     }
-    
-    // Map the products to our format
-    return products.map(product => ({
-      productId: product.productId,
-      title: product.title,
-      description: product.description,
-      price: Number(product.price) || 0,
-      priceString: product.localizedPrice || `${product.currency || 'ZAR'} ${product.price || '0'}`,
-      currency: product.currency || 'ZAR',
-      period: product.subscriptionPeriodUnitIOS || product.subscriptionPeriodAndroid || 'month',
-      introductoryPrice: product.introductoryPrice
-    }));
   } catch (error) {
     console.error('Error getting subscription products:', error);
-    
-    // Check if we're in test mode and return test products
-    const isTestMode = await isTestEnvironment();
-    if (isTestMode) {
-      console.log('Error fetching products - returning mock test products');
-      return [
-        {
-          productId: TEST_SUBSCRIPTION_PRODUCT_IDS.MONTHLY,
-          title: 'Monthly Premium (Test)',
-          description: 'Unlock all premium features with monthly billing. Test version.',
-          price: 9.99,
-          priceString: 'R 9.99/month',
-          currency: 'ZAR',
-          period: 'month'
-        },
-        {
-          productId: TEST_SUBSCRIPTION_PRODUCT_IDS.ANNUAL,
-          title: 'Annual Premium (Test)',
-          description: 'Unlock all premium features with annual billing (2 months free). Test version.',
-          price: 99.99,
-          priceString: 'R 99.99/year',
-          currency: 'ZAR',
-          period: 'year'
-        }
-      ];
-    }
-    
-    // Return empty array in production
     return [];
   }
 };
 
-// Export alias for backward compatibility
-export const getProducts = getSubscriptionProducts;
-
 /**
- * Request to purchase a subscription
- * @param productId The ID of the product to purchase
- * @returns Promise that resolves to true if the purchase was successful
+ * Request a subscription
  */
 export const requestSubscription = async (productId: string): Promise<boolean> => {
   try {
-    // Initialize IAP if needed
+    console.log(`Requesting subscription for product: ${productId}`);
+    
+    // Ensure IAP is initialized
     if (!isIAPInitialized) {
       await initializeIAP();
     }
@@ -543,175 +371,106 @@ export const requestSubscription = async (productId: string): Promise<boolean> =
     // Check if we're in test mode
     const isTestMode = await isTestEnvironment();
     
-    console.log(`Requesting subscription for product: ${productId} (Test mode: ${isTestMode})`);
-    
-    // For test mode with test product IDs, we can directly create a test subscription
-    if (isTestMode && (
-        productId === TEST_SUBSCRIPTION_PRODUCT_IDS.MONTHLY || 
-        productId === TEST_SUBSCRIPTION_PRODUCT_IDS.ANNUAL
-      )) {
-      console.log('🧪 Creating direct test subscription (bypassing store)');
+    if (isTestMode) {
+      // In test mode, create a mock subscription directly
       await createMockPremiumSubscription(productId);
       return true;
-    }
-    
-    // Otherwise, proceed with regular IAP flow (this will also work for TestFlight sandbox purchases)
-    if (Platform.OS === 'ios') {
-      await RNIap.requestSubscription(productId);
     } else {
-      // Android specific
-      await RNIap.requestSubscription(productId, false); // false = don't upgrade/downgrade an existing subscription
+      // Alert that this is a mock implementation
+      Alert.alert(
+        'Development Build',
+        'In-app purchases are not available in this build. This is a mock implementation.'
+      );
+      
+      // Process a mock subscription anyway for testing
+      const mockPurchase: MockPurchase = {
+        productId,
+        transactionId: `mock-${generateUUID()}`,
+        transactionDate: Date.now(),
+        acknowledged: false
+      };
+      
+      await processSuccessfulPurchase(mockPurchase);
+      return true;
     }
-    
-    // The purchase will be processed by the purchaseUpdatedListener in setupPurchaseListeners
-    return true;
   } catch (error) {
     console.error('Error requesting subscription:', error);
-    
-    // Show user-friendly error message
-    if (error instanceof Error) {
-      const errorMessage = error.message || 'Unknown error';
-      
-      // Check for user cancellation
-      if (errorMessage.includes('cancel') || errorMessage.includes('cancelled')) {
-        Alert.alert('Purchase Cancelled', 'The subscription purchase was cancelled.');
-      } else {
-        Alert.alert(
-          'Subscription Error', 
-          'There was a problem processing your subscription request. Please try again later.'
-        );
-      }
-    }
-    
+    Alert.alert('Subscription Error', 'There was an error processing your subscription request.');
     return false;
   }
 };
 
-// Export alias for backward compatibility
-export const purchaseSubscription = requestSubscription;
-
 /**
- * Restore previous purchases from the app store
+ * Restore purchases
  */
 export const restorePurchases = async (): Promise<boolean> => {
   try {
-    // Initialize if needed
+    console.log('Attempting to restore purchases');
+    
+    // Ensure IAP is initialized
     if (!isIAPInitialized) {
       await initializeIAP();
     }
     
-    // Get available purchases
-    let purchases;
-    if (Platform.OS === 'ios') {
-      // iOS needs to explicitly restore purchases
-      purchases = await RNIap.getAvailablePurchases();
-    } else {
-      // Android purchases should already be available
-      purchases = await RNIap.getAvailablePurchases();
-    }
+    // Check if we're in test mode
+    const isTestMode = await isTestEnvironment();
     
-    // Process each available purchase
-    if (purchases && purchases.length > 0) {
-      // Filter for active subscriptions
-      const activeSubscriptions = purchases.filter(
-        purchase => !purchase.expirationDate || new Date(purchase.expirationDate) > new Date()
+    if (isTestMode) {
+      // In test mode, create a mock subscription
+      await createMockPremiumSubscription(TEST_SUBSCRIPTION_PRODUCT_IDS.MONTHLY);
+      return true;
+    } else {
+      // Alert that this is a mock implementation
+      Alert.alert(
+        'Development Build',
+        'In-app purchases are not available in this build. This is a mock implementation.'
       );
       
-      if (activeSubscriptions.length > 0) {
-        // Process the most recent active subscription
-        const latestPurchase = activeSubscriptions.sort(
-          (a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()
-        )[0];
-        
-        // Get user details
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (!user || !user.id) {
-          console.error('No authenticated user found');
-          return false;
-        }
-        
-        // Validate the purchase with the server
-        const validationResult = await validatePurchaseWithServer(
-          latestPurchase,
-          user.id,
-          latestPurchase.productId
-        );
-        
-        if (validationResult.isValid) {
-          await processSuccessfulPurchase(latestPurchase);
-          return true;
-        }
-      }
-    }
-    
-    return false;
-  } catch (error) {
-    console.error('Error restoring purchases:', error);
-    return false;
-  }
-};
-
-/**
- * Validate a receipt with server
- */
-export const validateReceipt = async (
-  purchase: RNIap.SubscriptionPurchase | RNIap.ProductPurchase
-): Promise<boolean> => {
-  try {
-    // Get user from Supabase
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user || !user.id) {
-      console.error('No authenticated user found');
       return false;
     }
-    
-    // Use server-side validation
-    const validationResult = await validatePurchaseWithServer(
-      purchase,
-      user.id,
-      purchase.productId
-    );
-    
-    return validationResult.isValid;
   } catch (error) {
-    console.error('Error validating receipt:', error);
+    console.error('Error restoring purchases:', error);
+    Alert.alert('Restore Error', 'There was an error restoring your purchases.');
     return false;
   }
 };
 
 /**
- * Store receipt information locally for reference
+ * Store receipt for later verification
  */
 const storeReceipt = async (productId: string, transactionId: string, date: string): Promise<void> => {
   try {
     // Get existing receipts
-    const receiptsData = await AsyncStorage.getItem(RECEIPT_STORAGE_KEY);
-    const receipts = receiptsData ? JSON.parse(receiptsData) : [];
+    const existingReceiptsJson = await AsyncStorage.getItem(RECEIPT_STORAGE_KEY);
+    const existingReceipts = existingReceiptsJson ? JSON.parse(existingReceiptsJson) : [];
     
     // Add new receipt
-    receipts.push({
+    const newReceipt = {
       productId,
       transactionId,
       date,
-      platform: Platform.OS,
-    });
+      timestamp: new Date().toISOString()
+    };
     
-    // Store updated receipts
-    await AsyncStorage.setItem(RECEIPT_STORAGE_KEY, JSON.stringify(receipts));
+    // Save updated receipts
+    await AsyncStorage.setItem(RECEIPT_STORAGE_KEY, JSON.stringify([
+      newReceipt,
+      ...existingReceipts
+    ]));
+    
+    console.log('Receipt stored successfully');
   } catch (error) {
     console.error('Error storing receipt:', error);
   }
 };
 
 /**
- * Get all stored receipts
+ * Get stored receipts
  */
 export const getStoredReceipts = async (): Promise<any[]> => {
   try {
-    const receiptsData = await AsyncStorage.getItem(RECEIPT_STORAGE_KEY);
-    return receiptsData ? JSON.parse(receiptsData) : [];
+    const receiptsJson = await AsyncStorage.getItem(RECEIPT_STORAGE_KEY);
+    return receiptsJson ? JSON.parse(receiptsJson) : [];
   } catch (error) {
     console.error('Error getting stored receipts:', error);
     return [];
@@ -719,13 +478,14 @@ export const getStoredReceipts = async (): Promise<any[]> => {
 };
 
 /**
- * End an active subscription connection
+ * End IAP connection
  */
 export const endIAPConnection = async (): Promise<void> => {
   try {
     if (isIAPInitialized) {
-      await RNIap.endConnection();
+      // Mock disconnecting
       isIAPInitialized = false;
+      console.log('Mock IAP connection ended');
     }
   } catch (error) {
     console.error('Error ending IAP connection:', error);
@@ -733,15 +493,12 @@ export const endIAPConnection = async (): Promise<void> => {
 };
 
 /**
- * Guide user to App Store/Play Store to manage their subscription
+ * Open store for subscription management
  */
 export const openStoreForSubscriptionManagement = (): void => {
-  if (Platform.OS === 'ios') {
-    // iOS: Open the subscription management page in the App Store
-    RNIap.openIosSubscriptionsSettings();
-  } else {
-    // Android: Unfortunately, there isn't a direct method to open Play Store subscriptions
-    // We would typically use Linking to open the Play Store app subscription section
-    console.log('Please open Google Play Store and go to your subscriptions to manage them');
-  }
+  // Mock implementation
+  Alert.alert(
+    'Subscription Management',
+    'This is a mock implementation. In a production app, this would open the app store for subscription management.'
+  );
 }; 

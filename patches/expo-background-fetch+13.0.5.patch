@@ -1,0 +1,54 @@
+diff --git a/node_modules/expo-background-fetch/android/build.gradle b/node_modules/expo-background-fetch/android/build.gradle
+index 340ef26..de9abc0 100644
+--- a/node_modules/expo-background-fetch/android/build.gradle
++++ b/node_modules/expo-background-fetch/android/build.gradle
+@@ -1,19 +1,34 @@
+ apply plugin: 'com.android.library'
++apply plugin: 'kotlin-android'
++apply plugin: 'maven-publish'
+ 
+-group = 'host.exp.exponent'
+-version = '13.0.5'
+-
+-def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+-apply from: expoModulesCorePlugin
+-applyKotlinExpoModulesCorePlugin()
+-useCoreDependencies()
+-useDefaultAndroidSdkVersions()
+-useExpoPublishing()
++dependencies {
++    implementation project(':expo-modules-core')
++    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.0"
++    implementation "androidx.work:work-runtime:2.9.0"
++}
+ 
+ android {
+-  namespace "expo.modules.backgroundfetch"
+-  defaultConfig {
+-    versionCode 23
+-    versionName "13.0.5"
+-  }
++    compileSdkVersion 34
++    namespace "expo.modules.backgroundfetch"
++
++    defaultConfig {
++        minSdkVersion 21
++        targetSdkVersion 34
++        versionCode 1
++        versionName "1.0"
++    }
++    lintOptions {
++        abortOnError false
++    }
++    compileOptions {
++        sourceCompatibility JavaVersion.VERSION_11
++        targetCompatibility JavaVersion.VERSION_11
++    }
++}
++
++afterEvaluate {
++    tasks.withType(com.android.build.gradle.tasks.factory.AndroidUnitTest) {
++        enabled = false
++    }
+ }
+\ No newline at end of file

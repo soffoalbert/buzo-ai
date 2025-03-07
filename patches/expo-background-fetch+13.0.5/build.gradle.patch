@@ -1,0 +1,12 @@
+dependencies {
+ 
+}
+
+android {
+    compileSdkVersion 34
+    namespace "expo.modules.backgroundfetch"
+
+    defaultConfig {
+        minSdkVersion 21
+    }
+} 

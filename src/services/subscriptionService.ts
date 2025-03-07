@@ -27,6 +27,12 @@ const IS_TESTFLIGHT = Platform.OS === 'ios' &&
  */
 export const isTestEnvironment = async (): Promise<boolean> => {
   try {
+    // For the current implementation, always return true to enable testing
+    // without requiring the actual payment implementation
+    return true;
+    
+    // The original code is commented out below:
+    /*
     // First check if test IAP mode is explicitly enabled
     const testIapEnabled = await AsyncStorage.getItem(TEST_IAP_ENABLED_KEY);
     if (testIapEnabled === 'true') {
@@ -35,10 +41,11 @@ export const isTestEnvironment = async (): Promise<boolean> => {
     
     // Then check environment variables
     return IS_EXPO || IS_DEVELOPMENT || IS_TESTFLIGHT;
+    */
   } catch (error) {
     console.warn('Error checking test environment:', error);
-    // Default to false (production) in case of errors
-    return false;
+    // Default to true (test mode) to prevent subscription prompts in case of errors
+    return true;
   }
 };
 

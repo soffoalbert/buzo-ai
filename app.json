@@ -30,13 +30,11 @@
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",
-        "android.permission.INTERNET"
-      ],
-      "compileSdkVersion": 34,
-      "targetSdkVersion": 34
+        "android.permission.INTERNET",
+        "com.android.vending.BILLING"
+      ]
     },
-    "web": {
-    },
+    "web": {},
     "plugins": [
       "expo-notifications",
       "expo-camera",
@@ -44,9 +42,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "d909abbb-32b1-4132-83c7-ebf9b1c741a0"
+        "projectId": "383659eb-063a-4e25-a579-d860cbc1bf36"
       }
     },
-    "owner": "soffoalbert"
+    "owner": "sofoalbert"
   }
 }

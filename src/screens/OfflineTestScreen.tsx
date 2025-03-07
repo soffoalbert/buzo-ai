@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
   TextStyle,
   Animated,
   Dimensions,
+  FlatList,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -20,15 +22,15 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
 import { LinearGradient } from 'expo-linear-gradient';
-import LottieView from 'lottie-react-native';
-
+import LoadingSpinner from '../components/LoadingSpinner';
+import OfflineStatusBar from '../components/OfflineStatusBar';
+import Button from '../components/Button';
+import { colors, shadows, spacing, textStyles } from '../utils/theme';
 import offlineStorage from '../services/offlineStorage';
 import syncService from '../services/syncService';
 import syncQueueService from '../services/syncQueueService';
 import testOfflineMode from '../utils/testOfflineMode';
-import OfflineStatusBar from '../components/OfflineStatusBar';
-import Button from '../components/Button';
-import { colors, spacing, textStyles } from '../utils/theme';
+import NetworkManager from '../utils/NetworkManager';
 
 type FontWeight = TextStyle['fontWeight'];
 type OfflineTestScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -293,11 +295,9 @@ const OfflineTestScreen: React.FC = () => {
       
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <LottieView
-            source={require('../assets/animations/loading.json')}
-            autoPlay
-            loop
-            style={styles.loadingAnimation}
+          <LoadingSpinner
+            size={120}
+            color={colors.primary}
           />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
@@ -358,7 +358,7 @@ const OfflineTestScreen: React.FC = () => {
               variant="outline"
               size="small"
               style={styles.actionButton}
-              icon="wifi"
+              leftIcon={<Ionicons name="wifi-outline" size={16} color={colors.white} />}
             />
           </View>
           
@@ -367,21 +367,21 @@ const OfflineTestScreen: React.FC = () => {
             
             <View style={styles.actionButtonsGrid}>
               <Button
-                title="Add Mock Item"
+                title="Add Mock Data"
                 onPress={() => handleAddMockData(1)}
                 variant="outline"
                 size="small"
                 style={styles.gridButton}
-                icon="add-circle"
+                leftIcon={<Ionicons name="add-circle-outline" size={16} color={colors.primary} />}
               />
               
               <Button
-                title="Add 5 Items"
+                title="Add 5 Mock Items"
                 onPress={() => handleAddMockData(5)}
                 variant="outline"
                 size="small"
                 style={styles.gridButton}
-                icon="layers"
+                leftIcon={<Ionicons name="add-circle-outline" size={16} color={colors.primary} />}
               />
               
               <Button
@@ -390,17 +390,17 @@ const OfflineTestScreen: React.FC = () => {
                 variant="primary"
                 size="small"
                 style={styles.gridButton}
-                icon="sync"
+                leftIcon={<Ionicons name="sync-outline" size={16} color={colors.white} />}
                 disabled={!isOnline}
               />
               
               <Button
-                title="Clear All"
+                title="Clear Data"
                 onPress={handleClearData}
-                variant="danger"
+                variant="outline"
                 size="small"
                 style={styles.gridButton}
-                icon="trash"
+                leftIcon={<Ionicons name="trash-outline" size={16} color={colors.error} />}
               />
             </View>
           </View>
@@ -470,45 +470,144 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.large,
-    paddingVertical: spacing.medium,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.white,
-    height: 64,
+    height: 60,
   },
   backButton: {
-    padding: spacing.small,
-    marginRight: spacing.medium,
-    borderRadius: 12,
-    backgroundColor: colors.backgroundLight,
+    padding: spacing.sm,
+    marginRight: spacing.sm,
   },
   headerTitle: {
-    ...textStyles.h2,
+    fontSize: 18,
+    fontWeight: '600',
     color: colors.text,
-    fontSize: 20,
+  },
+  content: {
+    flex: 1,
+    padding: spacing.md,
+  },
+  section: {
+    marginBottom: spacing.lg,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
+  card: {
+    backgroundColor: colors.white,
+    borderRadius: 8,
+    marginBottom: spacing.md,
+    ...shadows.sm,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  cardContent: {
+    padding: spacing.md,
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  gridButton: {
+    width: '48%',
+    marginBottom: spacing.sm,
+  },
+  dataLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  dataItem: {
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 40,
-  },
-  loadingAnimation: {
-    width: 240,
-    height: 240,
+    padding: spacing.lg,
   },
   loadingText: {
-    ...textStyles.body1,
-    marginTop: spacing.medium,
-    color: colors.text,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    fontSize: 16,
   },
-  content: {
+  noDataContainer: {
+    padding: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noDataText: {
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+  syncStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    padding: spacing.md,
+    borderRadius: 8,
+    marginBottom: spacing.md,
+  },
+  syncStatusText: {
+    color: colors.text,
     flex: 1,
   },
-  contentContainer: {
-    padding: spacing.large,
-    paddingBottom: spacing.extraLarge,
+  statusIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: spacing.sm,
+  },
+  online: {
+    backgroundColor: colors.success,
+  },
+  offline: {
+    backgroundColor: colors.error,
+  },
+  syncPending: {
+    backgroundColor: colors.warning,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  autoSyncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  viewMoreText: {
+    color: colors.primary,
+    fontSize: 14,
+    marginTop: spacing.sm,
   },
   statusCard: {
     backgroundColor: colors.white,
@@ -561,67 +660,6 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  sectionTitle: {
-    ...textStyles.h3,
-    marginBottom: spacing.large,
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: '700' as FontWeight,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.medium,
-    paddingHorizontal: spacing.medium,
-    height: 44,
-  },
-  statusText: {
-    ...textStyles.body1,
-    marginLeft: spacing.medium,
-    fontWeight: '600' as FontWeight,
-    fontSize: 16,
-  },
-  statusLabel: {
-    ...textStyles.body2,
-    color: colors.textSecondary,
-    width: 140,
-    fontSize: 15,
-  },
-  statusValue: {
-    ...textStyles.body2,
-    color: colors.text,
-    flex: 1,
-    fontSize: 15,
-  },
-  badge: {
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingHorizontal: spacing.medium,
-    paddingVertical: 4,
-    minWidth: 32,
-    alignItems: 'center',
-  },
-  errorBadge: {
-    backgroundColor: colors.error,
-  },
-  badgeText: {
-    ...textStyles.caption,
-    color: colors.white,
-    fontWeight: '600' as FontWeight,
-    fontSize: 13,
-  },
-  actionButtonsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -spacing.small,
-    marginTop: spacing.small,
-  },
-  gridButton: {
-    width: (width - spacing.large * 2 - spacing.medium * 2) / 2,
-    marginHorizontal: spacing.small,
-    marginBottom: spacing.medium,
-    height: 48,
-  },
   dataSection: {
     marginBottom: spacing.extraLarge,
   },
@@ -631,11 +669,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.large,
     fontSize: 18,
     fontWeight: '600' as FontWeight,
-  },
-  dataItem: {
-    marginBottom: spacing.medium,
-    borderRadius: 16,
-    overflow: 'hidden',
   },
   dataItemGradient: {
     padding: spacing.large,
@@ -684,11 +717,10 @@ const styles = StyleSheet.create({
     padding: spacing.medium,
     marginTop: spacing.medium,
   },
-  viewMoreText: {
-    ...textStyles.button,
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: '600' as FontWeight,
+  loadingAnimation: {
+    width: 120,
+    height: 120,
+    marginBottom: spacing.md,
   },
 });
 

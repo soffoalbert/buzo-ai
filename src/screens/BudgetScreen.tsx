@@ -583,8 +583,8 @@ const styles = StyleSheet.create({
     ...shadows.sm,
   },
   headerTitle: {
-    fontSize: textStyles.title.fontSize,
-    fontWeight: textStyles.title.fontWeight as any,
+    fontSize: textStyles.h1.fontSize,
+    fontWeight: textStyles.h1.fontWeight as any,
     color: colors.text,
   },
   headerLeft: {
@@ -761,8 +761,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   summaryValue: {
-    fontSize: textStyles.headline.fontSize,
-    fontWeight: textStyles.headline.fontWeight as any,
+    fontSize: textStyles.h1.fontSize,
+    fontWeight: textStyles.h1.fontWeight as any,
     color: colors.text,
   },
   summarySaveValue: {

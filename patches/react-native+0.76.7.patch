@@ -1,7 +1,0 @@
-#import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
-
-#import <React/RCTDefines.h>
-#import <React/RCTAssert.h>
-
-NS_ASSUME_NONNULL_BEGIN 

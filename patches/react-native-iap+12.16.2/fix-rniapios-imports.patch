@@ -1,8 +1,0 @@
-#if canImport(React)
-import React
-#else
-import React_Core
-#endif
-import StoreKit
-
-@objc(RNIapIos) 

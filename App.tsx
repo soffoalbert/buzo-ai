@@ -50,8 +50,14 @@ export default function App() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Initialize IAP
-        await initializeIAP();
+        // Try to initialize IAP, but continue if it fails
+        try {
+          await initializeIAP();
+          console.log('IAP service initialized successfully');
+        } catch (iapError) {
+          console.warn('Failed to initialize IAP, continuing with app launch:', iapError);
+          // App can still function without IAP
+        }
         
         // Initialize test user for development
         await initTestUser();
