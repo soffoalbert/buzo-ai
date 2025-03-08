@@ -41,7 +41,7 @@ import { isUserPremium } from '../utils/premium';
 // Utils and types
 import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { Expense, ExpenseStatistics } from '../models/Expense';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, formatCurrencyAbbreviated } from '../utils/helpers';
 
 // Define the expense categories with colors
 // const EXPENSE_CATEGORIES = [
@@ -666,7 +666,7 @@ const ExpenseAnalyticsScreen: React.FC = () => {
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Total Spending</Text>
               <Text style={styles.totalAmount}>
-                {formatCurrency(statistics?.totalAmount || 0, 'en-ZA', 'ZAR')}
+                {formatCurrencyAbbreviated(statistics?.totalAmount || 0)}
               </Text>
               
               {/* Period Comparison - Only for Premium */}

@@ -10,6 +10,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as expenseApi from '../api/expenseApi';
 import { checkSupabaseConnection } from '../api/supabaseClient';
 import { budgetService } from './budgetService';
+import { getUserId } from './fixed/getUserId';
 
 // Define SyncOperation enum locally to avoid circular dependencies
 export enum SyncOperation {
@@ -713,6 +714,59 @@ export const getUserExpenses = async (userId: string, filters?: ExpenseFilters):
   return expenseService.getUserExpenses(userId, filters);
 };
 
-export const getExpenseStatistics = async (userId: string, filters?: ExpenseFilters): Promise<ExpenseStatistics> => {
+export const getExpenseStatisticsByUserId = async (userId: string, filters?: ExpenseFilters): Promise<ExpenseStatistics> => {
   return expenseService.getExpenseStatistics(userId, filters);
+};
+
+export const filterExpenses = async (filters: ExpenseFilters): Promise<Expense[]> => {
+  // Get the current user ID
+  const userId = await getUserId();
+  if (!userId) {
+    console.warn('No user ID available for filterExpenses');
+    return [];
+  }
+  
+  // Get user expenses with the specified filters
+  return expenseService.getUserExpenses(userId, filters);
+};
+
+/**
+ * Get expense statistics with date range parameters
+ * Used by ExpenseAnalyticsScreen
+ */
+export const getExpenseStatistics = async (startDate: string, endDate: string) => {
+  try {
+    console.log('Getting expense statistics for date range:', { startDate, endDate });
+    
+    // Get the current user ID
+    const userId = await getUserId();
+    if (!userId) {
+      console.warn('No user ID available for getExpenseStatistics');
+      return {
+        totalAmount: 0,
+        categoryBreakdown: {},
+        dailyExpenses: [],
+        monthlyComparison: [],
+        weeklyComparison: [],
+        paymentMethodBreakdown: {},
+        averageAmount: 0,
+        expenseFrequency: 0,
+        expenseCount: 0,
+        savingsProgress: {
+          totalSaved: 0,
+          goalProgress: {}
+        },
+        budgetImpact: {}
+      };
+    }
+    
+    // Call the original getExpenseStatistics with filters
+    return expenseService.getExpenseStatistics(userId, {
+      startDate,
+      endDate
+    });
+  } catch (error) {
+    console.error('Error in date-based getExpenseStatistics:', error);
+    throw error;
+  }
 };
