@@ -30,6 +30,8 @@ import syncQueueService from '../services/syncQueueService';
 import NetworkManager from '../utils/NetworkManager';
 import { formatCurrency, formatCurrencyAbbreviated } from '../utils/helpers';
 import { formatCategory, getCategoryIcon } from '../utils/helpers';
+import { getUserId } from '../services/fixed/getUserId';
+import { isOnline } from '../services/offlineStorage';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -61,25 +63,31 @@ const BudgetScreen: React.FC = () => {
     try {
       setIsLoading(true);
       
-      const { data: { user } } = await supabase.auth.getUser();
+      // Get user ID with offline support
+      const userId = await getUserId();
       
-      if (!user) {
+      if (!userId) {
         console.error('User not authenticated');
         Alert.alert('Error', 'You need to be logged in to view budgets.');
         setIsLoading(false);
         return;
       }
       
+      // Check if we're offline right before making the API call
+      const online = await isOnline();
+      const currentlyOffline = !online;
+      
       // Follow the same approach as financialIntegrationService - load data in parallel
       const [expensesResult, loadedBudgets] = await Promise.all([
-        // Get all expenses with their categories
-        supabase
-          .from('expenses')
-          .select('id, amount, category, savings_contribution')
-          .eq('user_id', user.id),
+        // Get all expenses with their categories (only attempt if online)
+        currentlyOffline ? { data: [], error: null } : 
+          supabase
+            .from('expenses')
+            .select('id, amount, category, savings_contribution')
+            .eq('user_id', userId),
           
-        // Get all budgets
-        budgetService.getUserBudgets(user.id).catch((err: Error) => {
+        // Get all budgets (works in both online and offline mode)
+        budgetService.getUserBudgets(userId).catch((err: Error) => {
           console.error('Error fetching budgets:', err);
           return [];
         }),

@@ -6,6 +6,7 @@ import { checkSupabaseConnection } from '../api/supabaseClient';
 import syncQueueService from './syncQueueService';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../api/supabaseClient';
+import { getUserId } from './fixed/getUserId';
 
 // Storage keys
 const BUDGETS_STORAGE_KEY = 'buzo_budgets';
@@ -16,12 +17,11 @@ class BudgetService {
 
   async createBudget(budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'> | Budget): Promise<Budget> {
     try {
-      // Check online status
+      // Check if online
       const online = await isOnline();
       
-      // Get the current user from Supabase auth
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id;
+      // Get the user ID with offline support
+      const userId = await getUserId();
       
       if (!userId) {
         throw new Error('User not authenticated. Cannot create budget.');
@@ -443,9 +443,9 @@ export const createBudget = async (
 ): Promise<Budget> => {
   try {
     // Check if we're online and can connect to Supabase
-    const isOnline = await checkSupabaseConnection();
+    const online = await isOnline();
     
-    if (isOnline) {
+    if (online) {
       // If online, create in Supabase
       const newBudget = await budgetApi.createBudget(budgetData);
       
@@ -466,9 +466,8 @@ export const createBudget = async (
       // If offline, create locally and queue for sync
       console.log('Offline mode: Creating budget locally');
       
-      // Get the current user from Supabase auth
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id;
+      // Get the user ID with offline support
+      const userId = await getUserId();
       
       if (!userId) {
         throw new Error('User not authenticated. Cannot create budget.');
