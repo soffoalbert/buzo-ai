@@ -1,12 +1,13 @@
+import { SavingsGoal, SavingsMilestone } from '../models/SavingsGoal';
 import { Budget } from '../models/Budget';
 import { Expense, PaymentMethod } from '../models/Expense';
-import { SavingsGoal, SavingsMilestone } from '../models/SavingsGoal';
 import { budgetService } from './budgetService';
 import { expenseService } from './expenseService';
 import { savingsService } from './savingsService';
 import { notificationService } from './notifications';
 import * as aiAdvisor from './aiAdvisor';
 import { supabase } from '../api/supabaseClient';
+import { isOnline } from './offlineStorage';
 
 class FinancialIntegrationService {
   // Handle expense creation with budget and savings impact
@@ -208,161 +209,218 @@ class FinancialIntegrationService {
     try {
       console.log('Getting financial overview for user:', userId);
       
-      const [expenses, budgets, savingsGoals] = await Promise.all([
-        expenseService.getUserExpenses(userId).catch(err => {
-          console.error('Error fetching expenses:', err);
-          return [];
-        }),
-        budgetService.getUserBudgets(userId).catch(err => {
-          console.error('Error fetching budgets:', err);
-          return [];
-        }),
-        savingsService.getUserSavingsGoals(userId).catch(err => {
-          console.error('Error fetching savings goals:', err);
-          return [];
-        })
-      ]);
-
-      console.log('Raw data counts:', {
-        expenses: expenses.length,
-        budgets: budgets.length,
-        savingsGoals: savingsGoals.length
-      });
+      // Check if we're offline and set a shorter timeout
+      const online = await isOnline();
+      if (!online) {
+        console.log('Device is offline, using faster timeout for data loading');
+      }
       
-      // Log expense dates and formatting for debugging
-      console.log('EXPENSE DATE DIAGNOSTICS:', expenses.map(exp => ({
-        id: exp.id,
-        amount: exp.amount,
-        description: exp.description || exp.category || 'Unknown',
-        rawDate: exp.date,
-        parsedDate: new Date(exp.date).toISOString(),
-        dateComponents: {
-          year: new Date(exp.date).getFullYear(),
-          month: new Date(exp.date).getMonth() + 1,
-          day: new Date(exp.date).getDate()
-        }
-      })));
-
-      // Ensure we have arrays even if the promises failed
-      const safeExpenses = Array.isArray(expenses) ? expenses : [];
-      const safeBudgets = Array.isArray(budgets) ? budgets : [];
-      const safeSavingsGoals = Array.isArray(savingsGoals) ? savingsGoals : [];
-
-      const totalBudgeted = safeBudgets.reduce((sum, b) => sum + (b?.amount || 0), 0);
-      const totalSpent = safeExpenses.reduce((sum, e) => sum + (e?.amount || 0), 0);
-      
-      // Log raw details for debugging
-      console.log('Savings goals for total calculation:', safeSavingsGoals.map(g => ({
-        id: g.id,
-        title: g.title,
-        currentAmount: g.currentAmount,
-        targetAmount: g.targetAmount,
-        isCompleted: g.isCompleted
-      })));
-      
-      // Ensure all savings goals have valid numerical values
-      const validatedGoals = safeSavingsGoals.map(goal => ({
-        ...goal,
-        currentAmount: typeof goal.currentAmount === 'number' && !isNaN(goal.currentAmount) ? goal.currentAmount : 0,
-        targetAmount: typeof goal.targetAmount === 'number' && !isNaN(goal.targetAmount) ? goal.targetAmount : 0,
-        isCompleted: !!goal.isCompleted
-      }));
-      
-      // Calculate total saved amount - include all goals (both active and completed)
-      const totalSaved = validatedGoals.reduce((sum, goal) => {
-        console.log(`Adding ${goal.title || 'Unnamed goal'} with amount: ${goal.currentAmount}`);
-        return sum + goal.currentAmount;
-      }, 0);
-
-      console.log('Calculated totals:', { totalBudgeted, totalSpent, totalSaved });
-
-      const budgetUtilization = safeBudgets.map(b => {
-        // Calculate actual spent amount for this budget
-        const budgetSpent = safeExpenses
-          .filter(e => {
-            // Match expenses to budget by budget ID or category
-            const budgetIdMatch = e.budgetId && e.budgetId === b.id;
-            const categoryIdMatch = e.category && e.category === b.category;
-            const categoryNameMatch = e.categoryName && b.name && 
-              e.categoryName.toLowerCase() === b.name.toLowerCase();
-            
-            const isMatch = budgetIdMatch || categoryIdMatch || categoryNameMatch;
-            
-            if (isMatch) {
-              console.log(`✅ Expense matched to budget "${b.name}":`, {
-                expense_id: e.id,
-                expense_category: e.category,
-                expense_categoryName: e.categoryName,
-                expense_budgetId: e.budgetId,
-                budget_id: b.id,
-                budget_category: b.category,
-                budget_name: b.name,
-                match_type: budgetIdMatch ? 'budgetId' : (categoryIdMatch ? 'categoryId' : 'categoryName')
-              });
-            }
-            
-            return isMatch;
-          })
-          .reduce((sum, e) => sum + e.amount, 0);
-        
-        // Use the calculated spent amount or fall back to the budget's spent field
-        const actualSpent = budgetSpent > 0 ? budgetSpent : (b?.spent || 0);
-        
-        console.log(`Budget "${b.name}" (${b.id}): Amount=${b.amount}, Spent=${actualSpent}, Calculated=${budgetSpent}, Original=${b.spent || 0}`);
-        
-        return {
-          id: b?.id || '',
-          name: b?.name || 'Unnamed Budget',
-          amount: b?.amount || 0,
-          spent: actualSpent,
-          utilization: b?.amount ? (actualSpent / b.amount) * 100 : 0,
-          savingsContribution: b?.savingsAllocation || 0
-        };
-      });
-
-      // Log expenses that didn't match any budget for debugging
-      safeExpenses.forEach(e => {
-        const matchingBudget = safeBudgets.find(b => 
-          (e.budgetId && e.budgetId === b.id) || 
-          (e.category && e.category === b.category) ||
-          (e.categoryName && b.name && e.categoryName.toLowerCase() === b.name.toLowerCase())
-        );
-        
-        if (!matchingBudget) {
-          console.log(`⚠️ Expense not matched to any budget:`, {
-            expense_id: e.id,
-            expense_title: e.title,
-            expense_amount: e.amount,
-            expense_category: e.category,
-            expense_categoryName: e.categoryName,
-            expense_budgetId: e.budgetId
+      // Create a timeout promise that resolves with default data after 5 seconds
+      const timeoutPromise = new Promise(resolve => {
+        const timeoutMs = online ? 10000 : 3000; // 10 seconds online, 3 seconds offline
+        setTimeout(() => {
+          console.warn(`Financial overview data fetch timed out after ${timeoutMs}ms, using default data`);
+          resolve({
+            totalBudgeted: 0,
+            totalSpent: 0, 
+            totalSaved: 0,
+            budgetUtilization: [],
+            savingsProgress: [],
+            recentTransactions: []
           });
-        }
+        }, timeoutMs);
       });
+      
+      // Create the actual data loading promise
+      const dataPromise = (async () => {
+        const [expenses, budgets, savingsGoals] = await Promise.all([
+          expenseService.getUserExpenses(userId).catch(err => {
+            console.error('Error fetching expenses:', err);
+            return [];
+          }),
+          budgetService.getUserBudgets(userId).catch(err => {
+            console.error('Error fetching budgets:', err);
+            return [];
+          }),
+          savingsService.getUserSavingsGoals(userId).catch(err => {
+            console.error('Error fetching savings goals:', err);
+            return [];
+          })
+        ]);
 
-      const savingsProgress = validatedGoals.map(g => ({
-        id: g?.id || '',
-        title: g?.title || 'Unnamed Goal',
-        progress: g?.targetAmount ? ((g?.currentAmount || 0) / g.targetAmount) * 100 : 0,
-        nextSavingDate: g?.nextSavingDate || undefined,
-        targetAmount: g?.targetAmount || 0,
-        currentAmount: g?.currentAmount || 0
-      }));
+        console.log('Raw data counts:', {
+          expenses: expenses.length,
+          budgets: budgets.length,
+          savingsGoals: savingsGoals.length
+        });
+        
+        // Log expense dates and formatting for debugging
+        console.log('EXPENSE DATE DIAGNOSTICS:', expenses.map(exp => ({
+          id: exp.id,
+          amount: exp.amount,
+          description: exp.description || exp.category || 'Unknown',
+          rawDate: exp.date,
+          parsedDate: new Date(exp.date).toISOString(),
+          dateComponents: {
+            year: new Date(exp.date).getFullYear(),
+            month: new Date(exp.date).getMonth() + 1,
+            day: new Date(exp.date).getDate()
+          }
+        })));
 
-      console.log('Transformed arrays:', {
-        budgetUtilization: budgetUtilization.length,
-        savingsProgress: savingsProgress.length,
-        recentTransactions: safeExpenses.slice(0, 5).length
-      });
+        // Ensure we have arrays even if the promises failed
+        const safeExpenses = Array.isArray(expenses) ? expenses : [];
+        const safeBudgets = Array.isArray(budgets) ? budgets : [];
+        const safeSavingsGoals = Array.isArray(savingsGoals) ? savingsGoals : [];
 
-      return {
-        totalBudgeted,
-        totalSpent,
-        totalSaved,
-        budgetUtilization,
-        savingsProgress,
-        recentTransactions: safeExpenses.slice(0, 5)
-      };
+        const totalBudgeted = safeBudgets.reduce((sum, b) => sum + (b?.amount || 0), 0);
+        
+        // Ensure expense amounts are properly converted to numbers
+        const totalSpent = safeExpenses.reduce((sum, e) => {
+          // Handle both string and number amounts
+          const amount = typeof e?.amount === 'string' 
+            ? parseFloat(e.amount) 
+            : (typeof e?.amount === 'number' ? e.amount : 0);
+          
+          // Log any invalid amounts for debugging
+          if (isNaN(amount)) {
+            console.warn(`Invalid expense amount for expense ${e?.id}: ${e?.amount}`);
+            return sum;
+          }
+          
+          return sum + amount;
+        }, 0);
+        
+        // Log raw details for debugging
+        console.log('Savings goals for total calculation:', safeSavingsGoals.map(g => ({
+          id: g.id,
+          title: g.title,
+          currentAmount: g.currentAmount,
+          targetAmount: g.targetAmount,
+          isCompleted: g.isCompleted
+        })));
+        
+        // Ensure all savings goals have valid numerical values
+        const validatedGoals = safeSavingsGoals.map(goal => ({
+          ...goal,
+          currentAmount: typeof goal.currentAmount === 'number' && !isNaN(goal.currentAmount) ? goal.currentAmount : 0,
+          targetAmount: typeof goal.targetAmount === 'number' && !isNaN(goal.targetAmount) ? goal.targetAmount : 0,
+          isCompleted: !!goal.isCompleted
+        }));
+        
+        // Calculate total saved amount - include all goals (both active and completed)
+        const totalSaved = validatedGoals.reduce((sum, goal) => {
+          console.log(`Adding ${goal.title || 'Unnamed goal'} with amount: ${goal.currentAmount}`);
+          return sum + goal.currentAmount;
+        }, 0);
+
+        console.log('Calculated totals:', { totalBudgeted, totalSpent, totalSaved });
+
+        const budgetUtilization = safeBudgets.map(b => {
+          // Calculate actual spent amount for this budget
+          const budgetSpent = safeExpenses
+            .filter(e => {
+              // Match expenses to budget by budget ID or category
+              const budgetIdMatch = e.budgetId && e.budgetId === b.id;
+              const categoryIdMatch = e.category && e.category === b.category;
+              const categoryNameMatch = e.categoryName && b.name && 
+                e.categoryName.toLowerCase() === b.name.toLowerCase();
+              
+              const isMatch = budgetIdMatch || categoryIdMatch || categoryNameMatch;
+              
+              if (isMatch) {
+                console.log(`✅ Expense matched to budget "${b.name}":`, {
+                  expense_id: e.id,
+                  expense_category: e.category,
+                  expense_categoryName: e.categoryName,
+                  expense_budgetId: e.budgetId,
+                  budget_id: b.id,
+                  budget_category: b.category,
+                  budget_name: b.name,
+                  match_type: budgetIdMatch ? 'budgetId' : (categoryIdMatch ? 'categoryId' : 'categoryName')
+                });
+              }
+              
+              return isMatch;
+            })
+            .reduce((sum, e) => {
+              // Handle both string and number amounts
+              const amount = typeof e?.amount === 'string' 
+                ? parseFloat(e.amount) 
+                : (typeof e?.amount === 'number' ? e.amount : 0);
+              
+              if (isNaN(amount)) {
+                console.warn(`Invalid expense amount for budget "${b.name}": ${e?.amount}`);
+                return sum;
+              }
+              
+              return sum + amount;
+            }, 0);
+          
+          // Use the calculated spent amount or fall back to the budget's spent field
+          const actualSpent = budgetSpent > 0 ? budgetSpent : (b?.spent || 0);
+          
+          console.log(`Budget "${b.name}" (${b.id}): Amount=${b.amount}, Spent=${actualSpent}, Calculated=${budgetSpent}, Original=${b.spent || 0}`);
+          
+          return {
+            id: b?.id || '',
+            name: b?.name || 'Unnamed Budget',
+            amount: b?.amount || 0,
+            spent: actualSpent,
+            utilization: b?.amount ? (actualSpent / b.amount) * 100 : 0,
+            savingsContribution: b?.savingsAllocation || 0
+          };
+        });
+
+        // Log expenses that didn't match any budget for debugging
+        safeExpenses.forEach(e => {
+          const matchingBudget = safeBudgets.find(b => 
+            (e.budgetId && e.budgetId === b.id) || 
+            (e.category && e.category === b.category) ||
+            (e.categoryName && b.name && e.categoryName.toLowerCase() === b.name.toLowerCase())
+          );
+          
+          if (!matchingBudget) {
+            console.log(`⚠️ Expense not matched to any budget:`, {
+              expense_id: e.id,
+              expense_title: e.title,
+              expense_amount: e.amount,
+              expense_category: e.category,
+              expense_categoryName: e.categoryName,
+              expense_budgetId: e.budgetId
+            });
+          }
+        });
+
+        const savingsProgress = validatedGoals.map(g => ({
+          id: g?.id || '',
+          title: g?.title || 'Unnamed Goal',
+          progress: g?.targetAmount ? ((g?.currentAmount || 0) / g.targetAmount) * 100 : 0,
+          nextSavingDate: g?.nextSavingDate || undefined,
+          targetAmount: g?.targetAmount || 0,
+          currentAmount: g?.currentAmount || 0
+        }));
+
+        console.log('Transformed arrays:', {
+          budgetUtilization: budgetUtilization.length,
+          savingsProgress: savingsProgress.length,
+          recentTransactions: safeExpenses.slice(0, 5).length
+        });
+
+        // Return the final object from the data promise
+        return {
+          totalBudgeted,
+          totalSpent,
+          totalSaved,
+          budgetUtilization,
+          savingsProgress,
+          recentTransactions: safeExpenses.slice(0, 5)
+        };
+      })();
+      
+      // Race the data promise against the timeout
+      return await Promise.race([dataPromise, timeoutPromise]);
+      
     } catch (error) {
       console.error('Error in getFinancialOverview:', error);
       // Return default structure with empty values

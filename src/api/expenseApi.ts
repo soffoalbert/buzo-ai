@@ -22,9 +22,18 @@ const getCurrentUserId = async (): Promise<string | null> => {
  */
 export const fetchExpenses = async (): Promise<Expense[]> => {
   try {
+    // Get the current user ID
+    const userId = await getCurrentUserId();
+    
+    if (!userId) {
+      console.warn('No user ID available, returning empty expenses array');
+      return [];
+    }
+
     const { data: expenses, error } = await supabase
       .from('expenses')
       .select('*')
+      .eq('user_id', userId)  // Filter by user ID
       .order('date', { ascending: false });
 
     if (error) {
@@ -47,6 +56,7 @@ export const fetchExpenses = async (): Promise<Expense[]> => {
       receiptImage: item.receipt_image_path || undefined,
       paymentMethod: item.payment_method || undefined,
       tags: item.tags || undefined,
+      user_id: item.user_id,  // Ensure user_id is included
       createdAt: new Date(item.created_at).toISOString(),
       updatedAt: new Date(item.updated_at).toISOString()
     }));

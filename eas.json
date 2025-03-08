@@ -9,12 +9,12 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal",
       "android": {
         "buildType": "apk"
       },
       "ios": {
         "simulator": false,
+        "distribution": "store",
         "autoIncrement": true
       }
     },

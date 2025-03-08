@@ -17,6 +17,8 @@ import OfflineStatusBar from './src/components/OfflineStatusBar';
 import { migrateApiKeyToSupabase } from './src/services/apiKeyManager';
 // Import ThemeProvider
 import { ThemeProvider } from './src/hooks/useTheme';
+// Import OfflineProvider
+import OfflineProvider from './src/providers/OfflineProvider';
 // Import test user initialization
 import initTestUser from './src/scripts/initTestUser';
 // Import database setup function
@@ -72,9 +74,6 @@ export default function App() {
         // Initialize deep link handling and store the cleanup function
         const cleanupDeepLinks = deepLinkHandler.initDeepLinkHandling();
         
-        // Initialize sync service
-        syncServiceCleanup.current = syncService.initializeSyncService();
-        
         // Initialize budget network listeners
         networkListenerCleanup.current = NetworkManager.initNetworkListener();
         
@@ -82,11 +81,6 @@ export default function App() {
           // Clean up deep links
           if (cleanupDeepLinks && typeof cleanupDeepLinks === 'function') {
             cleanupDeepLinks();
-          }
-          
-          // Clean up sync service
-          if (syncServiceCleanup.current) {
-            syncServiceCleanup.current();
           }
           
           // Clean up network listeners
@@ -151,8 +145,10 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <StatusBar style="auto" />
-        <AppContent />
+        <OfflineProvider>
+          <StatusBar style="auto" />
+          <AppContent />
+        </OfflineProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

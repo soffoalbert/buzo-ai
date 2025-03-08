@@ -1,10 +1,16 @@
 import offlineStorage, { PendingSyncItem } from './offlineStorage';
 import syncQueueService, { SyncQueueItem, SyncStatus } from './syncQueueService';
-import { AppState, AppStateStatus, Platform } from 'react-native';
+import { AppState, AppStateStatus, Platform, Alert } from 'react-native';
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
-// Import API service (to be implemented)
-// import api from './api';
+import NetInfo from '@react-native-community/netinfo';
+import { supabase } from '../api/supabaseClient';
+import { checkSupabaseConnection } from '../api/supabaseClient';
+import * as budgetApi from '../api/budgetApi';
+import * as expenseApi from '../api/expenseApi';
+import * as savingsApi from '../api/savingsApi';
+import { offlineDataService } from './offlineDataService';
+import { saveBudgets, saveExpenses, saveSavingsGoals } from './offlineStorage';
 
 // Constants
 const BACKGROUND_SYNC_TASK = 'BACKGROUND_SYNC_TASK';
@@ -12,7 +18,7 @@ const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 60000; // 1 minute
 const SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
-// Define types for mock data
+// Define types for data models
 interface Budget { id: string; [key: string]: any }
 interface Expense { id: string; [key: string]: any }
 interface SavingsGoal { id: string; [key: string]: any }
@@ -64,62 +70,143 @@ const processSyncItem = async (item: SyncQueueItem): Promise<boolean> => {
       return false;
     }
     
+    // Check if we have an internet connection
+    const online = await offlineStorage.isOnline();
+    if (!online) {
+      console.log('No internet connection, cannot sync item');
+      return false;
+    }
+    
+    // Check if Supabase is reachable
+    const isConnected = await checkSupabaseConnection();
+    if (!isConnected) {
+      console.log('Supabase not reachable, cannot sync item');
+      return false;
+    }
+    
     // Process based on entity type and operation
     switch (item.entity) {
       case 'budget':
-        // Uncomment and implement when API service is available
-        // if (item.type === 'create') {
-        //   await api.budgets.create(item.data);
-        // } else if (item.type === 'update') {
-        //   await api.budgets.update(item.data.id, item.data);
-        // } else if (item.type === 'delete') {
-        //   await api.budgets.delete(item.data.id);
-        // }
-        
-        // For now, just log the action
-        console.log(`Synced budget ${item.type} for ID ${item.data.id}`);
+        if (item.type === 'CREATE_BUDGET') {
+          // Create budget in Supabase
+          const { data: createData, error: createError } = await supabase
+            .from('budgets')
+            .insert([item.data])
+            .select()
+            .single();
+            
+          if (createError) {
+            console.error(`Error creating budget in Supabase: ${createError.message}`);
+            await syncQueueService.markSyncAttempt(item.id, createError.message);
+            return false;
+          }
+          
+          console.log(`Synced budget creation for ID ${item.data.id}`);
+          return true;
+        } else if (item.type === 'UPDATE_BUDGET') {
+          // Update budget in Supabase
+          const { data: updateData, error: updateError } = await supabase
+            .from('budgets')
+            .update(item.data)
+            .eq('id', item.data.id)
+            .select()
+            .single();
+            
+          if (updateError) {
+            console.error(`Error updating budget in Supabase: ${updateError.message}`);
+            await syncQueueService.markSyncAttempt(item.id, updateError.message);
+            return false;
+          }
+          
+          console.log(`Synced budget update for ID ${item.data.id}`);
+          return true;
+        } else if (item.type === 'DELETE_BUDGET') {
+          // Delete budget from Supabase
+          const { error: deleteError } = await supabase
+            .from('budgets')
+            .delete()
+            .eq('id', item.data.id);
+            
+          if (deleteError) {
+            console.error(`Error deleting budget from Supabase: ${deleteError.message}`);
+            await syncQueueService.markSyncAttempt(item.id, deleteError.message);
+            return false;
+          }
+          
+          console.log(`Synced budget deletion for ID ${item.data.id}`);
+          return true;
+        }
         break;
         
       case 'expense':
-        // Uncomment and implement when API service is available
-        // if (item.type === 'create') {
-        //   await api.expenses.create(item.data);
-        // } else if (item.type === 'update') {
-        //   await api.expenses.update(item.data.id, item.data);
-        // } else if (item.type === 'delete') {
-        //   await api.expenses.delete(item.data.id);
-        // }
-        
-        // For now, just log the action
-        console.log(`Synced expense ${item.type} for ID ${item.data.id}`);
+        if (item.type === 'create') {
+          // Create expense in Supabase
+          const createdExpense = await expenseApi.createExpense(item.data);
+          console.log(`Synced expense creation for ID ${item.data.id}`);
+          return true;
+        } else if (item.type === 'update') {
+          // Update expense in Supabase
+          await expenseApi.updateExpense(item.data.id, item.data);
+          console.log(`Synced expense update for ID ${item.data.id}`);
+          return true;
+        } else if (item.type === 'delete') {
+          // Delete expense from Supabase
+          await expenseApi.deleteExpense(item.data.id);
+          console.log(`Synced expense deletion for ID ${item.data.id}`);
+          return true;
+        }
         break;
         
       case 'savings':
-        // Uncomment and implement when API service is available
-        // if (item.type === 'create') {
-        //   await api.savings.create(item.data);
-        // } else if (item.type === 'update') {
-        //   await api.savings.update(item.data.id, item.data);
-        // } else if (item.type === 'delete') {
-        //   await api.savings.delete(item.data.id);
-        // }
-        
-        // For now, just log the action
-        console.log(`Synced savings goal ${item.type} for ID ${item.data.id}`);
-        break;
-        
-      case 'transaction':
-        // Uncomment and implement when API service is available
-        // if (item.type === 'create') {
-        //   await api.transactions.create(item.data);
-        // } else if (item.type === 'update') {
-        //   await api.transactions.update(item.data.id, item.data);
-        // } else if (item.type === 'delete') {
-        //   await api.transactions.delete(item.data.id);
-        // }
-        
-        // For now, just log the action
-        console.log(`Synced transaction ${item.type} for ID ${item.data.id}`);
+        if (item.type === 'CREATE_SAVINGS_GOAL') {
+          // Create savings goal in Supabase
+          const { data: createData, error: createError } = await supabase
+            .from('savings_goals')
+            .insert([item.data])
+            .select()
+            .single();
+            
+          if (createError) {
+            console.error(`Error creating savings goal in Supabase: ${createError.message}`);
+            await syncQueueService.markSyncAttempt(item.id, createError.message);
+            return false;
+          }
+          
+          console.log(`Synced savings goal creation for ID ${item.data.id}`);
+          return true;
+        } else if (item.type === 'UPDATE_SAVINGS_GOAL') {
+          // Update savings goal in Supabase
+          const { data: updateData, error: updateError } = await supabase
+            .from('savings_goals')
+            .update(item.data)
+            .eq('id', item.data.id)
+            .select()
+            .single();
+            
+          if (updateError) {
+            console.error(`Error updating savings goal in Supabase: ${updateError.message}`);
+            await syncQueueService.markSyncAttempt(item.id, updateError.message);
+            return false;
+          }
+          
+          console.log(`Synced savings goal update for ID ${item.data.id}`);
+          return true;
+        } else if (item.type === 'DELETE_SAVINGS_GOAL') {
+          // Delete savings goal from Supabase
+          const { error: deleteError } = await supabase
+            .from('savings_goals')
+            .delete()
+            .eq('id', item.data.id);
+            
+          if (deleteError) {
+            console.error(`Error deleting savings goal from Supabase: ${deleteError.message}`);
+            await syncQueueService.markSyncAttempt(item.id, deleteError.message);
+            return false;
+          }
+          
+          console.log(`Synced savings goal deletion for ID ${item.data.id}`);
+          return true;
+        }
         break;
         
       default:
@@ -127,7 +214,7 @@ const processSyncItem = async (item: SyncQueueItem): Promise<boolean> => {
         return false;
     }
     
-    return true;
+    return false;
   } catch (error) {
     console.error(`Error processing sync item ${item.id}:`, error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -137,9 +224,80 @@ const processSyncItem = async (item: SyncQueueItem): Promise<boolean> => {
 };
 
 /**
+ * Pull the latest data from the backend
+ */
+export const pullLatestData = async (): Promise<void> => {
+  try {
+    // Check if online
+    const online = await offlineStorage.isOnline();
+    if (!online) {
+      console.log('Device is offline, skipping pull of latest data');
+      return;
+    }
+    
+    // Check if Supabase is reachable
+    const isConnected = await checkSupabaseConnection();
+    if (!isConnected) {
+      console.log('Supabase not reachable, skipping pull of latest data');
+      return;
+    }
+    
+    // Get latest budgets
+    try {
+      const { data: budgets, error: budgetsError } = await supabase
+        .from('budgets')
+        .select('*')
+        .order('updated_at', { ascending: false });
+      
+      if (!budgetsError && budgets) {
+        // Save budgets to local storage
+        await saveBudgets(budgets);
+        console.log(`Pulled ${budgets.length} budgets from Supabase`);
+      } else {
+        console.error('Error pulling budgets:', budgetsError);
+      }
+    } catch (error) {
+      console.error('Error pulling budgets:', error);
+    }
+    
+    // Get latest expenses
+    try {
+      const expenses = await expenseApi.fetchExpenses();
+      
+      // Save expenses to local storage
+      await saveExpenses(expenses);
+      console.log(`Pulled ${expenses.length} expenses from Supabase`);
+    } catch (error) {
+      console.error('Error pulling expenses:', error);
+    }
+    
+    // Get latest savings goals
+    try {
+      const { data: savingsGoals, error: savingsError } = await supabase
+        .from('savings_goals')
+        .select('*')
+        .order('updated_at', { ascending: false });
+      
+      if (!savingsError && savingsGoals) {
+        // Save savings goals to local storage
+        await saveSavingsGoals(savingsGoals);
+        console.log(`Pulled ${savingsGoals.length} savings goals from Supabase`);
+      } else {
+        console.error('Error pulling savings goals:', savingsError);
+      }
+    } catch (error) {
+      console.error('Error pulling savings goals:', error);
+    }
+    
+    // Update last sync timestamp
+    await offlineStorage.updateLastSync();
+  } catch (error) {
+    console.error('Error in pullLatestData:', error);
+  }
+};
+
+/**
  * Synchronize pending changes with the backend
- * @param options Sync options
- * @returns Promise that resolves when sync is complete
  */
 export const syncPendingChanges = async (options: {
   forceSync?: boolean;
@@ -251,136 +409,96 @@ export const syncPendingChanges = async (options: {
     await syncQueueService.updateSyncStatus(status);
     notifySyncListeners(status);
     
-    // Update legacy last sync timestamp
+    // Update last sync timestamp
     await offlineStorage.updateLastSync();
-    
-    console.log('Sync completed successfully');
   } catch (error) {
-    console.error('Error syncing pending changes:', error);
+    console.error('Error in syncPendingChanges:', error);
     
     // Update sync status to indicate sync failed
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const status: SyncStatus = {
-      isSyncing: false,
+    const status = await syncQueueService.getSyncStatus() || {
       lastSyncAttempt: Date.now(),
       lastSuccessfulSync: null,
+      isSyncing: false,
       pendingCount: 0,
       failedCount: 0,
       syncProgress: 0,
-      error: errorMessage,
     };
-    await syncQueueService.updateSyncStatus(status);
-    notifySyncListeners(status);
     
-    throw error;
+    await syncQueueService.updateSyncStatus({
+      ...status,
+      isSyncing: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+    
+    notifySyncListeners(await syncQueueService.getSyncStatus() || status);
   }
 };
 
 /**
- * Pull latest data from the backend and update local storage
- * @returns Promise that resolves when pull is complete
- */
-export const pullLatestData = async (): Promise<void> => {
-  try {
-    // Check if device is online
-    const online = await offlineStorage.isOnline();
-    if (!online) {
-      console.log('Device is offline, skipping pull');
-      return;
-    }
-
-    // Get last sync timestamp
-    const lastSync = await offlineStorage.getLastSync();
-    console.log(`Pulling data since ${lastSync ? new Date(lastSync).toISOString() : 'never'}`);
-
-    // Fetch latest data from backend
-    // Uncomment and implement when API service is available
-    // const budgets = await api.budgets.getAll(lastSync);
-    // const expenses = await api.expenses.getAll(lastSync);
-    // const savingsGoals = await api.savings.getAll(lastSync);
-    // const transactions = await api.transactions.getAll(lastSync);
-
-    // For now, use mock data with proper typing
-    const budgets: Budget[] = []; // Mock data
-    const expenses: Expense[] = []; // Mock data
-    const savingsGoals: SavingsGoal[] = []; // Mock data
-    const transactions: Transaction[] = []; // Mock data
-
-    // Update local storage
-    await offlineStorage.saveBudgets(budgets);
-    await offlineStorage.saveExpenses(expenses);
-    await offlineStorage.saveSavingsGoals(savingsGoals);
-    await offlineStorage.saveTransactions(transactions);
-
-    // Update last sync timestamp
-    await offlineStorage.updateLastSync();
-    
-    console.log('Pull completed successfully');
-  } catch (error) {
-    console.error('Error pulling latest data:', error);
-    throw error;
-  }
-};
-
-/**
- * Perform a full sync (push pending changes and pull latest data)
- * @param options Sync options
- * @returns Promise that resolves when sync is complete
+ * Perform a full sync (push changes and pull latest data)
  */
 export const performFullSync = async (options: {
   forceSync?: boolean;
   maxItems?: number;
+  showAlert?: boolean;
 } = {}): Promise<void> => {
+  const { forceSync = false, maxItems = 50, showAlert = false } = options;
+  
   try {
-    // Check if device is online
-    const online = await offlineStorage.isOnline();
-    if (!online && !options.forceSync) {
-      console.log('Device is offline, skipping full sync');
-      return;
-    }
-
     // First push pending changes
-    await syncPendingChanges(options);
+    await syncPendingChanges({ forceSync, maxItems });
     
     // Then pull latest data
     await pullLatestData();
     
-    console.log('Full sync completed successfully');
+    if (showAlert) {
+      Alert.alert(
+        'Sync Complete',
+        'Your data has been synchronized with the server.',
+        [{ text: 'OK' }]
+      );
+    }
   } catch (error) {
-    console.error('Error performing full sync:', error);
-    throw error;
+    console.error('Error in performFullSync:', error);
+    
+    if (showAlert) {
+      Alert.alert(
+        'Sync Failed',
+        'There was a problem synchronizing your data. Please try again later.',
+        [{ text: 'OK' }]
+      );
+    }
   }
 };
 
 /**
- * Background sync task handler
- * @returns BackgroundFetch result
+ * Background sync handler
  */
 const backgroundSyncHandler = async (): Promise<BackgroundFetch.BackgroundFetchResult> => {
   try {
-    console.log('Background sync started');
+    // Check if online
+    const online = await offlineStorage.isOnline();
+    if (!online) {
+      console.log('Device is offline, skipping background sync');
+      return BackgroundFetch.BackgroundFetchResult.NoData;
+    }
     
-    // Check if there are pending items to sync
+    // Get sync queue
     const queue = await syncQueueService.getSyncQueue();
     if (queue.length === 0) {
       console.log('No pending items to sync in background');
       return BackgroundFetch.BackgroundFetchResult.NoData;
     }
     
-    // Check if device is online
-    const online = await offlineStorage.isOnline();
-    if (!online) {
-      console.log('Device is offline, skipping background sync');
-      return BackgroundFetch.BackgroundFetchResult.Failed;
-    }
+    console.log(`Background sync started with ${queue.length} pending items`);
     
-    // Perform sync with limited items to avoid timeouts
-    await syncPendingChanges({ maxItems: 20 });
+    // Perform full sync
+    await performFullSync({ maxItems: 20 }); // Limit to 20 items for background sync
     
     console.log('Background sync completed successfully');
     return BackgroundFetch.BackgroundFetchResult.NewData;
   } catch (error) {
-    console.error('Error during background sync:', error);
+    console.error('Error in background sync:', error);
     return BackgroundFetch.BackgroundFetchResult.Failed;
   }
 };
@@ -391,12 +509,12 @@ const backgroundSyncHandler = async (): Promise<BackgroundFetch.BackgroundFetchR
 export const registerBackgroundSync = async (): Promise<void> => {
   if (Platform.OS === 'ios' || Platform.OS === 'android') {
     try {
-      // Register task handler
+      // Define the task
       TaskManager.defineTask(BACKGROUND_SYNC_TASK, backgroundSyncHandler);
       
-      // Register background fetch
+      // Register the task
       const status = await BackgroundFetch.registerTaskAsync(BACKGROUND_SYNC_TASK, {
-        minimumInterval: SYNC_INTERVAL_MS / 1000, // Convert to seconds
+        minimumInterval: SYNC_INTERVAL_MS / 1000, // Convert ms to seconds
         stopOnTerminate: false,
         startOnBoot: true,
       });
@@ -429,68 +547,74 @@ export const unregisterBackgroundSync = async (): Promise<void> => {
  */
 const handleAppStateChange = (nextAppState: AppStateStatus) => {
   if (nextAppState === 'active') {
-    // App came to foreground, check for pending syncs
-    console.log('App came to foreground, checking for pending syncs');
-    performFullSync().catch(error => {
-      console.error('Error during app foreground sync:', error);
-    });
+    // App came to foreground, perform sync
+    performFullSync();
   }
 };
 
 /**
- * Initialize sync service and set up listeners
- * @returns Cleanup function to remove listeners
+ * Initialize sync service
  */
 export const initializeSyncService = (): (() => void) => {
-  console.log('Initializing sync service');
+  // Register app state change listener
+  const subscription = AppState.addEventListener('change', handleAppStateChange);
   
-  // Initialize sync queue status
-  syncQueueService.initSyncStatus().catch((error: Error) => {
-    console.error('Error initializing sync status:', error);
-  });
-  
-  // Perform initial sync
-  performFullSync().catch(error => {
-    console.error('Error during initial sync:', error);
+  // Register network change listener
+  const unsubscribeNetInfo = NetInfo.addEventListener(state => {
+    if (state.isConnected && state.isInternetReachable) {
+      // Network is available, sync pending changes
+      performFullSync();
+    }
   });
   
   // Register background sync
-  registerBackgroundSync().catch(error => {
-    console.error('Error registering background sync:', error);
-  });
+  registerBackgroundSync();
   
-  // Set up app state listener
-  const subscription = AppState.addEventListener('change', handleAppStateChange);
-  
-  // Set up network listener to sync when coming back online
-  const unsubscribeNetwork = offlineStorage.setupNetworkListener(() => {
-    console.log('Network connection restored, starting sync');
-    performFullSync().catch(error => {
-      console.error('Error during network-triggered sync:', error);
-    });
-  });
+  // Initialize sync status
+  syncQueueService.initSyncStatus();
   
   // Return cleanup function
   return () => {
-    // Remove app state listener
     subscription.remove();
-    
-    // Remove network listener
-    unsubscribeNetwork();
-    
-    // Unregister background sync
-    unregisterBackgroundSync().catch(error => {
-      console.error('Error unregistering background sync:', error);
-    });
+    unsubscribeNetInfo();
+    unregisterBackgroundSync();
   };
 };
 
+/**
+ * Check if there are pending sync items
+ */
+export const hasPendingSyncItems = async (): Promise<boolean> => {
+  const queue = await syncQueueService.getSyncQueue();
+  return queue.length > 0;
+};
+
+/**
+ * Get the count of pending sync items
+ */
+export const getPendingSyncCount = async (): Promise<number> => {
+  const queue = await syncQueueService.getSyncQueue();
+  return queue.length;
+};
+
+/**
+ * Reset all sync data (for testing/debugging)
+ */
+export const resetSyncData = async (): Promise<void> => {
+  await syncQueueService.clearSyncQueue();
+  await syncQueueService.resetSyncStatus();
+  console.log('Sync data reset');
+};
+
 export default {
+  performFullSync,
   syncPendingChanges,
   pullLatestData,
-  performFullSync,
-  initializeSyncService,
   registerBackgroundSync,
   unregisterBackgroundSync,
+  initializeSyncService,
   addSyncStatusListener,
+  hasPendingSyncItems,
+  getPendingSyncCount,
+  resetSyncData
 }; 

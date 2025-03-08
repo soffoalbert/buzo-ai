@@ -1,15 +1,37 @@
 import { SavingsGoal, SavingsMilestone, SAVINGS_CATEGORIES } from '../models/SavingsGoal';
-import { saveData, loadData, removeData } from './offlineStorage';
+import { 
+  saveData, 
+  loadData, 
+  removeData, 
+  isOnline,
+  saveSavingsGoals as saveGoalsToStorage,
+  loadSavingsGoals as loadGoalsFromStorage
+} from './offlineStorage';
 import { generateUUID } from '../utils/helpers';
 import * as savingsApi from '../api/savingsApi';
 import { checkSupabaseConnection } from '../api/supabaseClient';
-import syncQueueService from './syncQueueService';
 import { supabase } from '../api/supabaseClient';
+import { addToSyncQueue } from './syncQueueService';
 import { v4 as uuidv4 } from 'uuid';
 
 // Storage keys
 const SAVINGS_GOALS_STORAGE_KEY = 'buzo_savings_goals';
 const SAVINGS_CATEGORIES_STORAGE_KEY = 'buzo_savings_categories';
+
+// Add these functions for backward compatibility
+export const saveSavingsGoalsLocally = async (goals: SavingsGoal[]): Promise<void> => {
+  await saveGoalsToStorage(goals);
+};
+
+export const loadSavingsGoalsLocally = async (): Promise<SavingsGoal[]> => {
+  try {
+    const goals = await loadData<SavingsGoal[]>(SAVINGS_GOALS_STORAGE_KEY);
+    return goals || [];
+  } catch (error) {
+    console.error('Error loading savings goals from local storage:', error);
+    return [];
+  }
+};
 
 class SavingsService {
   private readonly tableName = 'savings_goals';
@@ -62,64 +84,90 @@ class SavingsService {
   async getUserSavingsGoals(userId: string): Promise<SavingsGoal[]> {
     console.log(`Getting savings goals for user: ${userId}`);
     
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .select(`
-        *,
-        milestones:savings_milestones(*)
-      `)
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching savings goals:', error);
-      throw error;
+    try {
+      // Check if we're online
+      const online = await checkSupabaseConnection();
+      
+      if (online) {
+        // Try to get goals from Supabase
+        try {
+          const { data, error } = await supabase
+            .from(this.tableName)
+            .select(`
+              *,
+              milestones:savings_milestones(*)
+            `)
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+          
+          if (error) {
+            console.error('Error fetching savings goals:', error);
+            throw error;
+          }
+          
+          console.log(`Found ${data?.length || 0} savings goals in database`);
+          
+          if (data && data.length > 0) {
+            console.log('First goal raw data sample:', JSON.stringify(data[0]).substring(0, 200) + '...');
+          }
+          
+          // Transform the data to match our model
+          const savingsGoals: SavingsGoal[] = (data || []).map(goal => {
+            // Parse milestones if any
+            const milestones = goal.milestones?.map((milestone: any) => ({
+              id: milestone.id,
+              title: milestone.title,
+              targetAmount: this.parseSafeNumber(milestone.amount, 0),
+              isCompleted: !!milestone.is_reached,
+              completedDate: milestone.completed_date,
+            })) || [];
+            
+            // Map database fields to our model
+            const mappedGoal = {
+              id: goal.id,
+              title: goal.title || 'Unnamed Goal',
+              description: goal.description,
+              targetAmount: this.parseSafeNumber(goal.target_amount, 0),
+              currentAmount: this.parseSafeNumber(goal.current_amount, 0),
+              startDate: goal.start_date || new Date().toISOString(),
+              targetDate: goal.target_date || new Date().toISOString(),
+              category: goal.category,
+              icon: goal.icon,
+              color: goal.color,
+              isCompleted: !!goal.is_completed,
+              isShared: !!goal.is_shared,
+              sharedWith: goal.shared_with || [],
+              milestones,
+              createdAt: goal.created_at || new Date().toISOString(),
+              updatedAt: goal.updated_at || new Date().toISOString(),
+              user_id: goal.user_id
+            };
+            
+            console.log(`Mapped goal: ${mappedGoal.title}, currentAmount: ${mappedGoal.currentAmount}, DB current_amount: ${goal.current_amount}`);
+            
+            return mappedGoal;
+          });
+          
+          // Save to local storage for offline use
+          await saveGoalsToStorage(savingsGoals);
+          
+          return savingsGoals;
+        } catch (error) {
+          console.error('Error fetching savings goals from Supabase:', error);
+          // Fall back to offline mode if Supabase fails
+        }
+      }
+      
+      // If offline or Supabase failed, get from local storage and filter by user ID
+      console.log('Getting savings goals from local storage while offline');
+      const localGoals = await loadGoalsFromStorage();
+      const filteredGoals = localGoals.filter(goal => goal.user_id === userId);
+      console.log(`Found ${filteredGoals.length} savings goals in local storage`);
+      return filteredGoals;
+    } catch (error) {
+      console.error('Error in getUserSavingsGoals:', error);
+      return [];
     }
-    
-    console.log(`Found ${data?.length || 0} savings goals in database`);
-    
-    if (data && data.length > 0) {
-      console.log('First goal raw data sample:', JSON.stringify(data[0]).substring(0, 200) + '...');
-    }
-    
-    // Transform the data to match our model
-    const savingsGoals: SavingsGoal[] = (data || []).map(goal => {
-      // Parse milestones if any
-      const milestones = goal.milestones?.map((milestone: any) => ({
-        id: milestone.id,
-        title: milestone.title,
-        targetAmount: this.parseSafeNumber(milestone.amount, 0),
-        isCompleted: !!milestone.is_reached,
-        completedDate: milestone.completed_date,
-      })) || [];
-      
-      // Map database fields to our model
-      const mappedGoal = {
-        id: goal.id,
-        title: goal.title || 'Unnamed Goal',
-        description: goal.description,
-        targetAmount: this.parseSafeNumber(goal.target_amount, 0),
-        currentAmount: this.parseSafeNumber(goal.current_amount, 0),
-        startDate: goal.start_date || new Date().toISOString(),
-        targetDate: goal.target_date || new Date().toISOString(),
-        category: goal.category,
-        icon: goal.icon,
-        color: goal.color,
-        isCompleted: !!goal.is_completed,
-        isShared: !!goal.is_shared,
-        sharedWith: goal.shared_with || [],
-        milestones,
-        createdAt: goal.created_at || new Date().toISOString(),
-        updatedAt: goal.updated_at || new Date().toISOString(),
-        user_id: goal.user_id
-      };
-      
-      console.log(`Mapped goal: ${mappedGoal.title}, currentAmount: ${mappedGoal.currentAmount}, DB current_amount: ${goal.current_amount}`);
-      
-      return mappedGoal;
-    });
-
-    return savingsGoals;
   }
 
   // Helper to safely parse a number
@@ -452,20 +500,6 @@ export const saveSavingsGoals = async (goals: SavingsGoal[]): Promise<SavingsGoa
 };
 
 /**
- * Load savings goals from local storage
- * @returns Promise resolving to array of savings goals or empty array if none found
- */
-export const loadSavingsGoalsLocally = async (): Promise<SavingsGoal[]> => {
-  try {
-    const goals = await loadData<SavingsGoal[]>(SAVINGS_GOALS_STORAGE_KEY);
-    return goals || [];
-  } catch (error) {
-    console.error('Error loading savings goals:', error);
-    return [];
-  }
-};
-
-/**
  * Load savings goals from Supabase or local storage if offline
  * @returns Promise resolving to array of savings goals
  */
@@ -479,20 +513,20 @@ export const loadSavingsGoals = async (): Promise<SavingsGoal[]> => {
       const goals = await savingsApi.fetchSavingsGoals();
       
       // Save to local storage for offline access
-      await saveSavingsGoals(goals);
+      await saveGoalsToStorage(goals);
       
       return goals;
     } else {
       // If offline, load from local storage
       console.log('Offline mode: Loading savings goals from local storage');
-      return loadSavingsGoalsLocally();
+      return loadGoalsFromStorage();
     }
   } catch (error) {
     console.error('Error loading savings goals:', error);
     
     // Fallback to local storage if there's an error
     console.log('Falling back to local storage for savings goals');
-    return loadSavingsGoalsLocally();
+    return loadGoalsFromStorage();
   }
 };
 
@@ -513,8 +547,8 @@ export const createSavingsGoal = async (
       const newGoal = await savingsApi.createSavingsGoal(goalData);
       
       // Update local storage
-      const currentGoals = await loadSavingsGoalsLocally();
-      await saveSavingsGoals([...currentGoals, newGoal]);
+      const currentGoals = await loadGoalsFromStorage();
+      await saveGoalsToStorage([...currentGoals, newGoal]);
       
       return newGoal;
     } else {
@@ -540,16 +574,17 @@ export const createSavingsGoal = async (
       };
       
       // Save locally
-      const currentGoals = await loadSavingsGoalsLocally();
-      await saveSavingsGoals([...currentGoals, newGoal]);
+      const currentGoals = await loadGoalsFromStorage();
+      await saveGoalsToStorage([...currentGoals, newGoal]);
       
       // Queue for sync when back online
-      await syncQueueService.addToSyncQueue({
+      await addToSyncQueue({
         id: newGoal.id,
         type: 'CREATE_SAVINGS_GOAL',
+        entity: 'savings',
         data: newGoal,
-        timestamp: Date.now(),
-      }, 5); // Higher priority for savings goals
+        table: 'savings_goals'
+      });
       
       return newGoal;
     }
@@ -608,31 +643,32 @@ export const deleteSavingsGoal = async (id: string): Promise<boolean> => {
       await savingsApi.deleteSavingsGoal(id);
       
       // Update local storage
-      const currentGoals = await loadSavingsGoalsLocally();
+      const currentGoals = await loadGoalsFromStorage();
       const updatedGoals = currentGoals.filter(goal => goal.id !== id);
-      await saveSavingsGoals(updatedGoals);
+      await saveGoalsToStorage(updatedGoals);
       
       return true;
     } else {
       // If offline, mark for deletion and queue for sync
       console.log('Offline mode: Marking savings goal for deletion');
       
-      const currentGoals = await loadSavingsGoalsLocally();
+      const currentGoals = await loadGoalsFromStorage();
       const updatedGoals = currentGoals.filter(goal => goal.id !== id);
       
       if (updatedGoals.length === currentGoals.length) {
         return false; // No goal was deleted
       }
       
-      await saveSavingsGoals(updatedGoals);
+      await saveGoalsToStorage(updatedGoals);
       
       // Queue for sync when back online
-      await syncQueueService.addToSyncQueue({
+      await addToSyncQueue({
         id,
         type: 'DELETE_SAVINGS_GOAL',
+        entity: 'savings',
         data: { id },
-        timestamp: Date.now(),
-      }, 5); // Higher priority for savings goals
+        table: 'savings_goals'
+      });
       
       return true;
     }
@@ -659,7 +695,7 @@ export const getSavingsGoalById = async (goalId: string): Promise<SavingsGoal | 
     } else {
       // If offline, fetch from local storage
       console.log('Offline mode: Loading savings goal from local storage');
-      const goals = await loadSavingsGoalsLocally();
+      const goals = await loadGoalsFromStorage();
       return goals.find(goal => goal.id === goalId) || null;
     }
   } catch (error) {
@@ -667,7 +703,7 @@ export const getSavingsGoalById = async (goalId: string): Promise<SavingsGoal | 
     
     // Fallback to local storage
     console.log('Falling back to local storage for savings goal');
-    const goals = await loadSavingsGoalsLocally();
+    const goals = await loadGoalsFromStorage();
     return goals.find(goal => goal.id === goalId) || null;
   }
 };
@@ -693,7 +729,7 @@ export const updateSavingsGoalAmount = async (goalId: string, newAmount: number)
     const isOnline = await checkSupabaseConnection();
     
     // Get the current goals
-    const currentGoals = await loadSavingsGoalsLocally();
+    const currentGoals = await loadGoalsFromStorage();
     const goalIndex = currentGoals.findIndex(goal => goal.id === goalId);
     
     if (goalIndex === -1) {
@@ -713,14 +749,20 @@ export const updateSavingsGoalAmount = async (goalId: string, newAmount: number)
     updatedGoals[goalIndex] = updatedGoal;
     
     // Save to local storage
-    await saveSavingsGoals(updatedGoals);
+    await saveGoalsToStorage(updatedGoals);
     
     if (isOnline) {
       // If online, update in Supabase
       await savingsApi.updateSavingsGoal(updatedGoal);
     } else {
       // If offline, queue for sync
-      await syncQueueService.addToQueue('update_savings_goal', updatedGoal);
+      await addToSyncQueue({
+        id: updatedGoal.id,
+        type: 'UPDATE_SAVINGS_GOAL',
+        entity: 'savings',
+        data: updatedGoal,
+        table: 'savings_goals'
+      });
     }
     
     return updatedGoal;
@@ -741,7 +783,7 @@ export const updateEntireSavingsGoal = async (goal: SavingsGoal): Promise<Saving
     const isOnline = await checkSupabaseConnection();
     
     // Get the current goals
-    const currentGoals = await loadSavingsGoalsLocally();
+    const currentGoals = await loadGoalsFromStorage();
     const goalIndex = currentGoals.findIndex(g => g.id === goal.id);
     
     if (goalIndex === -1) {
@@ -759,14 +801,20 @@ export const updateEntireSavingsGoal = async (goal: SavingsGoal): Promise<Saving
     updatedGoals[goalIndex] = updatedGoal;
     
     // Save to local storage
-    await saveSavingsGoals(updatedGoals);
+    await saveGoalsToStorage(updatedGoals);
     
     if (isOnline) {
       // If online, update in Supabase
       await savingsApi.updateSavingsGoal(updatedGoal);
     } else {
       // If offline, queue for sync
-      await syncQueueService.addToQueue('update_savings_goal', updatedGoal);
+      await addToSyncQueue({
+        id: updatedGoal.id,
+        type: 'UPDATE_SAVINGS_GOAL',
+        entity: 'savings',
+        data: updatedGoal,
+        table: 'savings_goals'
+      });
     }
     
     return updatedGoal;
@@ -1270,4 +1318,9 @@ export const withdrawFromSavingsGoal = async (
     console.error('Error withdrawing from savings goal:', error);
     throw error;
   }
+};
+
+// Also add this exported function for backward compatibility
+export const getUserSavingsGoals = async (userId: string): Promise<SavingsGoal[]> => {
+  return savingsService.getUserSavingsGoals(userId);
 }; 

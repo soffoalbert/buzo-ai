@@ -556,16 +556,29 @@ const HomeScreen: React.FC = () => {
     try {
       setLoading(true);
       
+      // Set a timeout to ensure loading state is cleared even if API calls fail or hang
+      const loadingTimeout = setTimeout(() => {
+        if (loading) {
+          console.warn('Data loading timeout reached, clearing loading state');
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }, 5000); // 5 second timeout
+      
       // Load user profile from authService
       const { data: profile, error: profileError } = await getUserProfile();
       
       if (profileError) {
         console.error('Error loading user profile:', profileError);
+        clearTimeout(loadingTimeout);
+        setLoading(false);
         return; // Exit early if we can't get the profile
       }
       
       if (!profile?.id) {
         console.error('No user profile ID available');
+        clearTimeout(loadingTimeout);
+        setLoading(false);
         return; // Exit early if no profile ID
       }
 
@@ -574,6 +587,9 @@ const HomeScreen: React.FC = () => {
       // Load integrated financial data
       const rawResponse = await financialIntegrationService.getFinancialOverview(profile.id);
       
+      // Clear timeout as data has been loaded
+      clearTimeout(loadingTimeout);
+
       console.log('Raw financial data:', JSON.stringify(rawResponse, null, 2));
       
       // Transform budget utilization data

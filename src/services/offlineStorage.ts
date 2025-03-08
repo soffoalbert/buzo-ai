@@ -20,6 +20,22 @@ export interface PendingSyncItem {
   timestamp: number;
 }
 
+// Add this near the top of the file
+// Cache for online status to prevent excessive network checks
+let onlineStatusCache: {
+  status: boolean | null;
+  timestamp: number;
+} = {
+  status: null,
+  timestamp: 0
+};
+
+// Max age for cached online status (1.5 seconds)
+const ONLINE_STATUS_CACHE_MS = 1500;
+
+// Timeout for network connectivity check (3 seconds)
+const CONNECTIVITY_CHECK_TIMEOUT_MS = 3000;
+
 /**
  * Save data to offline storage
  * @param key Storage key
@@ -64,17 +80,55 @@ export const removeData = async (key: string): Promise<void> => {
 };
 
 /**
- * Check if the device is online
+ * Check if the device is online with caching to prevent excessive network checks
  * @returns Promise that resolves to a boolean indicating if the device is online
  */
 export const isOnline = async (): Promise<boolean> => {
   try {
-    const netInfo = await NetInfo.fetch();
-    return netInfo.isConnected === true && netInfo.isInternetReachable === true;
+    const now = Date.now();
+    
+    // Use cached value if it's not expired
+    if (onlineStatusCache.status !== null && now - onlineStatusCache.timestamp < ONLINE_STATUS_CACHE_MS) {
+      return onlineStatusCache.status;
+    }
+    
+    // Create a promise that resolves with the network status
+    const networkCheckPromise = new Promise<boolean>(async (resolve) => {
+      try {
+        const netInfo = await NetInfo.fetch();
+        const isConnected = Boolean(netInfo.isConnected && netInfo.isInternetReachable);
+        
+        // Update cache
+        onlineStatusCache = {
+          status: isConnected,
+          timestamp: Date.now()
+        };
+        
+        resolve(isConnected);
+      } catch (error) {
+        console.warn('Error checking network status:', error);
+        
+        // If we can't check, assume offline if we have a cached value, otherwise assume online
+        const fallbackStatus = onlineStatusCache.status !== null ? onlineStatusCache.status : true;
+        resolve(fallbackStatus);
+      }
+    });
+    
+    // Add timeout to network check
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      setTimeout(() => {
+        // If timeout occurs, use last known status or assume online
+        const fallbackStatus = onlineStatusCache.status !== null ? onlineStatusCache.status : true;
+        resolve(fallbackStatus);
+      }, CONNECTIVITY_CHECK_TIMEOUT_MS);
+    });
+    
+    // Race the network check against the timeout
+    return await Promise.race([networkCheckPromise, timeoutPromise]);
   } catch (error) {
-    console.error('Error checking network status:', error);
-    // Fallback: assume online if we can't check
-    return true;
+    console.error('Unexpected error in isOnline check:', error);
+    // Fallback: assume online if we can't check, unless we have a cached value
+    return onlineStatusCache.status !== null ? onlineStatusCache.status : true;
   }
 };
 

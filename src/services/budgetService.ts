@@ -1,5 +1,5 @@
 import { Budget, BudgetCategory, DEFAULT_BUDGET_CATEGORIES } from '../models/Budget';
-import { saveData, loadData, removeData } from './offlineStorage';
+import { saveData, loadData, removeData, addToPendingSync, isOnline, saveBudgets, loadBudgets as loadBudgetsFromStorage } from './offlineStorage';
 import { generateUUID } from '../utils/helpers';
 import * as budgetApi from '../api/budgetApi';
 import { checkSupabaseConnection } from '../api/supabaseClient';
@@ -14,65 +14,234 @@ const BUDGET_CATEGORIES_STORAGE_KEY = 'buzo_budget_categories';
 class BudgetService {
   private readonly tableName = 'budgets';
 
-  async createBudget(budget: Budget): Promise<Budget> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .insert([{
-        ...budget,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }])
-      .select()
-      .single();
+  async createBudget(budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'> | Budget): Promise<Budget> {
+    try {
+      // Check online status
+      const online = await isOnline();
+      
+      // Get the current user from Supabase auth
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
+      
+      if (!userId) {
+        throw new Error('User not authenticated. Cannot create budget.');
+      }
 
-    if (error) throw error;
-    return data;
+      // Generate ID if not provided
+      const budgetId = (budget as any).id || generateUUID();
+      
+      // Create budget with timestamps and ID
+      const now = new Date().toISOString();
+      const newBudget: Budget = {
+        ...(budget as any),
+        id: budgetId,
+        createdAt: now,
+        updatedAt: now,
+        user_id: userId,
+        spent: (budget as any).spent || 0,
+        remainingAmount: (budget as any).remainingAmount !== undefined ? 
+          (budget as any).remainingAmount : 
+          (budget as any).amount - ((budget as any).spent || 0) - ((budget as any).savingsAllocation || 0)
+      };
+      
+      if (online) {
+        try {
+          // If online, create in Supabase
+          const { data, error } = await supabase
+            .from(this.tableName)
+            .insert([{
+              ...newBudget
+            }])
+            .select()
+            .single();
+
+          if (error) throw error;
+          
+          // Also update local storage
+          const storedBudgets = await loadBudgetsFromStorage();
+          await saveBudgets([...storedBudgets, newBudget]);
+          
+          return data;
+        } catch (error) {
+          console.error('Error creating budget in Supabase:', error);
+          // Fall back to offline mode if Supabase fails
+        }
+      }
+      
+      // Store locally and add to sync queue
+      const storedBudgets = await loadBudgetsFromStorage();
+      await saveBudgets([...storedBudgets, newBudget]);
+      
+      // Add to sync queue for later synchronization
+      await syncQueueService.addToSyncQueue({
+        id: budgetId,
+        type: 'CREATE_BUDGET',
+        entity: 'budget',
+        data: newBudget,
+        table: this.tableName
+      }, 2); // Higher priority (2) for budgets
+      
+      return newBudget;
+    } catch (error) {
+      console.error('Error in createBudget:', error);
+      throw error;
+    }
   }
 
   async getBudget(id: string): Promise<Budget | null> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
-    return data;
-  }
-
-  async getUserBudgets(userId: string): Promise<Budget[]> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    try {
+      // First try to get from local storage for fastest response
+      const budgets = await loadBudgetsFromStorage();
+      const localBudget = budgets.find(b => b.id === id);
+      
+      // If found locally and not in offline mode, return it
+      if (localBudget) {
+        return localBudget;
+      }
+      
+      // If not found locally, try to get from Supabase
+      const online = await isOnline();
+      if (online) {
+        const { data, error } = await supabase
+          .from(this.tableName)
+          .select('*')
+          .eq('id', id)
+          .single();
+        
+        if (error) {
+          console.error('Error fetching budget from Supabase:', error);
+          // Return null if not found online either
+          return null;
+        }
+        
+        // Save to local storage for future use
+        if (data) {
+          const storedBudgets = await loadBudgetsFromStorage();
+          const updatedBudgets = storedBudgets.filter(b => b.id !== id);
+          await saveBudgets([...updatedBudgets, data]);
+          return data;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error in getBudget:', error);
+      return null;
+    }
   }
 
   async updateBudget(budget: Budget): Promise<Budget> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .update({
-        ...budget,
-        updatedAt: new Date().toISOString()
-      })
-      .eq('id', budget.id)
-      .select()
-      .single();
+    try {
+      if (!budget.id) {
+        throw new Error('Budget ID is required for update');
+      }
+      
+      // Update timestamp
+      budget.updatedAt = new Date().toISOString();
+      
+      // Check online status
+      const online = await isOnline();
+      
+      if (online) {
+        try {
+          // If online, update in Supabase
+          const { data, error } = await supabase
+            .from(this.tableName)
+            .update(budget)
+            .eq('id', budget.id)
+            .select()
+            .single();
 
-    if (error) throw error;
-    return data;
+          if (error) throw error;
+          
+          // Also update local storage
+          const storedBudgets = await loadBudgetsFromStorage();
+          const updatedBudgets = storedBudgets.map(b => 
+            b.id === budget.id ? budget : b
+          );
+          await saveBudgets(updatedBudgets);
+          
+          return data;
+        } catch (error) {
+          console.error('Error updating budget in Supabase:', error);
+          // Fall back to offline mode if Supabase fails
+        }
+      }
+      
+      // Store locally and add to sync queue
+      const storedBudgets = await loadBudgetsFromStorage();
+      const updatedBudgets = storedBudgets.map(b => 
+        b.id === budget.id ? budget : b
+      );
+      await saveBudgets(updatedBudgets);
+      
+      // Add to sync queue for later synchronization
+      await syncQueueService.addToSyncQueue({
+        id: budget.id,
+        type: 'UPDATE_BUDGET',
+        entity: 'budget',
+        data: budget,
+        table: this.tableName
+      }, 2); // Higher priority (2) for budgets
+      
+      return budget;
+    } catch (error) {
+      console.error('Error in updateBudget:', error);
+      throw error;
+    }
   }
 
-  async deleteBudget(id: string): Promise<void> {
-    const { error } = await supabase
-      .from(this.tableName)
-      .delete()
-      .eq('id', id);
+  async deleteBudget(id: string): Promise<boolean> {
+    try {
+      // Check online status
+      const online = await isOnline();
+      
+      if (online) {
+        try {
+          // If online, delete from Supabase
+          const { error } = await supabase
+            .from(this.tableName)
+            .delete()
+            .eq('id', id);
 
-    if (error) throw error;
+          if (error) throw error;
+          
+          // Also remove from local storage
+          const storedBudgets = await loadBudgetsFromStorage();
+          const filteredBudgets = storedBudgets.filter(b => b.id !== id);
+          await saveBudgets(filteredBudgets);
+          
+          return true;
+        } catch (error) {
+          console.error('Error deleting budget from Supabase:', error);
+          // Fall back to offline mode if Supabase fails
+        }
+      }
+      
+      // Remove from local storage
+      const storedBudgets = await loadBudgetsFromStorage();
+      const filteredBudgets = storedBudgets.filter(b => b.id !== id);
+      await saveBudgets(filteredBudgets);
+      
+      // Get the budget before deletion for the sync queue
+      const budgetToDelete = storedBudgets.find(b => b.id === id);
+      
+      // Add to sync queue for later synchronization
+      if (budgetToDelete) {
+        await syncQueueService.addToSyncQueue({
+          id,
+          type: 'DELETE_BUDGET',
+          entity: 'budget',
+          data: { id }, // Only need the ID for deletion
+          table: this.tableName
+        }, 2); // Higher priority (2) for budgets
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in deleteBudget:', error);
+      return false;
+    }
   }
 
   // Integration methods
@@ -119,6 +288,77 @@ class BudgetService {
       utilizationPercentage: (budget.spent / budget.amount) * 100,
       savingsPercentage: ((budget.savingsAllocation || 0) / budget.amount) * 100
     };
+  }
+
+  // Get all budgets (with offline support)
+  async getAllBudgets(): Promise<Budget[]> {
+    try {
+      // Check online status
+      const online = await isOnline();
+      
+      if (online) {
+        try {
+          // If online, get from Supabase
+          const { data, error } = await supabase
+            .from(this.tableName)
+            .select('*')
+            .order('createdAt', { ascending: false });
+
+          if (error) throw error;
+          
+          // Update local storage with fresh data
+          if (data) {
+            await saveBudgets(data);
+            return data;
+          }
+        } catch (error) {
+          console.error('Error fetching budgets from Supabase:', error);
+          // Fall back to local storage if Supabase fails
+        }
+      }
+      
+      // Return from local storage
+      return await loadBudgetsFromStorage();
+    } catch (error) {
+      console.error('Error in getAllBudgets:', error);
+      return [];
+    }
+  }
+
+  async getUserBudgets(userId: string): Promise<Budget[]> {
+    try {
+      // Check if online
+      const online = await isOnline();
+      
+      if (online) {
+        try {
+          // If online, try to get from Supabase
+          const { data, error } = await supabase
+            .from(this.tableName)
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+          if (error) throw error;
+          
+          // Update local storage with fresh data
+          if (data) {
+            await saveBudgets(data as Budget[]);
+            return data as Budget[];
+          }
+        } catch (error) {
+          console.error('Error fetching budgets from Supabase:', error);
+          // Fall back to local storage if Supabase fails
+        }
+      }
+      
+      // If offline or Supabase failed, get from local storage and filter by user ID
+      const localBudgets = await loadBudgetsFromStorage();
+      return localBudgets.filter(budget => budget.user_id === userId);
+    } catch (error) {
+      console.error('Error in getUserBudgets:', error);
+      return [];
+    }
   }
 }
 
@@ -172,7 +412,7 @@ export const loadBudgets = async (): Promise<Budget[]> => {
       // If online, fetch from Supabase using getUserBudgets
       const budgetService = new BudgetService();
       console.log(`Fetching budgets from Supabase for user ${user.id}`);
-      const budgets = await budgetService.getUserBudgets(user.id);
+      const budgets = await budgetService.getAllBudgets();
       
       // Save to local storage for offline access
       console.log(`Saving ${budgets.length} budgets to local storage for offline access`);
@@ -684,4 +924,9 @@ Object.assign(budgetService, {
       return [];
     }
   }
-}); 
+});
+
+// Also add this exported function for backward compatibility
+export const getUserBudgets = async (userId: string): Promise<Budget[]> => {
+  return budgetService.getUserBudgets(userId);
+}; 
