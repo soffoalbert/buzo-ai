@@ -43,9 +43,8 @@ class ExpenseService {
       // Check if we're online
       const online = await isOnline();
       
-      // Get the current user from Supabase auth
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id;
+      // Get user ID with offline support
+      const userId = await getUserId();
       
       if (!userId) {
         throw new Error('User not authenticated. Cannot create expense.');
