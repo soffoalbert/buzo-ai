@@ -25,6 +25,9 @@ import {
   checkAndRepairCorruptedGoals 
 } from '../services/savingsService';
 import { SavingsGoal, SAVINGS_TIPS } from '../models/SavingsGoal';
+import syncService from '../services/syncService';
+import { SyncStatus } from '../services/syncQueueService';
+import { formatCurrency, formatDate } from '../utils/helpers';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
  
@@ -79,6 +82,20 @@ const SavingsScreen: React.FC = () => {
       loadData();
     }, [loadData])
   );
+  
+  // Add a sync listener to refresh data when sync completes
+  useEffect(() => {
+    const unsubscribe = syncService.addSyncStatusListener((status: SyncStatus) => {
+      if (!status.isSyncing && status.lastSuccessfulSync) {
+        // If sync just completed, reload data
+        console.log('Sync completed, refreshing savings data...');
+        loadData();
+      }
+    });
+    
+    // Cleanup on unmount
+    return () => unsubscribe();
+  }, [loadData]);
   
   // Handle refresh
   const handleRefresh = () => {
@@ -158,16 +175,6 @@ const SavingsScreen: React.FC = () => {
       Alert.alert('Error', 'Failed to load goals for repair. Please try again.');
       setIsRepairing(false);
     }
-  };
-  
-  // Format date for display
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-ZA', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
   };
   
   // Calculate days remaining until deadline

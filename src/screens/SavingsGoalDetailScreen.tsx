@@ -22,20 +22,31 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../navigation/types';
+import { SAVINGS_CATEGORIES, SavingsGoal } from '../models/SavingsGoal';
+import { savingsService } from '../services/savingsService';
+import { isOnline } from '../services/offlineStorage';
+import { colors } from '../utils/theme';
+import Card from '../components/Card';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { LineChart } from 'react-native-chart-kit';
+import { SavingsGoalRecommendation } from '../components/SavingsGoalRecommendation';
+import { Milestone } from '../components/Milestone';
+import syncService from '../services/syncService';
+import { SyncStatus } from '../services/syncQueueService';
 
 import ProgressBar from '../components/ProgressBar';
 import Button from '../components/Button';
-import Card from '../components/Card';
 import Input from '../components/Input';
 import AIRecommendationCard from '../components/AIRecommendationCard';
 import Chart from '../components/Chart';
 
-import { colors, spacing, textStyles, borderRadius, shadows } from '../utils/theme';
-import { SavingsGoal, SavingsMilestone, SAVINGS_CATEGORIES } from '../models/SavingsGoal';
+import { spacing, textStyles, borderRadius, shadows } from '../utils/theme';
 import { formatCurrency, calculatePercentage, calculateDaysLeft, formatDate } from '../utils/helpers';
 import { loadSavingsGoals } from '../services/savingsService';
-import { RootStackParamList } from '../navigation';
-import { savingsService } from '../services/savingsService';
+import { checkIsOnline } from '../services/offlineStorage';
 
 const { width } = Dimensions.get('window');
 
@@ -102,6 +113,9 @@ const SavingsGoalDetailScreen = () => {
       setIsLoading(true);
       console.log('[Load Goal] Loading savings goal:', { goalId });
       
+      // Import the singleton instance to ensure we have access to it
+      const { savingsService } = await import('../services/savingsService');
+      
       const goal = await savingsService.getSavingsGoal(goalId);
       
       console.log('[Load Goal] Service response:', {
@@ -113,18 +127,30 @@ const SavingsGoalDetailScreen = () => {
       if (goal) {
         setSavingsGoal(goal);
         
-        // Load contribution history
-        const contributionHistory = await savingsService.getSavingsContributions(goalId);
-        console.log('[Load Goal] Contribution history:', {
-          count: contributionHistory.length
-        });
-        
-        setContributions(contributionHistory);
-        // Show chart data even with just one contribution
-        setHasContributionData(contributionHistory.length > 0); 
+        try {
+          // Load contribution history - this is non-critical and can fail
+          const contributionHistory = await savingsService.getSavingsContributions(goalId);
+          console.log('[Load Goal] Contribution history:', {
+            count: contributionHistory.length
+          });
+          
+          setContributions(contributionHistory);
+          // Show chart data even with just one contribution
+          setHasContributionData(contributionHistory.length > 0);
+        } catch (contribError) {
+          console.warn('[Load Goal] Could not load contributions, but goal was loaded:', contribError);
+          // This is ok - we just won't show contribution history
+          setContributions([]);
+          setHasContributionData(false);
+        }
       } else {
         console.error(`No savings goal found with id ${goalId}`);
-        navigation.goBack();
+        Alert.alert('Error', 'Savings goal not found', [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack()
+          }
+        ]);
       }
     } catch (error) {
       console.error('[Load Goal] Error details:', error);
@@ -147,6 +173,41 @@ const SavingsGoalDetailScreen = () => {
       useNativeDriver: false
     }).start();
   }, [progress]);
+
+  // Listen for online status changes
+  useEffect(() => {
+    const checkOnlineStatus = async () => {
+      try {
+        const online = await isOnline();
+        setIsOnline(online);
+      } catch (error) {
+        console.error('Error checking online status:', error);
+        setIsOnline(false);
+      }
+    };
+    
+    checkOnlineStatus();
+    
+    const interval = setInterval(checkOnlineStatus, 10000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  // Add a sync listener to refresh data when sync completes
+  useEffect(() => {
+    // Import dynamically to avoid circular dependencies
+    import('../services/syncService').then((syncServiceModule) => {
+      const unsubscribe = syncServiceModule.default.addSyncStatusListener((status) => {
+        if (!status.isSyncing && status.lastSuccessfulSync) {
+          // If sync just completed, reload the savings goal
+          console.log('[SavingsGoalDetail] Sync completed, refreshing goal data...');
+          loadSavingsGoal();
+        }
+      });
+      
+      // Cleanup on unmount
+      return () => unsubscribe();
+    });
+  }, [goalId]);
 
   // Handle back navigation
   const handleBack = () => {
@@ -174,6 +235,9 @@ const SavingsGoalDetailScreen = () => {
         amount,
         currentAmount: savingsGoal.currentAmount
       });
+
+      // Import the singleton instance to ensure we have access to it
+      const { savingsService } = await import('../services/savingsService');
 
       // Use savingsService to add contribution
       console.log('[Contribution] Calling savingsService.addContribution...');
@@ -284,6 +348,9 @@ const SavingsGoalDetailScreen = () => {
         amount,
         currentMilestones: savingsGoal.milestones?.length
       });
+      
+      // Import the singleton instance to ensure we have access to it
+      const { savingsService } = await import('../services/savingsService');
       
       // Use savingsService to add milestone
       console.log('[Milestone] Calling savingsService.addMilestoneToSavingsGoal...');

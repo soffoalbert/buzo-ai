@@ -13,6 +13,7 @@ import { checkSupabaseConnection } from '../api/supabaseClient';
 import { supabase } from '../api/supabaseClient';
 import { addToSyncQueue } from './syncQueueService';
 import { v4 as uuidv4 } from 'uuid';
+import { getUserId } from './fixed/getUserId';
 
 // Storage keys
 const SAVINGS_GOALS_STORAGE_KEY = 'buzo_savings_goals';
@@ -39,9 +40,10 @@ class SavingsService {
   private readonly milestonesTable = 'savings_milestones';
 
   async createSavingsGoal(goal: SavingsGoal): Promise<SavingsGoal> {
-    const { data: { user } } = await supabase.auth.getUser();
+    // Get user ID with offline support
+    const userId = await getUserId();
     
-    if (!user) {
+    if (!userId) {
       throw new Error('User not authenticated');
     }
 
@@ -49,7 +51,7 @@ class SavingsService {
       .from(this.tableName)
       .insert([{
         ...goal,
-        user_id: user.id,
+        user_id: userId,
         current_amount: 0,
         is_completed: false,
         created_at: new Date().toISOString(),
@@ -67,18 +69,51 @@ class SavingsService {
   }
 
   async getSavingsGoal(id: string): Promise<SavingsGoal | null> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .select(`
-        *,
-        milestones:${this.milestonesTable}(*),
-        contributions:${this.contributionsTable}(*)
-      `)
-      .eq('id', id)
-      .single();
+    try {
+      // Check if we're online
+      const online = await isOnline();
+      
+      if (online) {
+        // Try to get from Supabase when online
+        try {
+          const { data, error } = await supabase
+            .from(this.tableName)
+            .select(`
+              *,
+              milestones:${this.milestonesTable}(*),
+              contributions:${this.contributionsTable}(*)
+            `)
+            .eq('id', id)
+            .single();
 
-    if (error) throw error;
-    return data ? this.mapToSavingsGoal(data) : null;
+          if (error) {
+            console.error('Error fetching savings goal from Supabase:', error);
+            throw error;
+          }
+          
+          return data ? this.mapToSavingsGoal(data) : null;
+        } catch (error) {
+          console.error('Error in online getSavingsGoal:', error);
+          // Fall back to local storage if Supabase fails
+        }
+      }
+      
+      // If offline or Supabase failed, get from local storage
+      console.log('Offline mode: Loading savings goal from local storage');
+      const localGoals = await loadGoalsFromStorage();
+      return localGoals.find(goal => goal.id === id) || null;
+    } catch (error) {
+      console.error('Error in getSavingsGoal:', error);
+      
+      // As a last resort, try to load from local storage
+      try {
+        const localGoals = await loadGoalsFromStorage();
+        return localGoals.find(goal => goal.id === id) || null;
+      } catch (storageError) {
+        console.error('Error loading goal from storage:', storageError);
+        return null;
+      }
+    }
   }
 
   async getUserSavingsGoals(userId: string): Promise<SavingsGoal[]> {
@@ -86,7 +121,7 @@ class SavingsService {
     
     try {
       // Check if we're online
-      const online = await checkSupabaseConnection();
+      const online = await isOnline();
       
       if (online) {
         // Try to get goals from Supabase
@@ -102,7 +137,9 @@ class SavingsService {
           
           if (error) {
             console.error('Error fetching savings goals:', error);
-            throw error;
+            // Fall back to local storage if there's an error 
+            const localGoals = await loadGoalsFromStorage();
+            return localGoals.filter(goal => goal.user_id === userId);
           }
           
           console.log(`Found ${data?.length || 0} savings goals in database`);
@@ -118,55 +155,48 @@ class SavingsService {
               id: milestone.id,
               title: milestone.title,
               targetAmount: this.parseSafeNumber(milestone.amount, 0),
-              isCompleted: !!milestone.is_reached,
+              isCompleted: milestone.is_completed,
               completedDate: milestone.completed_date,
+              contributingBudgets: milestone.contributing_budgets,
             })) || [];
             
-            // Map database fields to our model
-            const mappedGoal = {
-              id: goal.id,
-              title: goal.title || 'Unnamed Goal',
-              description: goal.description,
-              targetAmount: this.parseSafeNumber(goal.target_amount, 0),
-              currentAmount: this.parseSafeNumber(goal.current_amount, 0),
-              startDate: goal.start_date || new Date().toISOString(),
-              targetDate: goal.target_date || new Date().toISOString(),
-              category: goal.category,
-              icon: goal.icon,
-              color: goal.color,
-              isCompleted: !!goal.is_completed,
-              isShared: !!goal.is_shared,
-              sharedWith: goal.shared_with || [],
-              milestones,
-              createdAt: goal.created_at || new Date().toISOString(),
-              updatedAt: goal.updated_at || new Date().toISOString(),
-              user_id: goal.user_id
-            };
+            const mappedGoal = this.mapToSavingsGoal(goal);
+            
+            // Add milestones to the goal
+            mappedGoal.milestones = milestones;
             
             console.log(`Mapped goal: ${mappedGoal.title}, currentAmount: ${mappedGoal.currentAmount}, DB current_amount: ${goal.current_amount}`);
             
             return mappedGoal;
           });
           
-          // Save to local storage for offline use
+          // Save to local storage for offline access
           await saveGoalsToStorage(savingsGoals);
           
           return savingsGoals;
         } catch (error) {
           console.error('Error fetching savings goals from Supabase:', error);
-          // Fall back to offline mode if Supabase fails
+          // Fall back to local storage if there's an error
+          const localGoals = await loadGoalsFromStorage();
+          return localGoals.filter(goal => goal.user_id === userId);
         }
+      } else {
+        // If offline, load from local storage
+        console.log('Offline mode: Loading savings goals from local storage');
+        const localGoals = await loadGoalsFromStorage();
+        return localGoals.filter(goal => goal.user_id === userId);
       }
-      
-      // If offline or Supabase failed, get from local storage and filter by user ID
-      console.log('Getting savings goals from local storage while offline');
-      const localGoals = await loadGoalsFromStorage();
-      const filteredGoals = localGoals.filter(goal => goal.user_id === userId);
-      console.log(`Found ${filteredGoals.length} savings goals in local storage`);
-      return filteredGoals;
     } catch (error) {
       console.error('Error in getUserSavingsGoals:', error);
-      return [];
+      
+      // As a last resort, try to get from local storage
+      try {
+        const localGoals = await loadGoalsFromStorage();
+        return localGoals.filter(goal => goal.user_id === userId);
+      } catch (storageError) {
+        console.error('Error loading goals from storage:', storageError);
+        return [];
+      }
     }
   }
 
@@ -205,9 +235,14 @@ class SavingsService {
   // Integration methods
   async addContribution(goalId: string, amount: number, source: 'manual' | 'automated' | 'budget_allocation' = 'manual', metadata?: { budgetId?: string; expenseId?: string }): Promise<SavingsGoal> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      // Check if we're online
+      const online = await isOnline();
+      console.log('[addContribution] Online status:', online);
       
-      if (!user) {
+      // Get user ID with offline support
+      const userId = await getUserId();
+      
+      if (!userId) {
         throw new Error('User not authenticated');
       }
 
@@ -217,69 +252,95 @@ class SavingsService {
         throw new Error(`Savings goal with id ${goalId} not found`);
       }
 
-      // Insert the contribution
-      const { data: contribution, error: contributionError } = await supabase
-        .from(this.contributionsTable)
-        .insert([{
-          goal_id: goalId,
-          user_id: user.id,
-          amount: amount,
-          source: source,
-          budget_id: metadata?.budgetId,
-          expense_id: metadata?.expenseId,
-          created_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
-
-      if (contributionError) {
-        throw contributionError;
-      }
-
       // Calculate new amount
       const newAmount = goal.currentAmount + amount;
       const isCompleted = newAmount >= goal.targetAmount;
 
-      // Update the goal with new amount
-      const { data: updatedGoal, error: goalError } = await supabase
-        .from(this.tableName)
-        .update({
-          current_amount: newAmount,
-          is_completed: isCompleted,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', goalId)
-        .select(`
-          *,
-          milestones:${this.milestonesTable}(*),
-          contributions:${this.contributionsTable}(*)
-        `)
-        .single();
+      if (online) {
+        console.log('[addContribution] Online mode - updating in Supabase');
+        // Insert the contribution
+        const { data: contribution, error: contributionError } = await supabase
+          .from(this.contributionsTable)
+          .insert([{
+            goal_id: goalId,
+            user_id: userId,
+            amount: amount,
+            source: source,
+            budget_id: metadata?.budgetId,
+            expense_id: metadata?.expenseId,
+            created_at: new Date().toISOString()
+          }])
+          .select()
+          .single();
 
-      if (goalError) {
-        throw goalError;
-      }
-
-      // Update milestone completion status if needed
-      if (goal.milestones?.length) {
-        const milestoneUpdates = goal.milestones
-          .filter(m => !m.isCompleted && newAmount >= m.targetAmount)
-          .map(m => ({
-            id: m.id,
-            is_reached: true,
-            completed_date: new Date().toISOString()
-          }));
-
-        if (milestoneUpdates.length > 0) {
-          await supabase
-            .from(this.milestonesTable)
-            .upsert(milestoneUpdates);
+        if (contributionError) {
+          console.error('[addContribution] Error inserting contribution:', contributionError);
+          throw contributionError;
         }
-      }
 
-      return this.mapToSavingsGoal(updatedGoal);
+        // Update the goal with new amount
+        const { data: updatedGoal, error: goalError } = await supabase
+          .from(this.tableName)
+          .update({
+            current_amount: newAmount,
+            is_completed: isCompleted,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', goalId)
+          .select(`
+            *,
+            milestones:${this.milestonesTable}(*)
+          `)
+          .single();
+
+        if (goalError) {
+          console.error('[addContribution] Error updating goal:', goalError);
+          throw goalError;
+        }
+
+        // Return the updated goal
+        return this.mapToSavingsGoal(updatedGoal);
+      } else {
+        console.log('[addContribution] Offline mode - updating locally');
+        // Offline mode - update locally and queue for sync
+        
+        // Get all goals to update the specific one
+        const allGoals = await loadSavingsGoalsLocally();
+        const goalIndex = allGoals.findIndex(g => g.id === goalId);
+        
+        if (goalIndex === -1) {
+          throw new Error(`Savings goal with id ${goalId} not found locally`);
+        }
+        
+        // Update the goal
+        allGoals[goalIndex] = {
+          ...allGoals[goalIndex],
+          currentAmount: newAmount,
+          isCompleted: isCompleted,
+          updatedAt: new Date().toISOString()
+        };
+        
+        // Save back to local storage
+        await saveSavingsGoalsLocally(allGoals);
+        
+        // Queue contribution for sync when back online
+        await addToSyncQueue({
+          id: `contrib_${generateUUID()}`,
+          type: 'create',
+          entity: 'savings',
+          data: {
+            goalId: goalId,
+            amount: amount,
+            source: source,
+            metadata: metadata
+          },
+          table: 'savings_contributions'
+        });
+        
+        return allGoals[goalIndex];
+      }
     } catch (error) {
-      console.error('Error adding contribution:', error);
+      console.error('[addContribution] Error:', error);
       throw error;
     }
   }
@@ -324,9 +385,14 @@ class SavingsService {
     milestone: { title: string; targetAmount: number }
   ): Promise<SavingsGoal> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      // Check if we're online
+      const online = await isOnline();
+      console.log('[addMilestoneToSavingsGoal class] Online status:', online);
       
-      if (!user) {
+      // Use getUserId which works offline
+      const userId = await getUserId();
+      
+      if (!userId) {
         throw new Error('User not authenticated');
       }
 
@@ -336,43 +402,93 @@ class SavingsService {
         throw new Error(`Savings goal with id ${goalId} not found`);
       }
 
-      // Insert the milestone
-      const { data: insertedMilestone, error: milestoneError } = await supabase
-        .from(this.milestonesTable)
-        .insert([{
-          goal_id: goalId,
-          user_id: user.id,
+      if (online) {
+        console.log('[addMilestoneToSavingsGoal class] Online mode - using Supabase');
+        // Insert the milestone
+        const { data: insertedMilestone, error: milestoneError } = await supabase
+          .from(this.milestonesTable)
+          .insert([{
+            goal_id: goalId,
+            user_id: userId,
+            title: milestone.title,
+            amount: milestone.targetAmount,
+            is_reached: goal.currentAmount >= milestone.targetAmount,
+            completed_date: goal.currentAmount >= milestone.targetAmount ? new Date().toISOString() : null,
+            created_at: new Date().toISOString()
+          }])
+          .select()
+          .single();
+
+        if (milestoneError) {
+          throw milestoneError;
+        }
+
+        // Update the goal's milestones array
+        const milestones = goal.milestones || [];
+        const newMilestone: SavingsMilestone = {
+          id: insertedMilestone.id,
           title: milestone.title,
-          amount: milestone.targetAmount,
-          is_reached: goal.currentAmount >= milestone.targetAmount,
-          completed_date: goal.currentAmount >= milestone.targetAmount ? new Date().toISOString() : null,
-          created_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
+          targetAmount: milestone.targetAmount,
+          isCompleted: goal.currentAmount >= milestone.targetAmount,
+          completedDate: goal.currentAmount >= milestone.targetAmount ? new Date().toISOString() : undefined,
+        };
 
-      if (milestoneError) {
-        throw milestoneError;
+        // Return the updated goal with the new milestone
+        return this.updateSavingsGoal({
+          ...goal,
+          milestones: [...milestones, newMilestone],
+        });
+      } else {
+        console.log('[addMilestoneToSavingsGoal class] Offline mode - updating locally');
+        
+        // Create milestone with a local ID
+        const newMilestone: SavingsMilestone = {
+          id: `local_${generateUUID()}`,
+          title: milestone.title,
+          targetAmount: milestone.targetAmount,
+          isCompleted: goal.currentAmount >= milestone.targetAmount,
+          completedDate: goal.currentAmount >= milestone.targetAmount ? new Date().toISOString() : undefined,
+        };
+        
+        // Get all goals to update the specific one
+        const allGoals = await loadSavingsGoalsLocally();
+        const goalIndex = allGoals.findIndex(g => g.id === goalId);
+        
+        if (goalIndex === -1) {
+          throw new Error(`Savings goal with id ${goalId} not found locally`);
+        }
+        
+        // Update the goal with new milestone
+        const updatedGoal = {
+          ...allGoals[goalIndex],
+          milestones: [...(allGoals[goalIndex].milestones || []), newMilestone],
+          updatedAt: new Date().toISOString()
+        };
+        
+        allGoals[goalIndex] = updatedGoal;
+        
+        // Save back to local storage
+        await saveSavingsGoalsLocally(allGoals);
+        
+        // Queue milestone creation for sync when back online
+        await addToSyncQueue({
+          id: `milestone_${generateUUID()}`,
+          type: 'create',
+          entity: 'savings',
+          data: {
+            goalId: goalId,
+            milestone: {
+              title: milestone.title,
+              targetAmount: milestone.targetAmount
+            }
+          },
+          table: 'savings_milestones'
+        });
+        
+        return updatedGoal;
       }
-
-      // Fetch the updated goal with the new milestone
-      const { data: updatedGoal, error: goalError } = await supabase
-        .from(this.tableName)
-        .select(`
-          *,
-          milestones:${this.milestonesTable}(*),
-          contributions:${this.contributionsTable}(*)
-        `)
-        .eq('id', goalId)
-        .single();
-
-      if (goalError) {
-        throw goalError;
-      }
-
-      return this.mapToSavingsGoal(updatedGoal);
     } catch (error) {
-      console.error('Error adding milestone to savings goal:', error);
+      console.error('[addMilestoneToSavingsGoal class] Error:', error);
       throw error;
     }
   }
@@ -459,24 +575,43 @@ class SavingsService {
 
   async getSavingsContributions(goalId: string): Promise<any[]> {
     try {
-      const { data, error } = await supabase
-        .from(this.contributionsTable)
-        .select('*')
-        .eq('goal_id', goalId)
-        .order('created_at', { ascending: true });
+      // Check if we're online
+      const online = await isOnline();
       
-      if (error) throw error;
+      if (online) {
+        try {
+          const { data, error } = await supabase
+            .from(this.contributionsTable)
+            .select('*')
+            .eq('goal_id', goalId)
+            .order('created_at', { ascending: true });
+          
+          if (error) {
+            console.error('Error fetching savings contributions:', error);
+            return [];
+          }
+          
+          return data.map((contribution: any) => ({
+            id: contribution.id,
+            amount: Number(contribution.amount),
+            date: contribution.created_at,
+            source: contribution.source,
+            budgetId: contribution.budget_id,
+            expenseId: contribution.expense_id
+          }));
+        } catch (error) {
+          console.error('Error fetching contributions from Supabase:', error);
+          // Fall back to empty array if Supabase fails
+          return [];
+        }
+      }
       
-      return data.map((contribution: any) => ({
-        id: contribution.id,
-        amount: Number(contribution.amount),
-        date: contribution.created_at,
-        source: contribution.source,
-        budgetId: contribution.budget_id,
-        expenseId: contribution.expense_id
-      }));
+      // If offline, we can only return an empty array since contributions are only stored online
+      // In a real-world solution, we would store contributions locally as well
+      console.log('Offline mode: Cannot load contributions, returning empty array');
+      return [];
     } catch (error) {
-      console.error('Error fetching savings contributions:', error);
+      console.error('Error in getSavingsContributions:', error);
       return [];
     }
   }
@@ -556,8 +691,7 @@ export const createSavingsGoal = async (
       console.log('Offline mode: Creating savings goal locally');
       
       // Get the current user from Supabase auth
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id;
+      const userId = await getUserId();
       
       if (!userId) {
         throw new Error('User not authenticated. Cannot create savings goal.');
@@ -1008,24 +1142,74 @@ export const addMilestoneToSavingsGoal = async (
   goalId: string,
   milestone: Omit<SavingsMilestone, 'id' | 'isCompleted' | 'completedDate'>
 ): Promise<SavingsGoal> => {
-  const goal = await getSavingsGoalById(goalId);
-  
-  if (!goal) {
-    throw new Error(`Savings goal with ID ${goalId} not found`);
+  try {
+    // Check if we're online
+    const online = await isOnline();
+    console.log('[addMilestoneToSavingsGoal] Online status:', online);
+
+    // Get the goal - this works in both online and offline mode
+    const goal = await getSavingsGoalById(goalId);
+    
+    if (!goal) {
+      throw new Error(`Savings goal with ID ${goalId} not found`);
+    }
+    
+    // Create the new milestone with properly generated ID
+    const newMilestone: SavingsMilestone = {
+      id: generateUUID(),
+      isCompleted: goal.currentAmount >= milestone.targetAmount,
+      completedDate: goal.currentAmount >= milestone.targetAmount
+        ? new Date().toISOString()
+        : undefined,
+      ...milestone,
+    };
+    
+    // Add to existing milestones or create a new array if milestones is undefined
+    const milestones = [...(goal.milestones || []), newMilestone];
+    
+    // Update the goal with the new milestones
+    if (online) {
+      console.log('[addMilestoneToSavingsGoal] Online mode - updating in Supabase');
+      return updateSavingsGoal(goalId, { milestones });
+    } else {
+      console.log('[addMilestoneToSavingsGoal] Offline mode - updating locally');
+      
+      // Get all goals to update the specific one
+      const allGoals = await loadSavingsGoalsLocally();
+      const goalIndex = allGoals.findIndex(g => g.id === goalId);
+      
+      if (goalIndex === -1) {
+        throw new Error(`Savings goal with id ${goalId} not found locally`);
+      }
+      
+      // Update the goal with new milestone
+      allGoals[goalIndex] = {
+        ...allGoals[goalIndex],
+        milestones: milestones,
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Save back to local storage
+      await saveSavingsGoalsLocally(allGoals);
+      
+      // Queue milestone creation for sync when back online
+      await addToSyncQueue({
+        id: `milestone_${generateUUID()}`,
+        type: 'create',
+        entity: 'savings',
+        data: {
+          goalId: goalId,
+          milestone: newMilestone
+        },
+        table: 'savings_milestones'
+      });
+      
+      return allGoals[goalIndex];
+    }
+  } catch (error) {
+    console.error('[addMilestoneToSavingsGoal] Error:', error);
+    throw error;
   }
-  
-  const newMilestone: SavingsMilestone = {
-    id: generateUUID(),
-    isCompleted: goal.currentAmount >= milestone.targetAmount,
-    completedDate: goal.currentAmount >= milestone.targetAmount
-      ? new Date().toISOString()
-      : undefined,
-    ...milestone,
-  };
-  
-  const milestones = [...(goal.milestones || []), newMilestone];
-  
-  return updateSavingsGoal(goalId, { milestones });
 };
 
 /**
@@ -1272,19 +1456,64 @@ export const contributeSavingsGoal = async (
   amount: number
 ): Promise<SavingsGoal> => {
   try {
+    // Check if we're online
+    const online = await isOnline();
+
+    // Get the goal regardless of online status
     const goal = await getSavingsGoal(id);
     if (!goal) {
       throw new Error(`Savings goal with id ${id} not found`);
     }
 
+    // Calculate new amount
     const newAmount = (goal.currentAmount || 0) + amount;
     const isCompleted = newAmount >= goal.targetAmount;
     
-    return updateSavingsGoal(id, {
+    // Update goal with new amount
+    const updatedGoal = await updateSavingsGoal(id, {
       currentAmount: newAmount,
       isCompleted,
-      lastContributionDate: new Date().toISOString(),
+      ...(online ? {} : { updatedAt: new Date().toISOString() })
     });
+
+    // If online, try to add the contribution to the server
+    if (online) {
+      try {
+        // Add to contributions table - this is only done when online
+        const userId = await getUserId();
+        const { error } = await supabase
+          .from('savings_contributions')
+          .insert([{
+            goal_id: id,
+            user_id: userId,
+            amount: amount,
+            source: 'manual',
+            created_at: new Date().toISOString()
+          }]);
+        
+        if (error) {
+          console.warn('Failed to save contribution record, but the goal was updated:', error);
+        }
+      } catch (err) {
+        console.warn('Error saving contribution record:', err);
+        // Continue even if the contribution record fails - the goal was still updated
+      }
+    } else {
+      // If offline, add to sync queue
+      await addToSyncQueue({
+        id: `contrib_${generateUUID()}`,
+        type: 'create',
+        entity: 'savings',
+        data: {
+          goalId: id,
+          amount: amount,
+          source: 'manual'
+        },
+        table: 'savings_contributions'
+      });
+    }
+    
+    return updatedGoal;
   } catch (error) {
     console.error('Error contributing to savings goal:', error);
     throw error;

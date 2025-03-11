@@ -11,6 +11,9 @@ import * as expenseApi from '../api/expenseApi';
 import * as savingsApi from '../api/savingsApi';
 import { offlineDataService } from './offlineDataService';
 import { saveBudgets, saveExpenses, saveSavingsGoals } from './offlineStorage';
+import * as budgetService from '../services/budgetService';
+import * as expenseService from '../services/expenseService';
+import * as savingsService from '../services/savingsService';
 
 // Constants
 const BACKGROUND_SYNC_TASK = 'BACKGROUND_SYNC_TASK';
@@ -224,75 +227,42 @@ const processSyncItem = async (item: SyncQueueItem): Promise<boolean> => {
 };
 
 /**
- * Pull the latest data from the backend
+ * Pull latest data from the server
  */
 export const pullLatestData = async (): Promise<void> => {
   try {
-    // Check if online
-    const online = await offlineStorage.isOnline();
-    if (!online) {
-      console.log('Device is offline, skipping pull of latest data');
-      return;
-    }
+    console.log('Pulling latest data from server...');
     
-    // Check if Supabase is reachable
-    const isConnected = await checkSupabaseConnection();
-    if (!isConnected) {
-      console.log('Supabase not reachable, skipping pull of latest data');
-      return;
-    }
-    
-    // Get latest budgets
+    // Pull latest budgets
     try {
-      const { data: budgets, error: budgetsError } = await supabase
-        .from('budgets')
-        .select('*')
-        .order('updated_at', { ascending: false });
-      
-      if (!budgetsError && budgets) {
-        // Save budgets to local storage
-        await saveBudgets(budgets);
-        console.log(`Pulled ${budgets.length} budgets from Supabase`);
-      } else {
-        console.error('Error pulling budgets:', budgetsError);
-      }
+      const budgets = await budgetApi.fetchBudgets();
+      await budgetService.saveBudgetsLocally(budgets);
+      console.log(`Pulled ${budgets.length} budgets from server`);
     } catch (error) {
       console.error('Error pulling budgets:', error);
     }
     
-    // Get latest expenses
+    // Pull latest expenses
     try {
       const expenses = await expenseApi.fetchExpenses();
-      
-      // Save expenses to local storage
-      await saveExpenses(expenses);
-      console.log(`Pulled ${expenses.length} expenses from Supabase`);
+      await expenseService.saveExpensesLocally(expenses);
+      console.log(`Pulled ${expenses.length} expenses from server`);
     } catch (error) {
       console.error('Error pulling expenses:', error);
     }
     
-    // Get latest savings goals
+    // Pull latest savings goals - added for better offline contribution sync
     try {
-      const { data: savingsGoals, error: savingsError } = await supabase
-        .from('savings_goals')
-        .select('*')
-        .order('updated_at', { ascending: false });
-      
-      if (!savingsError && savingsGoals) {
-        // Save savings goals to local storage
-        await saveSavingsGoals(savingsGoals);
-        console.log(`Pulled ${savingsGoals.length} savings goals from Supabase`);
-      } else {
-        console.error('Error pulling savings goals:', savingsError);
-      }
+      const savingsGoals = await savingsApi.fetchSavingsGoals();
+      await savingsService.saveSavingsGoalsLocally(savingsGoals);
+      console.log(`Pulled ${savingsGoals.length} savings goals from server`);
     } catch (error) {
       console.error('Error pulling savings goals:', error);
     }
     
-    // Update last sync timestamp
-    await offlineStorage.updateLastSync();
+    console.log('Pull complete');
   } catch (error) {
-    console.error('Error in pullLatestData:', error);
+    console.error('Error pulling latest data:', error);
   }
 };
 
@@ -306,111 +276,15 @@ export const syncPendingChanges = async (options: {
   const { forceSync = false, maxItems = 50 } = options;
   
   try {
-    // Check if device is online
-    const online = await offlineStorage.isOnline();
-    if (!online && !forceSync) {
-      console.log('Device is offline, skipping sync');
-      return;
-    }
-
-    // Get current sync status
-    let status = await syncQueueService.getSyncStatus() || {
-      lastSyncAttempt: null,
-      lastSuccessfulSync: null,
-      isSyncing: false,
-      pendingCount: 0,
-      failedCount: 0,
-      syncProgress: 0,
-    };
+    // Start with synchronizing budgets (if there are any pending)
+    await syncQueueService.synchronizeBudgets(forceSync);
     
-    // If already syncing, don't start another sync
-    if (status.isSyncing && !forceSync) {
-      console.log('Sync already in progress, skipping');
-      return;
-    }
+    // Also synchronize savings goals (added to fix the issue with offline contributions and milestones)
+    await syncQueueService.synchronizeSavingsGoals(forceSync);
     
-    // Update sync status to indicate sync is starting
-    status = {
-      ...status,
-      isSyncing: true,
-      lastSyncAttempt: Date.now(),
-      syncProgress: 0,
-    };
-    await syncQueueService.updateSyncStatus(status);
-    notifySyncListeners(status);
-
-    // Get prioritized sync queue
-    const queue = await syncQueueService.getPrioritizedSyncQueue();
-    if (queue.length === 0) {
-      console.log('No pending items to sync');
-      
-      // Update sync status to indicate sync is complete
-      status = {
-        ...status,
-        isSyncing: false,
-        lastSuccessfulSync: Date.now(),
-        syncProgress: 100,
-      };
-      await syncQueueService.updateSyncStatus(status);
-      notifySyncListeners(status);
-      
-      return;
-    }
-
-    console.log(`Syncing ${queue.length} pending items`);
-    
-    // Limit the number of items to process in this batch
-    const itemsToProcess = queue.slice(0, maxItems);
-    const totalItems = itemsToProcess.length;
-    
-    // Process each item
-    const successfulIds: string[] = [];
-    let processedCount = 0;
-    
-    for (const item of itemsToProcess) {
-      const success = await processSyncItem(item);
-      
-      if (success) {
-        successfulIds.push(item.id);
-      }
-      
-      // Update progress
-      processedCount++;
-      const progress = Math.round((processedCount / totalItems) * 100);
-      
-      // Update sync status with progress
-      status = {
-        ...status,
-        syncProgress: progress,
-      };
-      await syncQueueService.updateSyncStatus(status);
-      notifySyncListeners(status);
-    }
-
-    // Remove successfully synced items
-    if (successfulIds.length > 0) {
-      await syncQueueService.removeFromSyncQueue(successfulIds);
-      console.log(`Removed ${successfulIds.length} synced items from queue`);
-    }
-
-    // Get updated counts
-    const remainingQueue = await syncQueueService.getSyncQueue();
-    const failedItems = await syncQueueService.getFailedSyncItems();
-    
-    // Update sync status to indicate sync is complete
-    status = {
-      ...status,
-      isSyncing: false,
-      lastSuccessfulSync: Date.now(),
-      pendingCount: remainingQueue.length,
-      failedCount: failedItems.length,
-      syncProgress: 100,
-    };
-    await syncQueueService.updateSyncStatus(status);
-    notifySyncListeners(status);
-    
-    // Update last sync timestamp
-    await offlineStorage.updateLastSync();
+    // Process all other items
+    console.log('Processing all remaining sync items...');
+    await syncQueueService.processAllSyncItems(forceSync);
   } catch (error) {
     console.error('Error in syncPendingChanges:', error);
     

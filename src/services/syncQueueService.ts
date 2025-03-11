@@ -139,8 +139,7 @@ export const addToSyncQueue = async (
       id,
       type: item.type,
       entity: item.entity,
-      data: item.data,
-      timestamp: Date.now(),
+      data: item.data
     });
     
     return id;
@@ -328,7 +327,170 @@ initSyncStatus().catch(error => {
 // Fix the processSyncItem function
 const processSyncItem = async (item: SyncQueueItem): Promise<boolean> => {
   try {
-    console.log(`Processing sync item: ${item.type}`, item.data);
+    console.log(`Processing sync item: ${item.type}`, { id: item.id, type: item.type, entity: item.entity, table: item.table });
+    
+    // Handle specific table-based operations for 'create', 'update', 'delete' types
+    if ((item.type === 'create' || item.type === 'update' || item.type === 'delete') && item.table) {
+      if (item.table === 'savings_contributions') {
+        console.log('Processing savings contribution sync item:', item.data);
+        
+        try {
+          if (item.type === 'create') {
+            // Handle contribution creation
+            const { goalId, amount, source, metadata } = item.data;
+            
+            if (!goalId || amount === undefined) {
+              console.error('Missing required data for contribution creation');
+              return false;
+            }
+            
+            // Get current user ID
+            const { data: { user } } = await supabase.auth.getUser();
+            
+            if (!user) {
+              console.error('User not authenticated for contribution sync');
+              return false;
+            }
+
+            // First get the current savings goal to update its amount
+            let goal;
+            try {
+              const { data, error } = await supabase
+                .from('savings_goals')
+                .select('*')
+                .eq('id', goalId)
+                .single();
+                
+              if (error) {
+                console.error('Error fetching savings goal for contribution sync:', error);
+                return false;
+              }
+              
+              goal = data;
+            } catch (error) {
+              console.error('Error fetching savings goal for contribution sync:', error);
+              return false;
+            }
+            
+            if (!goal) {
+              console.error('Savings goal not found for contribution sync');
+              return false;
+            }
+            
+            // Calculate new amount and completed status
+            const newAmount = Number(goal.current_amount || 0) + Number(amount);
+            const isCompleted = newAmount >= Number(goal.target_amount || 0);
+            
+            // First insert the contribution
+            const { error: contribError } = await supabase
+              .from('savings_contributions')
+              .insert([{
+                goal_id: goalId,
+                user_id: user.id,
+                amount: amount,
+                source: source || 'manual',
+                budget_id: metadata?.budgetId,
+                expense_id: metadata?.expenseId,
+                created_at: new Date().toISOString()
+              }]);
+            
+            if (contribError) {
+              console.error('Error creating savings contribution:', contribError);
+              return false;
+            }
+            
+            // Then update the goal's current amount
+            const { error: updateError } = await supabase
+              .from('savings_goals')
+              .update({
+                current_amount: newAmount,
+                is_completed: isCompleted,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', goalId);
+              
+            if (updateError) {
+              console.error('Error updating savings goal amount after contribution:', updateError);
+              return false;
+            }
+            
+            console.log('Successfully synced savings contribution and updated goal amount');
+            return true;
+          }
+          
+          // Other operations for contributions can be added here
+          
+          return false;
+        } catch (error) {
+          console.error('Error processing savings contribution sync:', error);
+          return false;
+        }
+      } else if (item.table === 'savings_milestones') {
+        console.log('Processing savings milestone sync item:', item.data);
+        
+        try {
+          if (item.type === 'create') {
+            // Handle milestone creation
+            const { goalId, milestone } = item.data;
+            
+            if (!goalId || !milestone) {
+              console.error('Missing required data for milestone creation');
+              return false;
+            }
+            
+            // Get current user ID
+            const { data: { user } } = await supabase.auth.getUser();
+            
+            if (!user) {
+              console.error('User not authenticated for milestone sync');
+              return false;
+            }
+            
+            // Get the current goal to calculate if milestone is already reached
+            let goal;
+            try {
+              goal = await savingsApi.fetchSavingsGoalById(goalId);
+            } catch (error) {
+              console.error('Error fetching savings goal for milestone sync:', error);
+              return false;
+            }
+            
+            if (!goal) {
+              console.error('Savings goal not found for milestone sync');
+              return false;
+            }
+            
+            // Insert milestone directly using Supabase
+            const { error } = await supabase
+              .from('savings_milestones')
+              .insert([{
+                goal_id: goalId,
+                user_id: user.id,
+                title: milestone.title,
+                amount: milestone.targetAmount,
+                is_reached: goal.currentAmount >= milestone.targetAmount,
+                completed_date: goal.currentAmount >= milestone.targetAmount ? new Date().toISOString() : null,
+                created_at: new Date().toISOString()
+              }]);
+            
+            if (error) {
+              console.error('Error creating savings milestone:', error);
+              return false;
+            }
+            
+            console.log('Successfully synced savings milestone creation');
+            return true;
+          }
+          
+          // Other operations for milestones can be added here
+          
+          return false;
+        } catch (error) {
+          console.error('Error processing savings milestone sync:', error);
+          return false;
+        }
+      }
+    }
     
     switch (item.type) {
       // Add your existing cases here if any
@@ -907,6 +1069,94 @@ export const synchronizeBudgets = async (force: boolean = false): Promise<void> 
   }
 };
 
+/**
+ * Synchronize savings goals and related data when the app comes back online
+ */
+export const synchronizeSavingsGoals = async (force: boolean = false): Promise<void> => {
+  try {
+    // Get current sync status
+    const status = await getSyncStatus();
+    
+    // Check if sync is already in progress
+    if (status?.isSyncing && !force) {
+      console.log('Sync already in progress, skipping savings goal synchronization');
+      return;
+    }
+    
+    // Update sync status to indicate we're starting the savings sync
+    await updateSyncStatus({
+      isSyncing: true,
+      lastSyncAttempt: Date.now(),
+      syncProgress: 10,
+      error: undefined,
+    });
+    
+    // Process savings-related sync items
+    const queue = await getSyncQueue();
+    const savingsItems = queue.filter(item => 
+      (item.entity === 'savings') || 
+      (item.table && (item.table === 'savings_goals' || item.table === 'savings_contributions' || item.table === 'savings_milestones'))
+    );
+    
+    if (savingsItems.length === 0) {
+      console.log('No savings items to synchronize');
+      await updateSyncStatus({
+        isSyncing: false,
+        syncProgress: 100,
+      });
+      return;
+    }
+    
+    console.log(`Synchronizing ${savingsItems.length} savings items`, 
+      savingsItems.map(item => ({ id: item.id, type: item.type, table: item.table })));
+    
+    // Process all savings items
+    const totalItems = savingsItems.length;
+    let successCount = 0;
+    const successfulIds: string[] = [];
+    
+    for (let i = 0; i < savingsItems.length; i++) {
+      const item = savingsItems[i];
+      const success = await processSyncItem(item);
+      
+      if (success) {
+        successCount++;
+        successfulIds.push(item.id);
+      }
+      
+      // Update progress
+      const progress = Math.round((i + 1) / totalItems * 100);
+      await updateSyncStatus({
+        syncProgress: progress,
+      });
+    }
+    
+    // Remove successful items from queue
+    if (successfulIds.length > 0) {
+      await removeFromSyncQueue(successfulIds);
+    }
+    
+    // Update sync status to indicate completion
+    await updateSyncStatus({
+      isSyncing: false,
+      lastSuccessfulSync: Date.now(),
+      syncProgress: 100,
+      pendingCount: (await getSyncQueue()).length,
+    });
+    
+    console.log(`Savings synchronization complete. Success: ${successCount}/${totalItems}`);
+  } catch (error) {
+    console.error('Error synchronizing savings goals:', error);
+    
+    // Update sync status to indicate error
+    await updateSyncStatus({
+      isSyncing: false,
+      syncProgress: 0,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
 export default {
   addToSyncQueue,
   getSyncQueue,
@@ -923,4 +1173,5 @@ export default {
   processAllSyncItems,
   synchronizeBudgets,
   resetSyncStatus,
+  synchronizeSavingsGoals,
 }; 
