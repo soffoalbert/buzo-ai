@@ -144,7 +144,7 @@ class ExpenseService {
           if (expense) {
             const storedExpenses = await loadExpensesFromStorage();
             const updatedExpenses = storedExpenses.filter(e => e.id !== id);
-            await saveExpenses([...updatedExpenses, expense]);
+            await saveExpenses(updatedExpenses);
           }
           
           return expense;
@@ -768,4 +768,9 @@ export const getExpenseStatistics = async (startDate: string, endDate: string) =
     console.error('Error in date-based getExpenseStatistics:', error);
     throw error;
   }
+};
+
+// Add saveExpensesLocally for consistent API across services
+export const saveExpensesLocally = async (expenses: Expense[]): Promise<void> => {
+  await saveExpenses(expenses);
 };

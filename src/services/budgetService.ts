@@ -302,14 +302,33 @@ class BudgetService {
           const { data, error } = await supabase
             .from(this.tableName)
             .select('*')
-            .order('createdAt', { ascending: false });
+            .order('created_at', { ascending: false });
 
           if (error) throw error;
           
           // Update local storage with fresh data
           if (data) {
-            await saveBudgets(data);
-            return data;
+            // Transform data from snake_case to camelCase before saving
+            const transformedData = data.map(budget => ({
+              id: budget.id,
+              name: budget.name,
+              amount: budget.amount,
+              spent: budget.spent || 0,
+              category: budget.category,
+              color: budget.color,
+              icon: budget.icon,
+              createdAt: budget.created_at,
+              updatedAt: budget.updated_at,
+              user_id: budget.user_id,
+              linkedExpenses: budget.linked_expenses,
+              savingsAllocation: budget.savings_allocation,
+              linkedSavingsGoals: budget.linked_savings_goals,
+              autoSavePercentage: budget.auto_save_percentage,
+              remainingAmount: budget.remaining_amount
+            }));
+            
+            await saveBudgets(transformedData);
+            return transformedData;
           }
         } catch (error) {
           console.error('Error fetching budgets from Supabase:', error);

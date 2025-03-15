@@ -39,7 +39,26 @@ export const fetchBudgets = async (): Promise<Budget[]> => {
       throw error;
     }
 
-    return budgets || [];
+    // Transform the data to match the Budget model
+    const transformedBudgets = (budgets || []).map(budget => ({
+      id: budget.id,
+      name: budget.name,
+      amount: budget.amount,
+      spent: budget.spent || 0,
+      category: budget.category,
+      color: budget.color,
+      icon: budget.icon,
+      createdAt: budget.created_at,
+      updatedAt: budget.updated_at,
+      user_id: budget.user_id,
+      linkedExpenses: budget.linked_expenses,
+      savingsAllocation: budget.savings_allocation,
+      linkedSavingsGoals: budget.linked_savings_goals,
+      autoSavePercentage: budget.auto_save_percentage,
+      remainingAmount: budget.remaining_amount
+    }));
+
+    return transformedBudgets;
   } catch (error) {
     console.error('Error in fetchBudgets:', error);
     throw error;
