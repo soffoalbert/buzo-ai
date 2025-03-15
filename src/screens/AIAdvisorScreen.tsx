@@ -194,7 +194,15 @@ const AIAdvisorScreen: React.FC = () => {
           const budgets = await loadBudgets();
           const savingsGoals = await loadSavingsGoals();
           const userProfile = await loadUserProfile();
-          const locationData = await getUserLocationData();
+          
+          // Safely get location data (though it will always return null now)
+          let locationData = null;
+          try {
+            locationData = await getUserLocationData();
+          } catch (locationError) {
+            console.log('Location services unavailable, continuing without location data');
+            // Continuing without location data
+          }
           
           // Analyze spending patterns
           const spendingPatterns = analyzeSpendingPatterns(

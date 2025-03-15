@@ -9,7 +9,8 @@ import { getGlobalApiKey } from './devApiKeyManager';
 // Import user service to get user preferences and profile
 import { getUserPreferences, loadUserProfile } from './userService';
 // Import for location data - using require to avoid TypeScript errors
-import * as Location from 'expo-location';
+// Location services have been disabled, import commented out
+// import * as Location from 'expo-location';
 // Import economic data service
 import { getEconomicContext, getEconomicTips, getProvincialEconomicData } from './economicDataService';
 
@@ -250,6 +251,8 @@ export const getFinancialAdvice = async (request: AdviceRequest): Promise<string
     
     // Get economic context based on user's location
     let economicContext = '';
+    // Note: Location services are now disabled for privacy reasons
+    // The following fallback is used to provide general economic context
     if (request.financialData.locationData?.province) {
       economicContext = getEconomicContext(request.financialData.locationData.province);
     } else {
@@ -659,42 +662,9 @@ const createGeneralPrompt = (financialData: FinancialData, question?: string): s
  * @returns Promise resolving to location data or null if not available
  */
 export const getUserLocationData = async (): Promise<FinancialData['locationData'] | null> => {
-  try {
-    // Request permission to access location
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    
-    if (status !== 'granted') {
-      console.log('Location permission denied');
-      return null;
-    }
-    
-    // Get current location
-    const location = await Location.getCurrentPositionAsync({});
-    const { latitude, longitude } = location.coords;
-    
-    // Reverse geocode to get address details
-    const [addressInfo] = await Location.reverseGeocodeAsync({ latitude, longitude });
-    
-    if (!addressInfo) {
-      return {
-        coordinates: { latitude, longitude }
-      };
-    }
-    
-    // Get provincial economic data if available
-    const province = addressInfo.region || undefined;
-    const provincialData = province ? getProvincialEconomicData(province) : undefined;
-    
-    return {
-      city: addressInfo.city || addressInfo.subregion || undefined,
-      province: addressInfo.region || undefined,
-      country: addressInfo.country || undefined,
-      coordinates: { latitude, longitude }
-    };
-  } catch (error) {
-    console.error('Error getting location data:', error);
-    return null;
-  }
+  // Location services are completely disabled for the AI Advisor flow
+  // This function now always returns null and never attempts to use location services
+  return null;
 };
 
 /**

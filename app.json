@@ -19,7 +19,9 @@
       "bundleIdentifier": "com.buzoai.app",
       "buildNumber": "7",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "Location access has been disabled in this version of the app.",
+        "NSLocationAlwaysUsageDescription": "Location access has been disabled in this version of the app."
       }
     },
     "android": {
